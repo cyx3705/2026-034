@@ -1,0 +1,65 @@
+{
+  "schemaVersion": 1,
+  "template": {
+    "isTemplate": false,
+    "source": "0000-001-AIReady",
+    "strictValidationArgument": "-Instantiation"
+  },
+  "project": {
+    "id": "0000-001",
+    "name": "AIReady",
+    "title": "OneHistory AI-Ready \u9879\u76EE\u6A21\u677F",
+    "kind": [
+      "template",
+      "multidisciplinary"
+    ],
+    "status": "template"
+  },
+  "paths": {
+    "activeRoots": [
+      "b-Office/current",
+      "b-Office/package",
+      "b-Code"
+    ],
+    "sourceRoots": [
+      "b-Code"
+    ],
+    "generatedRoots": [],
+    "archiveRoots": [
+      "b-Office/history"
+    ],
+    "allowedRootDirectoryPrefixes": [
+      "a-",
+      "b-",
+      "z-"
+    ]
+  },
+  "documents": {
+    "center": "b-Office/\u6587\u6863\u4E2D\u5FC3.md",
+    "package": "b-Office/package/\u590D\u7528\u8BF4\u660E.md",
+    "structure": "b-Office/\u6587\u6863\u4E2D\u5FC3.md",
+    "overview": "b-Office/current/\u9879\u76EE\u6982\u89C8.md",
+    "technicalContract": "b-Office/current/\u6280\u672F\u5408\u540C.md",
+    "decisions": "b-Office/current/\u6709\u6548\u51B3\u7B56.md",
+    "verification": "b-Office/current/\u9A8C\u8BC1\u5408\u540C.md",
+    "historyBoundary": "b-Office/history/\u5386\u53F2\u8D44\u6599\u8BF4\u660E.md"
+  },
+  "commands": {
+    "setup": null,
+    "build": null,
+    "test": null,
+    "verify": "powershell -NoProfile -ExecutionPolicy Bypass -File .\\b-Code\\Test-ProjectContract.ps1",
+    "run": null,
+    "package": null
+  },
+  "externalDependencies": [],
+  "contextExclusions": [
+    "b-Office/history/**",
+    "b-Publish/**",
+    "**/bin/**",
+    "**/obj/**",
+    "**/node_modules/**",
+    "**/.vs/**",
+    "artifacts/**"
+  ]
+}

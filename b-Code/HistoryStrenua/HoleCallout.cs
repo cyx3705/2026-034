@@ -21,6 +21,12 @@ internal static class HoleCallout
     // swSelectType_e
     private const int SelectEdge = 1;
 
+    /// <summary>首次落位时文字中心放在折点左边多远（图纸上 20 mm），只是让文字先落在左边。</summary>
+    private const double InitialTextOffset = 0.02;
+
+    /// <summary>对准折点最多挪几次：挪动后 SolidWorks 可能换引线接的那一侧，要回读再挪。</summary>
+    private const int AlignPasses = 3;
+
     private static QuickOutcome Run(QuickCommandContext context)
     {
         var api = context.Api;
@@ -44,12 +50,19 @@ internal static class HoleCallout
             {
                 context.Cancellation.ThrowIfCancellationRequested();
                 api.Call(document, "IModelDoc2", "ClearSelection2", true);
-                var created = api.CallBool(view, "IView", "SelectEntity", scan.Edges[target.EdgeIndex], false)
-                    && api.Call(document, "IDrawingDoc", "AddHoleCallout2", target.Placement.X, target.Placement.Y, 0.0) is not null;
-                if (created)
-                    added++;
-                else
+                // 先按「文字中心在折点左边一段」落下，再按实际下划线把折点对准——文字多宽要生成后才知道。
+                var callout = api.CallBool(view, "IView", "SelectEntity", scan.Edges[target.EdgeIndex], false)
+                    ? api.Call(document, "IDrawingDoc", "AddHoleCallout2", target.Placement.X - InitialTextOffset, target.Placement.Y, 0.0)
+                    : null;
+                if (callout is null)
+                {
                     failed++;
+                    continue;
+                }
+
+                added++;
+                if (api.Call(callout, "IDisplayDimension", "GetAnnotation") is { } annotation)
+                    AlignShoulder(api, annotation, target.Placement);
             }
         }
         finally
@@ -63,6 +76,45 @@ internal static class HoleCallout
             + (failed > 0 ? $"，{failed} 个 SolidWorks 没有接受" : string.Empty)
             + "。";
         return added == 0 ? QuickOutcome.Fail(message) : QuickOutcome.Ok(message);
+    }
+
+    /// <summary>
+    /// 平移整个孔标注，让文字下划线的右端（引线折点）落在 <paramref name="target"/>。
+    /// 读不到下划线就保持原位——标注已经加上，只是位置不理想。
+    /// </summary>
+    private static void AlignShoulder(SolidWorksApi api, object annotation, SheetPoint target)
+    {
+        for (var pass = 0; pass < AlignPasses; pass++)
+        {
+            if (Shoulder(api, annotation) is not { } shoulder)
+                return;
+            var dx = target.X - shoulder.X;
+            var dy = target.Y - shoulder.Y;
+            if (Math.Abs(dx) < HoleCalloutPlanner.AlignTolerance && Math.Abs(dy) < HoleCalloutPlanner.AlignTolerance)
+                return;
+            var position = api.CallDoubles(annotation, "IAnnotation", "GetPosition");
+            if (position.Length < 3
+                || !api.CallBool(annotation, "IAnnotation", "SetPosition2", position[0] + dx, position[1] + dy, position[2]))
+                return;
+        }
+    }
+
+    /// <summary>从显示数据里读出孔标注的下划线右端。</summary>
+    private static SheetPoint? Shoulder(SolidWorksApi api, object annotation)
+    {
+        if (api.Call(annotation, "IAnnotation", "GetDisplayData") is not { } data)
+            return null;
+        var count = api.CallInt(data, "IDisplayData", "GetLineCount");
+        var lines = new List<SheetSegment>(count);
+        for (var i = 0; i < count; i++)
+        {
+            // [颜色, 线型, 线样式, 线宽, 起点 xyz, 终点 xyz]
+            var line = api.CallDoubles(data, "IDisplayData", "GetLineAtIndex3", i);
+            if (line.Length >= 10)
+                lines.Add(new SheetSegment(line[4], line[5], line[7], line[8]));
+        }
+
+        return HoleCalloutPlanner.ShoulderEnd(lines);
     }
 
     /// <summary>视图里已有孔标注各自指着的孔心。</summary>

@@ -122,6 +122,21 @@
             自己会写上「N×」，每个都标就是同一行字重复 N 遍。某种孔里已经有一个带标注，整种跳过，连点两次不会出双份。
             </remarks>
         </member>
+        <member name="F:HistoryStrenua.HoleCallout.InitialTextOffset">
+            <summary>首次落位时文字中心放在折点左边多远（图纸上 20 mm），只是让文字先落在左边。</summary>
+        </member>
+        <member name="F:HistoryStrenua.HoleCallout.AlignPasses">
+            <summary>对准折点最多挪几次：挪动后 SolidWorks 可能换引线接的那一侧，要回读再挪。</summary>
+        </member>
+        <member name="M:HistoryStrenua.HoleCallout.AlignShoulder(HistoryStrenua.SolidWorks.SolidWorksApi,System.Object,HistoryStrenua.SheetPoint)">
+            <summary>
+            平移整个孔标注，让文字下划线的右端（引线折点）落在 <paramref name="target"/>。
+            读不到下划线就保持原位——标注已经加上，只是位置不理想。
+            </summary>
+        </member>
+        <member name="M:HistoryStrenua.HoleCallout.Shoulder(HistoryStrenua.SolidWorks.SolidWorksApi,System.Object)">
+            <summary>从显示数据里读出孔标注的下划线右端。</summary>
+        </member>
         <member name="M:HistoryStrenua.HoleCallout.ExistingCalloutCenters(HistoryStrenua.SolidWorks.SolidWorksApi,HistoryStrenua.HoleScan.ViewGeometry,System.Object)">
             <summary>视图里已有孔标注各自指着的孔心。</summary>
         </member>
@@ -175,10 +190,16 @@
             <summary>图纸上的一个点（米）。</summary>
         </member>
         <member name="T:HistoryStrenua.CalloutTarget">
-            <summary>要加的一个孔标注：用哪条边、标注文字放在哪。</summary>
+            <summary>要加的一个孔标注：用哪条边、引线折点（文字下划线的右端）落在哪。</summary>
         </member>
         <member name="M:HistoryStrenua.CalloutTarget.#ctor(System.Int32,HistoryStrenua.SheetPoint,HistoryStrenua.SheetPoint)">
-            <summary>要加的一个孔标注：用哪条边、标注文字放在哪。</summary>
+            <summary>要加的一个孔标注：用哪条边、引线折点（文字下划线的右端）落在哪。</summary>
+        </member>
+        <member name="T:HistoryStrenua.SheetSegment">
+            <summary>图纸上的一条线段（米）。</summary>
+        </member>
+        <member name="M:HistoryStrenua.SheetSegment.#ctor(System.Double,System.Double,System.Double,System.Double)">
+            <summary>图纸上的一条线段（米）。</summary>
         </member>
         <member name="T:HistoryStrenua.HoleCalloutPlan">
             <summary>规划结果。</summary>
@@ -218,8 +239,11 @@
             同一个孔在视图里常有好几条同心圆边：通孔的上下两个口、沉头孔的沉头与底孔、倒角的内外沿。
             </summary>
         </member>
-        <member name="F:HistoryStrenua.HoleCalloutPlanner.PlacementGap">
-            <summary>标注文字离孔边的距离（图纸上 5 mm）。</summary>
+        <member name="F:HistoryStrenua.HoleCalloutPlanner.LeaderReach">
+            <summary>引线折点离孔心的距离比孔半径多出的部分（图纸上 12 mm）。</summary>
+        </member>
+        <member name="F:HistoryStrenua.HoleCalloutPlanner.AlignTolerance">
+            <summary>引线折点对准时允许的偏差（图纸上 0.1 mm）。</summary>
         </member>
         <member name="F:HistoryStrenua.HoleCalloutPlanner.FacingCosine">
             <summary>
@@ -286,7 +310,15 @@
             <summary>两个图纸点是否算同一个孔心（<see cref="F:HistoryStrenua.HoleCalloutPlanner.CenterTolerance"/>）。</summary>
         </member>
         <member name="M:HistoryStrenua.HoleCalloutPlanner.Placement(HistoryStrenua.HoleEdge)">
-            <summary>标注放在孔的右上方 45°，离孔边 <see cref="F:HistoryStrenua.HoleCalloutPlanner.PlacementGap"/>。</summary>
+            <summary>
+            引线折点——文字下划线的右端——放在孔的左上方 45°，离孔心「半径 + <see cref="F:HistoryStrenua.HoleCalloutPlanner.LeaderReach"/>」。
+            文字从折点往左排，引线从折点斜向右下指到孔：用户在移动底板上手工摆出来的样子（1.1.0 起）。
+            </summary>
+        </member>
+        <member name="M:HistoryStrenua.HoleCalloutPlanner.ShoulderEnd(System.Collections.Generic.IEnumerable{HistoryStrenua.SheetSegment})">
+            <summary>
+            孔标注的引线折点：显示数据里最长的那条水平线（文字下划线）的右端。没有水平线返回 null。
+            </summary>
         </member>
         <member name="T:HistoryStrenua.ScannedView">
             <summary>一次识别的结果：用户点的那个视图，以及视图里的候选孔边。</summary>

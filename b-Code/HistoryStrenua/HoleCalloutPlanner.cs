@@ -14,8 +14,11 @@ internal readonly record struct HoleEdge(int Index, double X, double Y, double R
 /// <summary>图纸上的一个点（米）。</summary>
 internal readonly record struct SheetPoint(double X, double Y);
 
-/// <summary>要加的一个孔标注：用哪条边、标注文字放在哪。</summary>
+/// <summary>要加的一个孔标注：用哪条边、引线折点（文字下划线的右端）落在哪。</summary>
 internal readonly record struct CalloutTarget(int EdgeIndex, SheetPoint Center, SheetPoint Placement);
+
+/// <summary>图纸上的一条线段（米）。</summary>
+internal readonly record struct SheetSegment(double X1, double Y1, double X2, double Y2);
 
 /// <summary>规划结果。</summary>
 /// <param name="Targets">要加的标注，每种孔一个，按图纸上从上到下、从左到右排。</param>
@@ -36,8 +39,11 @@ internal static class HoleCalloutPlanner
     /// </summary>
     public const double CenterTolerance = 2e-5;
 
-    /// <summary>标注文字离孔边的距离（图纸上 5 mm）。</summary>
-    public const double PlacementGap = 0.005;
+    /// <summary>引线折点离孔心的距离比孔半径多出的部分（图纸上 12 mm）。</summary>
+    public const double LeaderReach = 0.012;
+
+    /// <summary>引线折点对准时允许的偏差（图纸上 0.1 mm）。</summary>
+    public const double AlignTolerance = 1e-4;
 
     /// <summary>
     /// 孔的轴线在视图空间里与图纸法向的夹角余弦至少这么大，才算「正对着看」。
@@ -174,11 +180,27 @@ internal static class HoleCalloutPlanner
     /// <summary>两个图纸点是否算同一个孔心（<see cref="CenterTolerance"/>）。</summary>
     public static bool SameCenter(SheetPoint a, SheetPoint b) => SameCenter(a.X, a.Y, b.X, b.Y);
 
-    /// <summary>标注放在孔的右上方 45°，离孔边 <see cref="PlacementGap"/>。</summary>
+    /// <summary>
+    /// 引线折点——文字下划线的右端——放在孔的左上方 45°，离孔心「半径 + <see cref="LeaderReach"/>」。
+    /// 文字从折点往左排，引线从折点斜向右下指到孔：用户在移动底板上手工摆出来的样子（1.1.0 起）。
+    /// </summary>
     public static SheetPoint Placement(HoleEdge hole)
     {
-        var offset = (hole.Radius + PlacementGap) * Math.Sqrt(0.5);
-        return new SheetPoint(hole.X + offset, hole.Y + offset);
+        var offset = (hole.Radius + LeaderReach) * Math.Sqrt(0.5);
+        return new SheetPoint(hole.X - offset, hole.Y + offset);
+    }
+
+    /// <summary>
+    /// 孔标注的引线折点：显示数据里最长的那条水平线（文字下划线）的右端。没有水平线返回 null。
+    /// </summary>
+    public static SheetPoint? ShoulderEnd(IEnumerable<SheetSegment> lines)
+    {
+        var shoulder = lines
+            .Where(line => Math.Abs(line.Y1 - line.Y2) < 1e-7 && Math.Abs(line.X1 - line.X2) > 1e-6)
+            .OrderByDescending(line => Math.Abs(line.X1 - line.X2))
+            .Cast<SheetSegment?>()
+            .FirstOrDefault();
+        return shoulder is { } s ? new SheetPoint(Math.Max(s.X1, s.X2), s.Y1) : null;
     }
 
     private static bool SameCenter(double ax, double ay, double bx, double by)

@@ -19,7 +19,8 @@ var tests = new (string Name, Action Run)[]
     ("center marks: only marks on holes are redone", TestCenterMarkObsolete),
     ("distinct holes stay distinct", TestDistinctHoles),
     ("targets read top-down, left-right", TestTargetOrder),
-    ("placement sits outside the hole", TestPlacement),
+    ("placement sits up-left of the hole", TestPlacement),
+    ("shoulder end is the right end of the underline", TestShoulderEnd),
     ("hole faces the viewer", TestFacesViewer),
     ("hole wall is concave and same radius", TestHoleWall),
     ("perpendicular is unit and orthogonal", TestPerpendicular),
@@ -302,8 +303,26 @@ static void TestPlacement()
     var hole = new HoleEdge(0, 0.1, 0.2, 0.004);
     var placement = HoleCalloutPlanner.Placement(hole);
     var distance = Math.Sqrt(Math.Pow(placement.X - hole.X, 2) + Math.Pow(placement.Y - hole.Y, 2));
-    Near(hole.Radius + HoleCalloutPlanner.PlacementGap, distance);
-    True(placement.X > hole.X && placement.Y > hole.Y, "标注放在右上方");
+    Near(hole.Radius + HoleCalloutPlanner.LeaderReach, distance);
+    True(placement.X < hole.X && placement.Y > hole.Y, "引线折点在左上方");
+    Near(placement.Y - hole.Y, hole.X - placement.X);
+}
+
+static void TestShoulderEnd()
+{
+    // 真机移动底板上用户摆好的「6× M6」孔标注的显示数据（米）：箭头、引线、箭头根、下划线。
+    SheetSegment[] lines =
+    [
+        new(0.0916, 0.1988, 0.0933, 0.1958),
+        new(0.0891, 0.2031, 0.0825, 0.2146),
+        new(0.0916, 0.1988, 0.0891, 0.2031),
+        new(0.0825, 0.2146, 0.0483, 0.2146),
+    ];
+    var end = HoleCalloutPlanner.ShoulderEnd(lines);
+    True(end is not null, "应找到下划线");
+    Near(0.0825, end!.Value.X);
+    Near(0.2146, end.Value.Y);
+    True(HoleCalloutPlanner.ShoulderEnd([new(0, 0, 0.01, 0.01)]) is null, "没有水平线时返回 null");
 }
 
 static void TestFacesViewer()

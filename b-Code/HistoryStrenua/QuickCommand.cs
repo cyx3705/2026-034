@@ -73,5 +73,6 @@ internal static class QuickCommands
     [
         HoleCallout.Command,
         CenterMark.Command,
+        HolePosition.Command,
     ];
 }

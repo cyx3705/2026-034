@@ -10,13 +10,17 @@ namespace HistoryStrenua;
 /// <param name="Geometry">把模型边、模型点变到图纸上的工具。</param>
 /// <param name="Edges">候选孔边本身，<see cref="HoleEdge.Index"/> 是这里的下标。</param>
 /// <param name="Candidates">候选孔边在图纸上的样子（同心的尚未合并）。</param>
+/// <param name="LineEdges">视图里的直边本身（只在要求收集直边时有）。</param>
+/// <param name="Lines">直边在图纸上的样子，与 <paramref name="LineEdges"/> 一一对应。</param>
 internal sealed record ScannedView(
     object Document,
     object View,
     string ViewName,
     HoleScan.ViewGeometry Geometry,
     IReadOnlyList<object> Edges,
-    IReadOnlyList<HoleEdge> Candidates);
+    IReadOnlyList<HoleEdge> Candidates,
+    IReadOnlyList<object> LineEdges,
+    IReadOnlyList<SheetSegment> Lines);
 
 /// <summary>
 /// 孔类快捷指令共用的前半段：确认活动文档是工程图、取用户点的视图、认出视图里全部的孔。
@@ -46,7 +50,8 @@ internal static class HoleScan
 
     /// <param name="context">快捷指令上下文。</param>
     /// <param name="title">指令名，写进进度与失败消息，如「孔标注」。</param>
-    public static ScannedView Scan(QuickCommandContext context, string title)
+    /// <param name="withLines">同时收集视图里的直边（孔位尺寸找基准用）。</param>
+    public static ScannedView Scan(QuickCommandContext context, string title, bool withLines = false)
     {
         var api = context.Api;
         var document = context.Session.ActiveDocument()
@@ -64,19 +69,27 @@ internal static class HoleScan
         var geometry = new ViewGeometry(api, context.Session.Application, view);
         var edges = new List<object>();
         var candidates = new List<HoleEdge>();
+        var lineEdges = new List<object>();
+        var lines = new List<SheetSegment>();
         foreach (var component in VisibleComponents(api, view, model))
         {
             foreach (var edge in api.CallArray(view, "IView", "GetVisibleEntities2", component, ViewEntityEdge))
             {
                 context.Cancellation.ThrowIfCancellationRequested();
-                if (geometry.TryReadHole(edge) is not { } hole)
-                    continue;
-                candidates.Add(hole with { Index = edges.Count });
-                edges.Add(edge);
+                if (geometry.TryReadHole(edge) is { } hole)
+                {
+                    candidates.Add(hole with { Index = edges.Count });
+                    edges.Add(edge);
+                }
+                else if (withLines && geometry.TryReadLine(edge) is { } line)
+                {
+                    lines.Add(line);
+                    lineEdges.Add(edge);
+                }
             }
         }
 
-        return new ScannedView(document, view, viewName, geometry, edges, candidates);
+        return new ScannedView(document, view, viewName, geometry, edges, candidates, lineEdges, lines);
     }
 
     /// <summary>
@@ -196,6 +209,29 @@ internal static class HoleScan
             var center = ToSheet(Transforms(edge), "CreatePoint", "IMathPoint", circle[0], circle[1], circle[2]);
             return new SheetPoint(center[0], center[1]);
         }
+
+        /// <summary>直边在图纸上的两个端点；不是直边（或没有端点）返回 null。</summary>
+        public SheetSegment? TryReadLine(object edge)
+        {
+            var curve = api.Call(edge, "IEdge", "GetCurve");
+            if (curve is null || !api.CallBool(curve, "ICurve", "IsLine"))
+                return null;
+            if (api.Call(edge, "IEdge", "GetStartVertex") is not { } start
+                || api.Call(edge, "IEdge", "GetEndVertex") is not { } end)
+                return null;
+            var a = api.CallDoubles(start, "IVertex", "GetPoint");
+            var b = api.CallDoubles(end, "IVertex", "GetPoint");
+            if (a.Length < 3 || b.Length < 3)
+                return null;
+
+            var transforms = Transforms(edge);
+            var p = ToSheet(transforms, "CreatePoint", "IMathPoint", a[0], a[1], a[2]);
+            var q = ToSheet(transforms, "CreatePoint", "IMathPoint", b[0], b[1], b[2]);
+            return new SheetSegment(p[0], p[1], q[0], q[1]);
+        }
+
+        /// <summary>视图比例（图纸长度 / 模型长度）。</summary>
+        public double Scale => api.Call(view, "IView", "get_ScaleDecimal") is { } value ? Convert.ToDouble(value) : 1.0;
 
         /// <summary>视图所引用模型（顶层）坐标系里的一个点，变到图纸上。</summary>
         public SheetPoint ModelPointToSheet(double x, double y, double z)

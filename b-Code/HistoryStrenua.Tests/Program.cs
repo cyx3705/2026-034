@@ -17,6 +17,13 @@ var tests = new (string Name, Action Run)[]
     ("one callout per kind", TestOnePerKind),
     ("center marks: one group per kind", TestCenterMarkGroups),
     ("center marks: only marks on holes are redone", TestCenterMarkObsolete),
+    ("hole position: evenly spaced row uses the pattern form", TestPositionPattern),
+    ("hole position: uneven row falls back to a chain", TestPositionUneven),
+    ("hole position: kinds start from the datum, one tier each", TestPositionKinds),
+    ("hole position: kinds sharing center lines are not repeated", TestPositionSharedCenterLines),
+    ("hole position: datums are the leftmost and topmost straight edges", TestPositionDatums),
+    ("hole position: only linear dimensions on holes are redone", TestPositionObsolete),
+    ("hole position: pattern prefix text", TestPatternPrefix),
     ("distinct holes stay distinct", TestDistinctHoles),
     ("targets read top-down, left-right", TestTargetOrder),
     ("placement sits up-left of the hole", TestPlacement),
@@ -57,6 +64,7 @@ static void TestCommandRegistration()
     [
         "strenua.hole.callout",
         "strenua.hole.centermark",
+        "strenua.hole.position",
         "strenua.quick.list",
         "strenua.quick.cancel",
         "strenua.ui.describe",
@@ -275,6 +283,179 @@ static void TestCenterMarkObsolete()
     ];
     var plan = CenterMarkPlanner.Plan(edges, existing);
     Equal("0,2", string.Join(",", plan.Obsolete));
+}
+
+/// <summary>
+/// 用户样图那根板条：左边为基准 x=0、上边为基准 y=0（模型 mm），11 个 M5 孔在 y=-30、x=10+60i。
+/// 视图比例 1:2，图纸原点在 (0.05, 0.20)。
+/// </summary>
+static (List<HoleEdge> Holes, double Left, double Top, double Scale) Strip(Func<int, double> x)
+{
+    const double scale = 0.5;
+    const double left = 0.05;
+    const double top = 0.20;
+    var holes = Enumerable.Range(0, 11)
+        .Select(i => new HoleEdge(i, left + x(i) / 1000 * scale, top - 30.0 / 1000 * scale, 0.0021 * scale, "/M5"))
+        .ToList();
+    return (holes, left, top, scale);
+}
+
+static void TestPositionPattern()
+{
+    var (holes, left, top, scale) = Strip(i => 10 + 60 * i);
+    var plan = HolePositionPlanner.Plan(holes, left, top, scale);
+    Equal(1, plan.KindCount);
+    Equal(1, plan.PatternCount);
+    // 水平：第一个孔到最后一个孔「10 x 60 =」（里层），基准到第一个孔（外层）；竖直：基准到第一个孔。
+    Equal(3, plan.Dimensions.Count);
+    var pattern = plan.Dimensions[0];
+    Equal(PositionAxis.Horizontal, pattern.Axis);
+    Equal<int?>(0, pattern.FromEdgeIndex);
+    Equal(10, pattern.ToEdgeIndex);
+    Equal("10 x 60 =", pattern.Prefix);
+    Near(top + HolePositionPlanner.FirstTier, pattern.TextAt.Y);
+
+    var fromDatum = plan.Dimensions[1];
+    Equal(PositionAxis.Horizontal, fromDatum.Axis);
+    Equal<int?>(null, fromDatum.FromEdgeIndex);
+    Equal(0, fromDatum.ToEdgeIndex);
+    Equal(string.Empty, fromDatum.Prefix);
+    Near(top + HolePositionPlanner.FirstTier + HolePositionPlanner.TierStep, fromDatum.TextAt.Y);
+
+    var vertical = plan.Dimensions[2];
+    Equal(PositionAxis.Vertical, vertical.Axis);
+    Equal<int?>(null, vertical.FromEdgeIndex);
+    Equal(0, vertical.ToEdgeIndex);
+    Near(left - HolePositionPlanner.FirstTier, vertical.TextAt.X);
+
+    // 正好 4 个等距：不到阵列标法的门槛，逐个接着标。
+    var four = HolePositionPlanner.Plan(holes.Take(4).ToList(), left, top, scale);
+    Equal(0, four.PatternCount);
+    Equal(1 + 3 + 1, four.Dimensions.Count);
+}
+
+static void TestPositionUneven()
+{
+    // 第 6 个孔错开 5 mm：不等距，退回第一个从基准、其余接着前一个。
+    var (holes, left, top, scale) = Strip(i => 10 + 60 * i + (i == 5 ? 5 : 0));
+    var plan = HolePositionPlanner.Plan(holes, left, top, scale);
+    Equal(0, plan.PatternCount);
+    var horizontal = plan.Dimensions.Where(d => d.Axis == PositionAxis.Horizontal).ToList();
+    Equal(11, horizontal.Count);
+    Equal<int?>(null, horizontal[0].FromEdgeIndex);
+    for (var i = 1; i < horizontal.Count; i++)
+    {
+        Equal<int?>(i - 1, horizontal[i].FromEdgeIndex);
+        Equal(i, horizontal[i].ToEdgeIndex);
+    }
+
+    True(horizontal.All(d => Math.Abs(d.TextAt.Y - horizontal[0].TextAt.Y) < 1e-12), "同一种的链式尺寸排在同一层");
+}
+
+static void TestPositionKinds()
+{
+    // 移动底板：M6 (x .10/.13, y .20/.13/.06)、Ø4 (x .10/.13, y .115)、沉头 (x .08/.15, y .18/.115)。
+    var plan = HolePositionPlanner.Plan(MovingPlate(), 0.05, 0.25, 1);
+    Equal(12, plan.HoleCount);
+    var horizontal = plan.Dimensions.Where(d => d.Axis == PositionAxis.Horizontal).ToList();
+    var vertical = plan.Dimensions.Where(d => d.Axis == PositionAxis.Vertical).ToList();
+    // 水平：M6 与 Ø4 在同两条竖直中心线（x=.10/.13）上，「基准→.10」「.10→.13」各只标一次；沉头基准 + 一段。
+    Equal(4, horizontal.Count);
+    Equal(2, horizontal.Count(d => d.FromEdgeIndex is null));
+    // 竖直：Ø4 基准 1 个；沉头基准 + 1；M6 基准 + 2。
+    Equal(6, vertical.Count);
+    Equal(3, vertical.Count(d => d.FromEdgeIndex is null));
+    // 每种一层；一个尺寸都没分到的种不占层。
+    Equal(2, horizontal.Select(d => Math.Round(d.TextAt.Y, 9)).Distinct().Count());
+    Equal(3, vertical.Select(d => Math.Round(d.TextAt.X, 9)).Distinct().Count());
+    // 水平尺寸挑每列最上面的孔（尺寸在上方，界线短）。
+    var hole = MovingPlate();
+    foreach (var d in horizontal)
+        True(!hole.Any(h => Math.Abs(h.X - hole[d.ToEdgeIndex].X) < 1e-9 && h.Y > hole[d.ToEdgeIndex].Y + 1e-9 && h.Kind == hole[d.ToEdgeIndex].Kind),
+            "水平尺寸应连在这一列最上面的孔上");
+}
+
+static void TestPositionSharedCenterLines()
+{
+    // 真机移动底板 View1（图纸 mm）：左基准 x=59.3、上基准 y=251。沉头孔与中间那对 Ø5 在同两条水平中心线
+    // y=176/111 上，首版各标了一遍「65」（用户截图指出重复）。按中心线标后只剩一个。
+    static HoleEdge H(int i, double x, double y, double d, string kind) => new(i, x / 1000, y / 1000, d / 2000, kind);
+    List<HoleEdge> holes =
+    [
+        H(0, 90.3, 201, 5, "/M6"), H(1, 128.3, 201, 5, "/M6"), H(2, 90.3, 126, 5, "/M6"),
+        H(3, 128.3, 126, 5, "/M6"), H(4, 90.3, 51, 5, "/M6"), H(5, 128.3, 51, 5, "/M6"),
+        H(6, 71.8, 176, 6.6, "/CBore"), H(7, 146.8, 176, 6.6, "/CBore"), H(8, 71.8, 111, 6.6, "/CBore"), H(9, 146.8, 111, 6.6, "/CBore"),
+        H(10, 109.3, 176, 5, "/Back5"), H(11, 109.3, 111, 5, "/Back5"),
+        H(12, 90.3, 111, 4, "/Cut4"), H(13, 128.3, 111, 4, "/Cut4"),
+    ];
+    var plan = HolePositionPlanner.Plan(holes, 0.0593, 0.251, 1);
+    Equal(14, plan.HoleCount);
+    Equal(4, plan.KindCount);
+
+    // 竖直：M6 50/75/75，沉头 75/65，Ø4 140；中间那对 Ø5 的 75、65 都已标过。
+    var vertical = plan.Dimensions.Where(d => d.Axis == PositionAxis.Vertical).ToList();
+    Equal(6, vertical.Count);
+    // 水平：沉头 12.5/75，M6 31/38，Ø5 50；Ø4 的 31、38 都已标过。
+    var horizontal = plan.Dimensions.Where(d => d.Axis == PositionAxis.Horizontal).ToList();
+    Equal(5, horizontal.Count);
+
+    // 任何一段「中心线 → 中心线」只出现一次。
+    foreach (var axis in new[] { PositionAxis.Horizontal, PositionAxis.Vertical })
+    {
+        double At(int? index) => index is { } i
+            ? (axis == PositionAxis.Horizontal ? holes[i].X : holes[i].Y)
+            : (axis == PositionAxis.Horizontal ? 0.0593 : 0.251);
+        var spans = plan.Dimensions.Where(d => d.Axis == axis)
+            .Select(d => (Math.Round(At(d.FromEdgeIndex) * 1e5), Math.Round(At(d.ToEdgeIndex) * 1e5)))
+            .ToList();
+        Equal(spans.Count, spans.Distinct().Count());
+    }
+}
+
+static void TestPositionDatums()
+{
+    // 图纸坐标 Y 向上：上外轮廓 Y 最大。
+    SheetSegment[] lines =
+    [
+        new(0.052, 0.110, 0.052, 0.240), // 左外轮廓
+        new(0.058, 0.170, 0.058, 0.240), // 左边往里一点的台阶线
+        new(0.052, 0.240, 0.300, 0.240), // 上外轮廓
+        new(0.052, 0.170, 0.300, 0.170), // 中间一条水平线
+        new(0.052, 0.220, 0.052, 0.240), // 与左外轮廓同一位置的短边：取长的
+        new(0.100, 0.100, 0.120, 0.120), // 斜边不算
+    ];
+    var (left, top) = HolePositionPlanner.Datums(lines);
+    Equal<int?>(0, left);
+    Equal<int?>(2, top);
+    var (none, _) = HolePositionPlanner.Datums([new(0, 0, 0.1, 0)]);
+    Equal<int?>(null, none);
+}
+
+static void TestPositionObsolete()
+{
+    var holes = HoleCalloutPlanner.MergeConcentric(MovingPlate());
+    ExistingDimension[] existing =
+    [
+        new(0, 11, [new SheetPoint(0.10, 0.20)]),  // 水平尺寸，连着 M6：删
+        new(1, 12, [new SheetPoint(0.08, 0.18)]),  // 竖直尺寸，连着沉头孔：删
+        new(2, 6, [new SheetPoint(0.10, 0.20)]),   // 直径尺寸：不动
+        new(3, 11, []),                            // 外形尺寸，两头都是直边：不动
+        new(4, 2, [new SheetPoint(0.40, 0.40)]),   // 连着的圆不是孔：不动
+        new(5, 2, [new SheetPoint(0.13, 0.115)]),  // 斜的线性尺寸，连着 Ø4：删
+        // 按中心线标的：连着穿过 M6 孔心 (0.13,0.06) 的竖直中心符号线（真机导轨立板上用户手工标的就是这种）：删
+        new(6, 2, [], [new SheetSegment(0.13, 0.065, 0.13, 0.055)]),
+        // 连着的中心线不过任何孔心：不动
+        new(7, 2, [], [new SheetSegment(0.30, 0.10, 0.30, 0.20)]),
+    ];
+    Equal("0,1,5,6", string.Join(",", HolePositionPlanner.Obsolete(holes, existing)));
+    True(!HolePositionPlanner.PassesThrough(new SheetSegment(0.13, 0.07, 0.13, 0.08), holes[0]), "线段延长线过孔心不算");
+}
+
+static void TestPatternPrefix()
+{
+    Equal("10 x 60 =", HolePositionPlanner.PatternPrefix(10, 0.06));
+    Equal("4 x 12.5 =", HolePositionPlanner.PatternPrefix(4, 0.0125));
+    Equal("5 x 20 =", HolePositionPlanner.PatternPrefix(5, 0.0200000001));
 }
 
 static void TestDistinctHoles()

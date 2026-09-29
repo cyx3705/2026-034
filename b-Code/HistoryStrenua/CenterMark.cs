@@ -26,7 +26,6 @@ internal static class CenterMark
     private const int StyleSingle = 2;
     private const int StyleLinearGroup = 3;
     private const int LinearConnectLines = 1;
-    private const int DeletePasses = 3;
 
     private static QuickOutcome Run(QuickCommandContext context)
     {
@@ -91,33 +90,15 @@ internal static class CenterMark
         return linear + single == 0 ? QuickOutcome.Fail(message) : QuickOutcome.Ok(message);
     }
 
-    /// <summary>删掉标着孔的旧中心符号线，删完回读，还有就再删，最多 <see cref="DeletePasses"/> 遍。</summary>
-    /// <returns>删掉的个数与最后仍在的个数。个数靠回读数出来：<c>EditDelete</c> 没有返回值。</returns>
+    /// <summary>删掉标着孔的旧中心符号线（<see cref="AnnotationEraser"/>：删完回读，最多三遍）。</summary>
     private static (int Removed, int Leftover) DeleteObsolete(QuickCommandContext context, ScannedView scan, IReadOnlyList<HoleEdge> holes)
-    {
-        var api = context.Api;
-        List<int> Obsolete(List<(object Annotation, ExistingCenterMark Mark)> marks)
-            => CenterMarkPlanner.Obsolete(holes, marks.Select(mark => mark.Mark).ToList());
-
-        var marks = ReadCenterMarks(api, scan.Geometry, scan.View);
-        var obsolete = Obsolete(marks);
-        var initial = obsolete.Count;
-        for (var pass = 0; pass < DeletePasses && obsolete.Count > 0; pass++)
+        => AnnotationEraser.Erase(context, scan.Document, () =>
         {
-            foreach (var index in obsolete)
-            {
-                context.Cancellation.ThrowIfCancellationRequested();
-                api.Call(scan.Document, "IModelDoc2", "ClearSelection2", true);
-                if (api.CallBool(marks[index].Annotation, "IAnnotation", "Select3", false, null))
-                    api.Call(scan.Document, "IModelDoc2", "EditDelete");
-            }
-
-            marks = ReadCenterMarks(api, scan.Geometry, scan.View);
-            obsolete = Obsolete(marks);
-        }
-
-        return (initial - obsolete.Count, obsolete.Count);
-    }
+            var marks = ReadCenterMarks(context.Api, scan.Geometry, scan.View);
+            return CenterMarkPlanner.Obsolete(holes, marks.Select(mark => mark.Mark).ToList())
+                .Select(index => marks[index].Annotation)
+                .ToList();
+        });
 
     /// <summary>一种孔插一组线性中心符号线并打开连接线。SolidWorks 不接受时返回 false，由调用方退回单个。</summary>
     private static bool InsertLinear(SolidWorksApi api, ScannedView scan, CenterMarkGroup group)

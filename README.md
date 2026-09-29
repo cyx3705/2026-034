@@ -26,7 +26,7 @@ HistoryStrenua 是 HistoryVulcan 的 SolidWorks 易用性模块，面向用户�
 
 | 按钮 | 指令 | 用途 |
 | --- | --- | --- |
-| 孔标注 | `strenua.hole.callout` | 点一个工程图视图，把视图里看得见的孔全部加孔标注；已有标注的孔跳过 |
+| 孔标注 | `strenua.hole.callout` | 点一个工程图视图，视图里每种孔标一次（数量由 SW 的「N×」带出）；已标过的种跳过 |
 | 取消 | `strenua.quick.cancel` | 取消正在执行的快捷指令（包括正在等你点视图的那一条） |
 | — | `strenua.quick.list` | 列出全部快捷指令及上次结果（只读） |
 

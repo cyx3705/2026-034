@@ -14,11 +14,13 @@ var tests = new (string Name, Action Run)[]
     ("cancel when idle", TestCancelWhenIdle),
     ("concentric edges are one hole", TestConcentricMerge),
     ("annotated holes are skipped", TestAnnotatedSkipped),
+    ("one callout per kind", TestOnePerKind),
     ("distinct holes stay distinct", TestDistinctHoles),
     ("targets read top-down, left-right", TestTargetOrder),
     ("placement sits outside the hole", TestPlacement),
     ("hole faces the viewer", TestFacesViewer),
     ("hole wall is concave and same radius", TestHoleWall),
+    ("perpendicular is unit and orthogonal", TestPerpendicular),
 };
 
 var failed = 0;
@@ -179,13 +181,47 @@ static void TestConcentricMerge()
 
 static void TestAnnotatedSkipped()
 {
+    // 两种孔，其中一种已有标注：只给另一种加。
     var plan = HoleCalloutPlanner.Plan(
-        [new HoleEdge(0, 0.10, 0.10, 0.003), new HoleEdge(1, 0.15, 0.10, 0.003)],
+        [new HoleEdge(0, 0.10, 0.10, 0.003, "A"), new HoleEdge(1, 0.15, 0.10, 0.003, "B")],
         [new SheetPoint(0.10 + 1e-6, 0.10)]);
     Equal(2, plan.HoleCount);
+    Equal(2, plan.KindCount);
     Equal(1, plan.AlreadyAnnotated);
     Equal(1, plan.Targets.Count);
     Equal(1, plan.Targets[0].EdgeIndex);
+}
+
+static void TestOnePerKind()
+{
+    // 实测那张移动底板：6 个 M6 同一特征、2 个 Ø4 同一特征、4 个沉头孔（沉头 + 底孔同心）同一特征。
+    var edges = new List<HoleEdge>();
+    foreach (var (x, y) in new[] { (0.10, 0.20), (0.13, 0.20), (0.10, 0.13), (0.13, 0.13), (0.10, 0.06), (0.13, 0.06) })
+        edges.Add(new HoleEdge(edges.Count, x, y, 0.0025, "/M6"));
+    foreach (var (x, y) in new[] { (0.10, 0.115), (0.13, 0.115) })
+        edges.Add(new HoleEdge(edges.Count, x, y, 0.002, "/Cut4"));
+    foreach (var (x, y) in new[] { (0.08, 0.18), (0.15, 0.18), (0.08, 0.115), (0.15, 0.115) })
+    {
+        edges.Add(new HoleEdge(edges.Count, x, y, 0.0055, "/CBore"));
+        edges.Add(new HoleEdge(edges.Count, x, y, 0.0033, "/CBore"));
+    }
+
+    var plan = HoleCalloutPlanner.Plan(edges, []);
+    Equal(12, plan.HoleCount);
+    Equal(3, plan.KindCount);
+    Equal(3, plan.Targets.Count);
+    // 每种标在最靠左上的那个孔上：M6 在 (0.10,0.20)，沉头在 (0.08,0.18)（取底孔那条边），Ø4 在 (0.10,0.115)。
+    Equal("0,9,6", string.Join(",", plan.Targets.Select(target => target.EdgeIndex)));
+
+    // 同一特征里不同孔径是两种。
+    var mixed = HoleCalloutPlanner.Plan(
+        [new HoleEdge(0, 0.1, 0.1, 0.002, "/Cut"), new HoleEdge(1, 0.2, 0.1, 0.003, "/Cut")], []);
+    Equal(2, mixed.KindCount);
+
+    // 一种里只要有一个孔已有标注，整种跳过。
+    var skipped = HoleCalloutPlanner.Plan(edges, [new SheetPoint(0.13, 0.06)]);
+    Equal(1, skipped.AlreadyAnnotated);
+    Equal(2, skipped.Targets.Count);
 }
 
 static void TestDistinctHoles()
@@ -201,9 +237,9 @@ static void TestTargetOrder()
 {
     var plan = HoleCalloutPlanner.Plan(
         [
-            new HoleEdge(0, 0.20, 0.05, 0.002),
-            new HoleEdge(1, 0.10, 0.05, 0.002),
-            new HoleEdge(2, 0.30, 0.15, 0.002),
+            new HoleEdge(0, 0.20, 0.05, 0.002, "A"),
+            new HoleEdge(1, 0.10, 0.05, 0.002, "B"),
+            new HoleEdge(2, 0.30, 0.15, 0.002, "C"),
         ],
         []);
     Equal("2,1,0", string.Join(",", plan.Targets.Select(target => target.EdgeIndex)));
@@ -229,9 +265,23 @@ static void TestFacesViewer()
 
 static void TestHoleWall()
 {
-    True(HoleCalloutPlanner.IsHoleWall(0.003, 0.003, faceInSurfaceSense: false), "内凹同径圆柱面是孔壁");
-    True(!HoleCalloutPlanner.IsHoleWall(0.003, 0.003, faceInSurfaceSense: true), "外凸圆柱面（凸台、轴）不是孔");
-    True(!HoleCalloutPlanner.IsHoleWall(0.003, 0.0035, faceInSurfaceSense: false), "半径不同的圆柱面不是这个圆的");
+    // 真机标定（SW 2025 SP5，WTJYQ-03-03 移动底板）：孔壁曲面法向背离轴线（点积 > 0），FaceInSurfaceSense = true。
+    True(HoleCalloutPlanner.IsHoleWall(0.0025, 0.0025, faceInSurfaceSense: true, surfaceNormalDotRadial: 1), "实测的孔壁必须认成孔");
+    True(!HoleCalloutPlanner.IsHoleWall(0.0025, 0.0025, faceInSurfaceSense: false, surfaceNormalDotRadial: 1), "面法向背离轴线的是凸台/轴");
+    // 曲面法向若朝轴线，换算后结论跟着翻，不依赖圆柱曲面法向的朝向约定。
+    True(HoleCalloutPlanner.IsHoleWall(0.0025, 0.0025, faceInSurfaceSense: false, surfaceNormalDotRadial: -1), "曲面法向朝轴线且同向：孔");
+    True(!HoleCalloutPlanner.IsHoleWall(0.0025, 0.0025, faceInSurfaceSense: true, surfaceNormalDotRadial: -1), "曲面法向朝轴线且相反：凸台");
+    True(!HoleCalloutPlanner.IsHoleWall(0.003, 0.0035, faceInSurfaceSense: true, surfaceNormalDotRadial: 1), "半径不同的圆柱面不是这个圆的");
+}
+
+static void TestPerpendicular()
+{
+    foreach (var (x, y, z) in new[] { (0.0, 0.0, -1.0), (1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.6, 0.0, 0.8) })
+    {
+        var (ux, uy, uz) = HoleCalloutPlanner.Perpendicular(x, y, z);
+        Near(0, ux * x + uy * y + uz * z);
+        Near(1, Math.Sqrt(ux * ux + uy * uy + uz * uz));
+    }
 }
 
 /// <summary>全部后代里的对象节点（含自身）。只有对象才有属性可查。</summary>

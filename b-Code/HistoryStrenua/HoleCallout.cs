@@ -4,7 +4,7 @@ using HistoryStrenua.SolidWorks;
 namespace HistoryStrenua;
 
 /// <summary>
-/// 快捷指令「孔标注」：点一个工程图视图，把视图里看得见的孔全部加上孔标注。
+/// 快捷指令「孔标注」：点一个工程图视图，视图里看得见的孔每种加一个孔标注。
 /// </summary>
 /// <remarks>
 /// <para>
@@ -17,7 +17,8 @@ namespace HistoryStrenua;
 /// 所以导入件、镜像件、阵列出来的孔一样认得；槽口两端的半圆不是整圈，不算孔。
 /// </para>
 /// <para>
-/// 已经有孔标注的孔跳过，连点两次不会出双份。
+/// 每种孔（同一特征、同一孔径）只标一个：SolidWorks 的孔标注自己会写上「N×」，每个都标就是同一行字重复 N 遍。
+/// 某种孔里已经有一个带标注，整种跳过，连点两次不会出双份。
 /// </para>
 /// </remarks>
 internal static class HoleCallout
@@ -28,7 +29,7 @@ internal static class HoleCallout
         Key: "hole-callout",
         CommandName: StrenuaIdentity.Domain + ".hole.callout",
         Title: "孔标注",
-        Usage: "在工程图里点一个视图（先点后按、先按后点都行，60 秒内），该视图里看得见的孔全部加孔标注；已有标注的孔跳过。",
+        Usage: "在工程图里点一个视图（先点后按、先按后点都行，60 秒内），该视图里每种孔标一次（数量由 SolidWorks 的 N× 带出）；已有标注的种跳过。",
         Run: Run);
 
     // swDocumentTypes_e / swSelectType_e / swDrawingViewTypes_e / swViewEntityType_e
@@ -74,10 +75,10 @@ internal static class HoleCallout
         if (plan.HoleCount == 0)
             return QuickOutcome.Ok($"视图「{viewName}」里没有正对图纸的孔，没有加标注。");
         if (plan.Targets.Count == 0)
-            return QuickOutcome.Ok($"视图「{viewName}」里 {plan.HoleCount} 个孔都已有孔标注，没有新加。");
+            return QuickOutcome.Ok($"视图「{viewName}」里 {plan.HoleCount} 个孔共 {plan.KindCount} 种，都已有孔标注，没有新加。");
 
         context.SetState("加标注");
-        context.Report($"孔标注：视图「{viewName}」认出 {plan.HoleCount} 个孔，开始为 {plan.Targets.Count} 个加标注。");
+        context.Report($"孔标注：视图「{viewName}」认出 {plan.HoleCount} 个孔共 {plan.KindCount} 种，开始为 {plan.Targets.Count} 种各加一个标注。");
         var added = 0;
         var failed = 0;
         _ = api.Call(document, "IDrawingDoc", "ActivateView", viewName);
@@ -101,8 +102,8 @@ internal static class HoleCallout
             api.Call(document, "IModelDoc2", "GraphicsRedraw2");
         }
 
-        var message = $"视图「{viewName}」：新加 {added} 个孔标注"
-            + (plan.AlreadyAnnotated > 0 ? $"，{plan.AlreadyAnnotated} 个孔已有标注跳过" : string.Empty)
+        var message = $"视图「{viewName}」：{plan.HoleCount} 个孔共 {plan.KindCount} 种，新加 {added} 个孔标注"
+            + (plan.AlreadyAnnotated > 0 ? $"，{plan.AlreadyAnnotated} 种已有标注跳过" : string.Empty)
             + (failed > 0 ? $"，{failed} 个 SolidWorks 没有接受" : string.Empty)
             + "。";
         return added == 0 ? QuickOutcome.Fail(message) : QuickOutcome.Ok(message);
@@ -207,7 +208,7 @@ internal static class HoleCallout
             // 整圈的边没有端点；槽口两端的半圆、被切掉一截的孔口都有。
             if (api.Call(edge, "IEdge", "GetStartVertex") is not null)
                 return null;
-            if (!BesideHoleWall(edge, circle[6]))
+            if (HoleWall(edge, circle) is not { } wall)
                 return null;
 
             var transforms = Transforms(edge);
@@ -217,7 +218,31 @@ internal static class HoleCallout
 
             var center = ToSheet(transforms, "CreatePoint", "IMathPoint", circle[0], circle[1], circle[2]);
             var scale = api.Call(view, "IView", "get_ScaleDecimal") is { } value ? Convert.ToDouble(value) : 1.0;
-            return new HoleEdge(0, center[0], center[1], circle[6] * scale);
+            return new HoleEdge(0, center[0], center[1], circle[6] * scale, Kind(edge, wall));
+        }
+
+        /// <summary>
+        /// 孔的「种」：组件 + 孔壁所属特征。同一个异形孔向导特征、同一次拉伸切除、同一个阵列里的孔是一种，
+        /// SolidWorks 的孔标注会把它们数成「N×」。取不到特征时退回只按组件分（再由孔径细分）。
+        /// </summary>
+        private string Kind(object edge, object wall)
+        {
+            var component = api.Call(edge, "IEntity", "GetComponent") is { } owner
+                ? api.CallString(owner, "IComponent2", "get_Name2")
+                : string.Empty;
+            string feature;
+            try
+            {
+                feature = api.Call(wall, "IFace2", "GetFeature") is { } owning
+                    ? api.CallString(owning, "IFeature", "get_Name")
+                    : string.Empty;
+            }
+            catch (Exception ex) when (ex is System.Runtime.InteropServices.COMException or InvalidCastException)
+            {
+                feature = string.Empty;
+            }
+
+            return component + "/" + feature;
         }
 
         public SheetPoint? TryReadCircleCenter(object edge)
@@ -238,20 +263,34 @@ internal static class HoleCallout
             return circle.Length >= 7 ? circle : null;
         }
 
-        private bool BesideHoleWall(object edge, double radius)
+        /// <summary>
+        /// 圆边旁边的孔壁（<c>IFace2</c>），没有就是 null。在圆上取一点（它也在圆柱面上），求那里的曲面法向，
+        /// 与径向比方向，再按 <c>FaceInSurfaceSense</c> 换算成面法向——判据见
+        /// <see cref="HoleCalloutPlanner.IsHoleWall"/>。
+        /// </summary>
+        private object? HoleWall(object edge, double[] circle)
         {
+            var (ux, uy, uz) = HoleCalloutPlanner.Perpendicular(circle[3], circle[4], circle[5]);
+            var radius = circle[6];
+            var px = circle[0] + radius * ux;
+            var py = circle[1] + radius * uy;
+            var pz = circle[2] + radius * uz;
             foreach (var face in api.CallArray(edge, "IEdge", "GetTwoAdjacentFaces2"))
             {
                 if (api.Call(face, "IFace2", "GetSurface") is not { } surface
                     || !api.CallBool(surface, "ISurface", "IsCylinder"))
                     continue;
                 var cylinder = api.CallDoubles(surface, "ISurface", "get_CylinderParams");
-                if (cylinder.Length >= 7
-                    && HoleCalloutPlanner.IsHoleWall(radius, cylinder[6], api.CallBool(face, "IFace2", "FaceInSurfaceSense")))
-                    return true;
+                var evaluated = api.CallDoubles(surface, "ISurface", "EvaluateAtPoint", px, py, pz);
+                if (cylinder.Length < 7 || evaluated.Length < 3)
+                    continue;
+                // 径向取 radius·u 的方向即可；只看点积正负。
+                var dot = evaluated[0] * ux + evaluated[1] * uy + evaluated[2] * uz;
+                if (HoleCalloutPlanner.IsHoleWall(radius, cylinder[6], api.CallBool(face, "IFace2", "FaceInSurfaceSense"), dot))
+                    return face;
             }
 
-            return false;
+            return null;
         }
 
         private List<object> Transforms(object edge)

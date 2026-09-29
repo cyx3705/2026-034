@@ -72,5 +72,6 @@ internal static class QuickCommands
     public static IReadOnlyList<QuickCommand> All { get; } =
     [
         HoleCallout.Command,
+        CenterMark.Command,
     ];
 }

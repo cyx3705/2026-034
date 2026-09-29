@@ -111,20 +111,8 @@ internal static class HoleCalloutPlanner
         ArgumentNullException.ThrowIfNull(edges);
         ArgumentNullException.ThrowIfNull(annotatedCenters);
 
-        // 同心的归成一个孔，取最小的那条：通孔取孔径本身，沉头/锥孔取底孔。
-        // 异形孔向导的孔标注从哪条边进去都读得到完整规格；手工切出来的孔只有取底孔才标的是孔径。
-        var holes = new List<HoleEdge>();
-        foreach (var edge in edges.OrderBy(edge => edge.Radius))
-        {
-            if (!holes.Any(hole => SameCenter(hole.X, hole.Y, edge.X, edge.Y)))
-                holes.Add(edge);
-        }
-
-        // 一种 = 同一特征、同一孔径。孔径按图纸上 0.001 mm 取整，免得浮点尾数把一种拆成几种。
-        var kinds = holes
-            .GroupBy(hole => (hole.Kind, Math.Round(hole.Radius / 1e-6)))
-            .Select(kind => kind.OrderByDescending(hole => Math.Round(hole.Y / CenterTolerance)).ThenBy(hole => hole.X).ToList())
-            .ToList();
+        var holes = MergeConcentric(edges);
+        var kinds = GroupKinds(holes);
 
         var targets = new List<(HoleEdge Hole, CalloutTarget Target)>();
         var annotated = 0;
@@ -152,6 +140,39 @@ internal static class HoleCalloutPlanner
             kinds.Count,
             annotated);
     }
+
+    /// <summary>
+    /// 同心的归成一个孔，取最小的那条：通孔取孔径本身，沉头/锥孔取底孔。
+    /// 异形孔向导的孔标注从哪条边进去都读得到完整规格；手工切出来的孔只有取底孔才标的是孔径。
+    /// </summary>
+    public static List<HoleEdge> MergeConcentric(IReadOnlyList<HoleEdge> edges)
+    {
+        var holes = new List<HoleEdge>();
+        foreach (var edge in edges.OrderBy(edge => edge.Radius))
+        {
+            if (!holes.Any(hole => SameCenter(hole.X, hole.Y, edge.X, edge.Y)))
+                holes.Add(edge);
+        }
+
+        return holes;
+    }
+
+    /// <summary>
+    /// 一种 = 同一特征、同一孔径。孔径按图纸上 0.001 mm 取整，免得浮点尾数把一种拆成几种。
+    /// 每种里的孔按图纸上从上到下、从左到右排。
+    /// </summary>
+    public static List<List<HoleEdge>> GroupKinds(IEnumerable<HoleEdge> holes)
+        => holes
+            .GroupBy(hole => (hole.Kind, Math.Round(hole.Radius / 1e-6)))
+            .Select(kind => ReadingOrder(kind).ToList())
+            .ToList();
+
+    /// <summary>图纸上从上到下、从左到右。同一行（Y 差在容差内）按 X 排。</summary>
+    public static IEnumerable<HoleEdge> ReadingOrder(IEnumerable<HoleEdge> holes)
+        => holes.OrderByDescending(hole => Math.Round(hole.Y / CenterTolerance)).ThenBy(hole => hole.X);
+
+    /// <summary>两个图纸点是否算同一个孔心（<see cref="CenterTolerance"/>）。</summary>
+    public static bool SameCenter(SheetPoint a, SheetPoint b) => SameCenter(a.X, a.Y, b.X, b.Y);
 
     /// <summary>标注放在孔的右上方 45°，离孔边 <see cref="PlacementGap"/>。</summary>
     public static SheetPoint Placement(HoleEdge hole)

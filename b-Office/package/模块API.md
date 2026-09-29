@@ -1,6 +1,6 @@
 # HistoryStrenua 模块 API
 
-模块版本：**1.0.0**；宿主基线：**HistoryVulcan 5.1.2**。
+模块版本：**1.1.0**；宿主基线：**HistoryVulcan 5.1.2**。
 
 本文件是**总线面**合同：模块消费方的权威合同，随发布候选进包（`docs/模块API.md`）。
 模块内部类型见 `b-Office/current/技术合同.md`；AI 面（MCP 工具）由 MCP 服务封装，本文件不重复。
@@ -33,6 +33,18 @@ PowerSW：作用于用户**正在用**的 SolidWorks 的快捷指令。每条快
 
 执行中会经 `CommandContext.Progress` 逐步报告（等待点选、识别孔、加标注），消费方不必从结论里复述过程。
 
+### strenua.hole.centermark（1.1.0）
+
+| 格 | 内容 |
+| --- | --- |
+| 能做什么 | 在当前工程图里取一个视图，视图里看得见、正对图纸的孔**全部重标中心符号线**：先删标着这些孔的旧中心符号线，再每种孔一组「线性中心符号线 + 连接线」，只有一个孔的种用单个 |
+| 谁会用 | PowerSW 页面「中心符号线」按钮；控制台直接敲 |
+| 怎么调 | `strenua.hole.centermark`（无参数）。取视图方式与 `strenua.hole.callout` 相同 |
+| `Data` 的确切类型 | 无（`null`）。结论只在 `Message`：`视图「X」：H 个孔共 T 种，删掉旧中心符号线 D 个，新加线性带连接线 L 组、单个 S 个，K 个孔 SolidWorks 没有接受。` |
+| 失败与边界 | 失败：与孔标注相同的前置条件；旧中心符号线删三遍仍删不掉（此时不重标）；一个都没加上。成功但无改动：视图里没有正对图纸的孔 |
+
+认孔、分种规则与孔标注相同。不在孔上的中心符号线（圆角、槽口）不动。
+
 ### strenua.quick.cancel
 
 | 格 | 内容 |
@@ -55,7 +67,7 @@ PowerSW：作用于用户**正在用**的 SolidWorks 的快捷指令。每条快
 | `Data` 的确切类型 | `IReadOnlyList<IReadOnlyDictionary<string,string>>`，每行键：`id`、`title`、`usage`、`state`、`result`、`time`（`HH:mm:ss`，未执行过为空） |
 | 失败与边界 | 不失败 |
 
-`state` 取值：`就绪`、`附着 SolidWorks`、`等待点选视图`、`识别孔`、`加标注`、`完成`、`失败`、`已取消`。
+`state` 取值：`就绪`、`附着 SolidWorks`、`等待点选视图`、`识别孔`、`加标注`、`删旧符号线`、`加中心符号线`、`完成`、`失败`、`已取消`。
 
 ## 界面内部协议（不要跨模块调）
 

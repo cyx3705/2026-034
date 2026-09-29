@@ -15,6 +15,8 @@ var tests = new (string Name, Action Run)[]
     ("concentric edges are one hole", TestConcentricMerge),
     ("annotated holes are skipped", TestAnnotatedSkipped),
     ("one callout per kind", TestOnePerKind),
+    ("center marks: one group per kind", TestCenterMarkGroups),
+    ("center marks: only marks on holes are redone", TestCenterMarkObsolete),
     ("distinct holes stay distinct", TestDistinctHoles),
     ("targets read top-down, left-right", TestTargetOrder),
     ("placement sits outside the hole", TestPlacement),
@@ -53,6 +55,7 @@ static void TestCommandRegistration()
     string[] expected =
     [
         "strenua.hole.callout",
+        "strenua.hole.centermark",
         "strenua.quick.list",
         "strenua.quick.cancel",
         "strenua.ui.describe",
@@ -71,6 +74,7 @@ static void TestCommandRegistration()
     True(registry.TryGet("strenua.hole.callout", out var hole), "缺少孔标注");
     True(!hole!.Readonly, "孔标注会改工程图，不是只读");
     True(hole.HiddenReason is null, "快捷指令要能在控制台直接敲");
+    True(registry.TryGet("strenua.hole.centermark", out var centerMark) && !centerMark!.Readonly, "中心符号线会改工程图，不是只读");
     True(registry.TryGet("strenua.quick.list", out var list) && list!.Readonly, "列表是只读的");
     foreach (var method in new[] { "describe", "actions", "data" })
     {
@@ -222,6 +226,54 @@ static void TestOnePerKind()
     var skipped = HoleCalloutPlanner.Plan(edges, [new SheetPoint(0.13, 0.06)]);
     Equal(1, skipped.AlreadyAnnotated);
     Equal(2, skipped.Targets.Count);
+}
+
+static List<HoleEdge> MovingPlate()
+{
+    // 实测那张移动底板：6 个 M6 同一特征、2 个 Ø4 同一特征、4 个沉头孔（沉头 + 底孔同心）同一特征。
+    var edges = new List<HoleEdge>();
+    foreach (var (x, y) in new[] { (0.10, 0.20), (0.13, 0.20), (0.10, 0.13), (0.13, 0.13), (0.10, 0.06), (0.13, 0.06) })
+        edges.Add(new HoleEdge(edges.Count, x, y, 0.0025, "/M6"));
+    foreach (var (x, y) in new[] { (0.10, 0.115), (0.13, 0.115) })
+        edges.Add(new HoleEdge(edges.Count, x, y, 0.002, "/Cut4"));
+    foreach (var (x, y) in new[] { (0.08, 0.18), (0.15, 0.18), (0.08, 0.115), (0.15, 0.115) })
+    {
+        edges.Add(new HoleEdge(edges.Count, x, y, 0.0055, "/CBore"));
+        edges.Add(new HoleEdge(edges.Count, x, y, 0.0033, "/CBore"));
+    }
+
+    return edges;
+}
+
+static void TestCenterMarkGroups()
+{
+    var plan = CenterMarkPlanner.Plan(MovingPlate(), []);
+    Equal(12, plan.HoleCount);
+    Equal(3, plan.KindCount);
+    Equal(3, plan.Groups.Count);
+    True(plan.Groups.All(group => group.Linear), "三种孔都不止一个，都该是线性组");
+    // 组按第一个孔的阅读顺序：M6 (0.10,0.20) → 沉头 (0.08,0.18) → Ø4 (0.10,0.115)；
+    // 组内从上到下、从左到右，沉头孔取底孔那条边（奇数下标）。
+    Equal("0,1,2,3,4,5", string.Join(",", plan.Groups[0].EdgeIndices));
+    Equal("9,11,13,15", string.Join(",", plan.Groups[1].EdgeIndices));
+    Equal("6,7", string.Join(",", plan.Groups[2].EdgeIndices));
+
+    var lone = CenterMarkPlanner.Plan([new HoleEdge(0, 0.1, 0.1, 0.002, "/Cut")], []);
+    True(!lone.Groups.Single().Linear, "只有一个孔的种用单个中心符号线");
+}
+
+static void TestCenterMarkObsolete()
+{
+    var edges = MovingPlate();
+    ExistingCenterMark[] existing =
+    [
+        new(0, [new SheetPoint(0.10, 0.20)]),                                 // 单个，标在 M6 上
+        new(1, [new SheetPoint(0.30, 0.30)]),                                 // 圆角之类，不在孔上
+        new(2, [new SheetPoint(0.31, 0.30), new SheetPoint(0.15, 0.1150001)]), // 一组，其中一个在沉头孔上
+        new(3, []),                                                           // 读不出位置
+    ];
+    var plan = CenterMarkPlanner.Plan(edges, existing);
+    Equal("0,2", string.Join(",", plan.Obsolete));
 }
 
 static void TestDistinctHoles()

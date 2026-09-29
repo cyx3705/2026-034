@@ -1,0 +1,440 @@
+<?xml version="1.0"?>
+<doc>
+    <assembly>
+        <name>HistoryStrenua</name>
+    </assembly>
+    <members>
+        <member name="T:HistoryStrenua.HistoryStrenuaModule">
+            <summary>
+            模块装配入口：登记页面协议三条指令、每条快捷指令一条总线指令，外加列表与取消。
+            </summary>
+            <remarks>
+            判断一段代码该不该进这个仓，用这条：它是否作用于用户**正在用**的 SolidWorks、
+            让一次手工操作变成一下点击。批量转换、离线处理文件属于 HistoryMinerva。
+            </remarks>
+        </member>
+        <member name="M:HistoryStrenua.HistoryStrenuaModule.Attach(HistoryVulcan.Core.Modules.IModuleContext)">
+            <summary>宿主在装载时注入权威指令总线与命令注册器。</summary>
+        </member>
+        <member name="T:HistoryStrenua.HoleCallout">
+            <summary>
+            快捷指令「孔标注」：点一个工程图视图，把视图里看得见的孔全部加上孔标注。
+            </summary>
+            <remarks>
+            <para>
+            选视图两种顺序都行：按按钮前已经在 SolidWorks 里选中了视图（或视图里的任何东西），直接用它；
+            没选就等用户去点，最多 <see cref="F:HistoryStrenua.HoleCallout.SelectionTimeout"/>。
+            </para>
+            <para>
+            「全部类型的孔」指：异形孔向导的各种孔（柱形沉头、锥形沉头、螺纹孔、直孔……）和手工切出来的圆孔。
+            判据是几何而不是特征——完整一圈的圆边、旁边贴着一张内凹的同半径圆柱面、轴线正对图纸。
+            所以导入件、镜像件、阵列出来的孔一样认得；槽口两端的半圆不是整圈，不算孔。
+            </para>
+            <para>
+            已经有孔标注的孔跳过，连点两次不会出双份。
+            </para>
+            </remarks>
+        </member>
+        <member name="M:HistoryStrenua.HoleCallout.WaitForView(HistoryStrenua.QuickCommandContext,System.Object)">
+            <summary>
+            当前选择里有视图就用它；没有就等用户去点。点在视图里的任何东西（边、尺寸）都算点了这个视图，
+            只点在图纸空白处不算。
+            </summary>
+        </member>
+        <member name="M:HistoryStrenua.HoleCallout.VisibleComponents(HistoryStrenua.SolidWorks.SolidWorksApi,System.Object,System.Object)">
+            <summary>零件视图只有一个「无组件」；装配视图逐个可见组件取边。</summary>
+        </member>
+        <member name="M:HistoryStrenua.HoleCallout.ExistingCalloutCenters(HistoryStrenua.SolidWorks.SolidWorksApi,HistoryStrenua.HoleCallout.ViewGeometry,System.Object)">
+            <summary>视图里已有孔标注各自指着的孔心。</summary>
+        </member>
+        <member name="T:HistoryStrenua.HoleCallout.ViewGeometry">
+            <summary>
+            把模型边变到图纸上。几何一律在零件自己的坐标系里返回：
+            装配视图里先乘组件变换到装配空间，再乘视图的模型→图纸变换。
+            </summary>
+        </member>
+        <member name="M:HistoryStrenua.HoleCallout.ViewGeometry.#ctor(HistoryStrenua.SolidWorks.SolidWorksApi,System.Object,System.Object)">
+            <summary>
+            把模型边变到图纸上。几何一律在零件自己的坐标系里返回：
+            装配视图里先乘组件变换到装配空间，再乘视图的模型→图纸变换。
+            </summary>
+        </member>
+        <member name="M:HistoryStrenua.HoleCallout.ViewGeometry.TryReadHole(System.Object)">
+            <summary>是孔边就返回它在图纸上的圆心与半径（<c>Index</c> 由调用方补）。</summary>
+        </member>
+        <member name="M:HistoryStrenua.HoleCallout.ViewGeometry.Circle(System.Object)">
+            <summary><c>CircleParams</c>：圆心 xyz、轴向 xyz、半径。不是圆返回 null。</summary>
+        </member>
+        <member name="T:HistoryStrenua.HoleEdge">
+            <summary>视图里一条候选孔边投影到图纸上的样子。坐标与半径都是图纸空间，单位米。</summary>
+            <param name="Index">回指调用方手里那条边。</param>
+            <param name="X">圆心 X。</param>
+            <param name="Y">圆心 Y。</param>
+            <param name="Radius">图纸上的半径（已乘视图比例）。</param>
+        </member>
+        <member name="M:HistoryStrenua.HoleEdge.#ctor(System.Int32,System.Double,System.Double,System.Double)">
+            <summary>视图里一条候选孔边投影到图纸上的样子。坐标与半径都是图纸空间，单位米。</summary>
+            <param name="Index">回指调用方手里那条边。</param>
+            <param name="X">圆心 X。</param>
+            <param name="Y">圆心 Y。</param>
+            <param name="Radius">图纸上的半径（已乘视图比例）。</param>
+        </member>
+        <member name="P:HistoryStrenua.HoleEdge.Index">
+            <summary>回指调用方手里那条边。</summary>
+        </member>
+        <member name="P:HistoryStrenua.HoleEdge.X">
+            <summary>圆心 X。</summary>
+        </member>
+        <member name="P:HistoryStrenua.HoleEdge.Y">
+            <summary>圆心 Y。</summary>
+        </member>
+        <member name="P:HistoryStrenua.HoleEdge.Radius">
+            <summary>图纸上的半径（已乘视图比例）。</summary>
+        </member>
+        <member name="T:HistoryStrenua.SheetPoint">
+            <summary>图纸上的一个点（米）。</summary>
+        </member>
+        <member name="M:HistoryStrenua.SheetPoint.#ctor(System.Double,System.Double)">
+            <summary>图纸上的一个点（米）。</summary>
+        </member>
+        <member name="T:HistoryStrenua.CalloutTarget">
+            <summary>要加的一个孔标注：用哪条边、标注文字放在哪。</summary>
+        </member>
+        <member name="M:HistoryStrenua.CalloutTarget.#ctor(System.Int32,HistoryStrenua.SheetPoint,HistoryStrenua.SheetPoint)">
+            <summary>要加的一个孔标注：用哪条边、标注文字放在哪。</summary>
+        </member>
+        <member name="T:HistoryStrenua.HoleCalloutPlan">
+            <summary>规划结果。</summary>
+            <param name="Targets">要加的标注，按图纸上从上到下、从左到右排。</param>
+            <param name="HoleCount">视图里认出的孔数（同心的算一个）。</param>
+            <param name="AlreadyAnnotated">其中已经有孔标注、本次跳过的孔数。</param>
+        </member>
+        <member name="M:HistoryStrenua.HoleCalloutPlan.#ctor(System.Collections.Generic.IReadOnlyList{HistoryStrenua.CalloutTarget},System.Int32,System.Int32)">
+            <summary>规划结果。</summary>
+            <param name="Targets">要加的标注，按图纸上从上到下、从左到右排。</param>
+            <param name="HoleCount">视图里认出的孔数（同心的算一个）。</param>
+            <param name="AlreadyAnnotated">其中已经有孔标注、本次跳过的孔数。</param>
+        </member>
+        <member name="P:HistoryStrenua.HoleCalloutPlan.Targets">
+            <summary>要加的标注，按图纸上从上到下、从左到右排。</summary>
+        </member>
+        <member name="P:HistoryStrenua.HoleCalloutPlan.HoleCount">
+            <summary>视图里认出的孔数（同心的算一个）。</summary>
+        </member>
+        <member name="P:HistoryStrenua.HoleCalloutPlan.AlreadyAnnotated">
+            <summary>其中已经有孔标注、本次跳过的孔数。</summary>
+        </member>
+        <member name="T:HistoryStrenua.HoleCalloutPlanner">
+            <summary>
+            孔标注的纯几何部分：哪些圆边算孔、同心的怎么合并、已经标过的怎么跳过、标注放在哪。
+            不碰 SolidWorks，所以能离线测。
+            </summary>
+        </member>
+        <member name="F:HistoryStrenua.HoleCalloutPlanner.CenterTolerance">
+            <summary>
+            两个圆心在图纸上相距不到 0.02 mm 就算同一个孔。
+            同一个孔在视图里常有好几条同心圆边：通孔的上下两个口、沉头孔的沉头与底孔、倒角的内外沿。
+            </summary>
+        </member>
+        <member name="F:HistoryStrenua.HoleCalloutPlanner.PlacementGap">
+            <summary>标注文字离孔边的距离（图纸上 5 mm）。</summary>
+        </member>
+        <member name="F:HistoryStrenua.HoleCalloutPlanner.FacingCosine">
+            <summary>
+            孔的轴线在视图空间里与图纸法向的夹角余弦至少这么大，才算「正对着看」。
+            侧着看的孔投影成两条直线，那不是孔标注该标的地方。
+            </summary>
+        </member>
+        <member name="F:HistoryStrenua.HoleCalloutPlanner.RadiusTolerance">
+            <summary>圆柱面半径与圆边半径的相对容差。</summary>
+        </member>
+        <member name="M:HistoryStrenua.HoleCalloutPlanner.FacesViewer(System.Double,System.Double,System.Double)">
+            <summary>
+            孔的轴线（已变换到视图空间）是否正对图纸。长度不必归一。
+            </summary>
+        </member>
+        <member name="M:HistoryStrenua.HoleCalloutPlanner.IsHoleWall(System.Double,System.Double,System.Boolean)">
+            <summary>
+            圆边旁边这张圆柱面是不是**孔**的内壁。
+            </summary>
+            <remarks>
+            解析圆柱面的曲面法向恒朝离开轴线的方向，而面的法向朝材料外。
+            孔壁的材料在外圈，面法向朝轴线，与曲面法向相反（<c>FaceInSurfaceSense</c> 为 false）；
+            凸台、轴的外圆面两者同向。半径也要对上——倒角、圆角旁边那张圆柱面不是这个圆的。
+            </remarks>
+        </member>
+        <member name="M:HistoryStrenua.HoleCalloutPlanner.Plan(System.Collections.Generic.IReadOnlyList{HistoryStrenua.HoleEdge},System.Collections.Generic.IReadOnlyList{HistoryStrenua.SheetPoint})">
+            <summary>
+            把候选边合并成孔，去掉已经有标注的，定下每个标注放在哪。
+            </summary>
+            <param name="edges">视图里正对图纸的孔边。</param>
+            <param name="annotatedCenters">这个视图里已有孔标注所指的孔心。</param>
+        </member>
+        <member name="M:HistoryStrenua.HoleCalloutPlanner.Placement(HistoryStrenua.HoleEdge)">
+            <summary>标注放在孔的右上方 45°，离孔边 <see cref="F:HistoryStrenua.HoleCalloutPlanner.PlacementGap"/>。</summary>
+        </member>
+        <member name="T:HistoryStrenua.ModuleInfo">
+            <summary>
+            模块身份。宿主按**全名**鸭子类型识别 <c>BaseVariable.ModuleInfoBase</c> 的公开非抽象子类，
+            不靠引用相等，所以这个类必须存在且可被反射构造。
+            </summary>
+        </member>
+        <member name="P:HistoryStrenua.ModuleInfo.ModuleName">
+            <summary>
+            必须显式覆盖：缺省值是程序集名，而它同时是**指令域**。
+            程序集名与域一旦分家，域就会跟着程序集名跑。
+            </summary>
+        </member>
+        <member name="P:HistoryStrenua.ModuleInfo.CommandPrefix">
+            <summary>指令域前缀。</summary>
+        </member>
+        <member name="P:HistoryStrenua.ModuleInfo.Version">
+            <summary>
+            版本取自程序集而非字面量：宿主装载时比对 manifest 与本类的版本，
+            两者不一致会**静默跳过整个模块**，只在日志留一行 module.discovery 警告。
+            </summary>
+        </member>
+        <member name="P:HistoryStrenua.ModuleInfo.MainClassType">
+            <summary>指令一律经 <c>IModuleContext.RegisterCommands</c> 注册，不走反射投影。</summary>
+        </member>
+        <member name="T:HistoryStrenua.QuickCommand">
+            <summary>
+            PowerSW 的一条快捷指令：页面上的一个按钮、总线上的一条指令、表格里的一行。
+            </summary>
+            <remarks>
+            <para>
+            加一条快捷指令 = 写一个 <see cref="P:HistoryStrenua.QuickCommand.Run"/>，再在 <see cref="P:HistoryStrenua.QuickCommands.All"/> 里登记一行。
+            按钮、动作声明、指令注册、状态表都从这份登记表生成，不需要再改页面描述。
+            </para>
+            <para>
+            当前只有「按钮」一种形态，不带参数。将来要带参数时，给这里加参数表，
+            由页面生成器把它们渲染成按钮前面的输入框，并经动作占位符传进指令——
+            已有的无参指令不受影响。
+            </para>
+            </remarks>
+            <param name="Key">稳定标识，也是表格行 id 与动作 id 的后缀。</param>
+            <param name="CommandName">总线指令名，形如 <c>strenua.&lt;类&gt;.&lt;方法&gt;</c>。</param>
+            <param name="Title">按钮文字。</param>
+            <param name="Usage">怎么用：写进状态表与指令摘要。</param>
+            <param name="Run">在已附着 SolidWorks 的 STA 线程上执行。</param>
+        </member>
+        <member name="M:HistoryStrenua.QuickCommand.#ctor(System.String,System.String,System.String,System.String,System.Func{HistoryStrenua.QuickCommandContext,HistoryStrenua.QuickOutcome})">
+            <summary>
+            PowerSW 的一条快捷指令：页面上的一个按钮、总线上的一条指令、表格里的一行。
+            </summary>
+            <remarks>
+            <para>
+            加一条快捷指令 = 写一个 <see cref="P:HistoryStrenua.QuickCommand.Run"/>，再在 <see cref="P:HistoryStrenua.QuickCommands.All"/> 里登记一行。
+            按钮、动作声明、指令注册、状态表都从这份登记表生成，不需要再改页面描述。
+            </para>
+            <para>
+            当前只有「按钮」一种形态，不带参数。将来要带参数时，给这里加参数表，
+            由页面生成器把它们渲染成按钮前面的输入框，并经动作占位符传进指令——
+            已有的无参指令不受影响。
+            </para>
+            </remarks>
+            <param name="Key">稳定标识，也是表格行 id 与动作 id 的后缀。</param>
+            <param name="CommandName">总线指令名，形如 <c>strenua.&lt;类&gt;.&lt;方法&gt;</c>。</param>
+            <param name="Title">按钮文字。</param>
+            <param name="Usage">怎么用：写进状态表与指令摘要。</param>
+            <param name="Run">在已附着 SolidWorks 的 STA 线程上执行。</param>
+        </member>
+        <member name="P:HistoryStrenua.QuickCommand.Key">
+            <summary>稳定标识，也是表格行 id 与动作 id 的后缀。</summary>
+        </member>
+        <member name="P:HistoryStrenua.QuickCommand.CommandName">
+            <summary>总线指令名，形如 <c>strenua.&lt;类&gt;.&lt;方法&gt;</c>。</summary>
+        </member>
+        <member name="P:HistoryStrenua.QuickCommand.Title">
+            <summary>按钮文字。</summary>
+        </member>
+        <member name="P:HistoryStrenua.QuickCommand.Usage">
+            <summary>怎么用：写进状态表与指令摘要。</summary>
+        </member>
+        <member name="P:HistoryStrenua.QuickCommand.Run">
+            <summary>在已附着 SolidWorks 的 STA 线程上执行。</summary>
+        </member>
+        <member name="P:HistoryStrenua.QuickCommand.ActionId">
+            <summary>页面动作 id。</summary>
+        </member>
+        <member name="P:HistoryStrenua.QuickCommand.CommandClass">
+            <summary>指令名的第二段，作为命令类。</summary>
+        </member>
+        <member name="T:HistoryStrenua.QuickOutcome">
+            <summary>一次执行的结论。<see cref="P:HistoryStrenua.QuickOutcome.Success"/> 为 false 时总线回执失败。</summary>
+        </member>
+        <member name="M:HistoryStrenua.QuickOutcome.#ctor(System.Boolean,System.String)">
+            <summary>一次执行的结论。<see cref="P:HistoryStrenua.QuickOutcome.Success"/> 为 false 时总线回执失败。</summary>
+        </member>
+        <member name="T:HistoryStrenua.QuickCommandContext">
+            <summary>快捷指令执行时手里的东西。</summary>
+        </member>
+        <member name="M:HistoryStrenua.QuickCommandContext.#ctor(HistoryStrenua.SolidWorks.SolidWorksSession,System.Action{System.String},System.Action{System.String},System.Threading.CancellationToken)">
+            <summary>快捷指令执行时手里的东西。</summary>
+        </member>
+        <member name="M:HistoryStrenua.QuickCommandContext.Report(System.String)">
+            <summary>一行进度，进宿主控制台。</summary>
+        </member>
+        <member name="M:HistoryStrenua.QuickCommandContext.SetState(System.String)">
+            <summary>改状态表里这一行的「状态」格，如「等待点选视图」。</summary>
+        </member>
+        <member name="T:HistoryStrenua.QuickCommandException">
+            <summary>用户能自己纠正的前置条件不满足（SolidWorks 没开、当前不是工程图……）。消息原样给人看。</summary>
+        </member>
+        <member name="M:HistoryStrenua.QuickCommandException.#ctor(System.String)">
+            <summary>用户能自己纠正的前置条件不满足（SolidWorks 没开、当前不是工程图……）。消息原样给人看。</summary>
+        </member>
+        <member name="T:HistoryStrenua.QuickCommands">
+            <summary>快捷指令登记表。顺序就是页面上按钮的顺序。</summary>
+        </member>
+        <member name="T:HistoryStrenua.QuickCommandRunner">
+            <summary>
+            执行快捷指令：一次只跑一条、可取消，并记下每条指令的状态给页面状态表。
+            </summary>
+            <remarks>
+            一次只跑一条，是因为所有快捷指令都作用在用户同一个 SolidWorks 的同一个选择集上——
+            两条同时跑，一条的 ClearSelection 会把另一条正在等的视图选择清掉。
+            </remarks>
+        </member>
+        <member name="M:HistoryStrenua.QuickCommandRunner.#ctor(HistoryVulcan.Core.Commands.CommandBus)">
+            <summary>
+            执行快捷指令：一次只跑一条、可取消，并记下每条指令的状态给页面状态表。
+            </summary>
+            <remarks>
+            一次只跑一条，是因为所有快捷指令都作用在用户同一个 SolidWorks 的同一个选择集上——
+            两条同时跑，一条的 ClearSelection 会把另一条正在等的视图选择清掉。
+            </remarks>
+        </member>
+        <member name="T:HistoryStrenua.QuickCommandRunner.QuickCommandStatus">
+            <summary>状态表的一行。</summary>
+        </member>
+        <member name="M:HistoryStrenua.QuickCommandRunner.QuickCommandStatus.#ctor(System.String,System.String,System.Nullable{System.DateTime})">
+            <summary>状态表的一行。</summary>
+        </member>
+        <member name="M:HistoryStrenua.QuickCommandRunner.Cancel">
+            <summary>取消正在跑的那条。没有在跑的也回成功——点「取消」不该让宿主抢控制台。</summary>
+        </member>
+        <member name="M:HistoryStrenua.QuickCommandRunner.RefreshPageAsync">
+            <summary>页面没开着或没装 Aurora 时刷不到，不影响执行结果。</summary>
+        </member>
+        <member name="T:HistoryStrenua.SolidWorks.SolidWorksApi">
+            <summary>
+            按接口名 + 方法名调用 SolidWorks API，并记下拿到手的每一个 COM 对象，收工时统一释放。
+            </summary>
+            <remarks>
+            <para>
+            <b>为什么走反射而不是编译期引用 Interop</b>：官方 Interop 只在装了 SolidWorks 的机器上有，
+            编译期引用它，没装 SolidWorks 的机器连模块都构建不了。运行时从安装目录加载
+            （与 HistoryMinerva Worker 的做法一致）。
+            </para>
+            <para>
+            <b>为什么装进默认装载上下文</b>：宿主把模块装进可卸载的 <c>AssemblyLoadContext</c>，
+            而可卸载程序集里的类型不能参与 COM 互操作。Interop 放进默认上下文，本模块自己一个
+            <c>[ComImport]</c> 类型都不定义——模块照样能热卸载，Interop 留在进程里无害。
+            </para>
+            <para>
+            <b>为什么自己重试</b>：没有 OLE 消息过滤器（它要求在本程序集里实现一个 COM 接口，
+            见上一条），SolidWorks 忙（弹着模态框、正在重建）时调用会立即被拒。这里对
+            「被拒 / 稍后重试」两种 HRESULT 限时重试，别的错误原样抛出。
+            </para>
+            <para>本类只能在创建它的那条 STA 线程上使用。</para>
+            </remarks>
+        </member>
+        <member name="F:HistoryStrenua.SolidWorks.SolidWorksApi.CallRejected">
+            <summary>RPC_E_CALL_REJECTED：服务端拒绝了这次调用（通常正忙）。</summary>
+        </member>
+        <member name="F:HistoryStrenua.SolidWorks.SolidWorksApi.RetryLater">
+            <summary>RPC_E_SERVERCALL_RETRYLATER：服务端要求稍后重试。</summary>
+        </member>
+        <member name="M:HistoryStrenua.SolidWorks.SolidWorksApi.Load(System.Guid,System.Threading.CancellationToken)">
+            <summary>加载本机 SolidWorks 的官方 Interop。</summary>
+        </member>
+        <member name="M:HistoryStrenua.SolidWorks.SolidWorksApi.Call(System.Object,System.String,System.String,System.Object[])">
+            <summary>
+            调用 <c>I<paramref name="interfaceName"/></c> 上的方法（属性写 <c>get_X</c>）。
+            返回值里的 COM 对象（含数组元素）都记账，<see cref="M:HistoryStrenua.SolidWorks.SolidWorksApi.Dispose"/> 时释放。
+            </summary>
+        </member>
+        <member name="M:HistoryStrenua.SolidWorks.SolidWorksApi.CallArray(System.Object,System.String,System.String,System.Object[])">
+            <summary>返回 <c>VARIANT</c> 数组的调用。SolidWorks 用空值表示「一个都没有」，这里统一成空数组。</summary>
+        </member>
+        <member name="M:HistoryStrenua.SolidWorks.SolidWorksApi.Dispose">
+            <summary>释放本次会话里经手的全部 COM 对象。不会关闭 SolidWorks，只放下我们的引用。</summary>
+        </member>
+        <member name="M:HistoryStrenua.SolidWorks.SolidWorksApi.Own``1(``0)">
+            <summary>把外部拿到的 COM 对象（如运行对象表里的 Application）也纳入记账。</summary>
+        </member>
+        <member name="M:HistoryStrenua.SolidWorks.SolidWorksApi.LoadInterop(System.Guid)">
+            <summary>
+            默认上下文里已经有就复用；否则从 COM 注册的 sldworks.exe 所在目录加载 <c>api\redist</c> 下那份。
+            安装目录取自注册表，不猜路径。
+            </summary>
+        </member>
+        <member name="T:HistoryStrenua.SolidWorks.SolidWorksSession">
+            <summary>
+            附着到用户**正在用**的那个 SolidWorks。
+            </summary>
+            <remarks>
+            PowerSW 与 HistoryMinerva 的转换管线用 SolidWorks 的方式正好相反：转换要么自己起一个专属进程，
+            要么附着后把界面藏起来、关掉用户交互、做完还可能退出。这里一样都不许做——
+            不启动（没开就报「没在运行」）、不改 <c>Visible</c> / <c>UserControl</c>、不 <c>ExitApp</c>，
+            收工只放下自己手里的引用。
+            </remarks>
+        </member>
+        <member name="F:HistoryStrenua.SolidWorks.SolidWorksSession.NotRunning">
+            <summary>MK_E_UNAVAILABLE：运行对象表里没有这个类（SolidWorks 没在运行）。</summary>
+        </member>
+        <member name="P:HistoryStrenua.SolidWorks.SolidWorksSession.Application">
+            <summary><c>ISldWorks</c>。</summary>
+        </member>
+        <member name="M:HistoryStrenua.SolidWorks.SolidWorksSession.AttachRunning(System.Threading.CancellationToken)">
+            <summary>必须在 STA 线程上调用，之后整个会话都留在这条线程上。</summary>
+        </member>
+        <member name="M:HistoryStrenua.SolidWorks.SolidWorksSession.ActiveDocument">
+            <summary>当前活动文档（<c>IModelDoc2</c>），没有打开任何文档时为 null。</summary>
+        </member>
+        <member name="M:HistoryStrenua.SolidWorks.SolidWorksSession.RunAsync``1(System.Func{HistoryStrenua.SolidWorks.SolidWorksSession,``0},System.Threading.CancellationToken)">
+            <summary>
+            在一条新的 STA 线程上附着 SolidWorks 并执行 <paramref name="work"/>。
+            SolidWorks 的 COM 对象属于单线程套间，拿到它们的线程也必须是用它们的线程。
+            </summary>
+        </member>
+        <member name="T:HistoryStrenua.StrenuaIdentity">
+            <summary>模块名、指令域与页面身份的唯一权威源。</summary>
+        </member>
+        <member name="F:HistoryStrenua.StrenuaIdentity.Name">
+            <summary>模块名：部署槽、manifest 与 <see cref="P:HistoryStrenua.ModuleInfo.ModuleName"/>。</summary>
+        </member>
+        <member name="F:HistoryStrenua.StrenuaIdentity.Domain">
+            <summary>指令域。</summary>
+        </member>
+        <member name="F:HistoryStrenua.StrenuaIdentity.PageOwner">
+            <summary>
+            页面 owner 与场景 id。Aurora 按指令域反推（<c>"History" + 首字母大写的域</c>），
+            与模块名无关；对不上整页被静默拒收，只留一条 Warn。
+            本模块恰好两者相同，但依据是域，不是模块名。
+            </summary>
+        </member>
+        <member name="F:HistoryStrenua.StrenuaIdentity.Source">
+            <summary>注册来源。</summary>
+        </member>
+        <member name="F:HistoryStrenua.StrenuaIdentity.PageTitle">
+            <summary>用户看到的页面标题。模块叫 Strenua，面向用户的功能名是 PowerSW。</summary>
+        </member>
+        <member name="T:HistoryStrenua.StrenuaPage">
+            <summary>
+            Aurora 页面协议 V1：一页 PowerSW。上面一块控制面板放快捷指令按钮，下面一张状态表。
+            按钮、动作声明、表格行全部从 <see cref="P:HistoryStrenua.QuickCommands.All"/> 生成——加指令不改这里。
+            </summary>
+        </member>
+        <member name="F:HistoryStrenua.StrenuaPage.ButtonsPerRow">
+            <summary>一行最多几个按钮。再多就折到下一声明行，免得按钮被挤成一条条窄缝。</summary>
+        </member>
+        <member name="M:HistoryStrenua.StrenuaPage.Rows(HistoryStrenua.QuickCommandRunner)">
+            <summary>状态表的行：一条快捷指令一行。</summary>
+        </member>
+        <member name="M:HistoryStrenua.StrenuaPage.ButtonRows(System.Collections.Generic.IReadOnlyList{HistoryStrenua.QuickCommand})">
+            <summary>按钮按登记顺序每 <see cref="F:HistoryStrenua.StrenuaPage.ButtonsPerRow"/> 个一行，「取消」跟在最后一行末尾。</summary>
+        </member>
+    </members>
+</doc>

@@ -1,55 +1,89 @@
-# OneHistory AI-Ready 项目模板
+# HistoryStrenua
 
-这是从 `0000-000-Template` 派生的 AI 优先项目模板。它保留 OneHistory 的多专业工程素材，
-同时用稳定入口、结构化清单、现行文档和可执行验证规则，让人和 AI 都能快速判断项目目标、
-真值、修改边界与完成标准。
+> PowerSW：SolidWorks 运行时快捷指令，一次手工操作变成一下点击
 
-![OneHistory Logo](./Logo.png)
+## 定位
 
-## 模板原则
+HistoryStrenua 是 HistoryVulcan 的 SolidWorks 易用性模块，面向用户的名字叫 **PowerSW**。
+它附着到你**正在用**的那个 SolidWorks，把重复的手工操作做成一排快捷按钮；每个按钮同时是一条宿主指令，
+控制台里也能直接敲。
 
-- 根目录只提供必要入口，不要求 AI 扫描整个仓库。
-- `project.manifest.json` 声明活动目录、文档、命令、归档和生成物。
-- 根目录的可见文件夹只使用 `a-*`、`b-*`、`z-*` 三种级别。
-- `b-Office/current/` 只保存必要的项目现行文档；`b-Office/package/` 保存精简复用入口。
-- `b-Office/history/` 默认不进入 AI 上下文。
-- 任何构建、测试或验收命令都必须在 manifest 中明确声明；不适用时使用 `null`。
+- 它只作用于用户已打开的 SolidWorks：不启动、不隐藏、不接管、不退出。
+- 批量转换、离线处理文件属于 HistoryMinerva（`2026-024`），不在这里。
+
+## 概况
+
+| 项 | 值 |
+| --- | --- |
+| 编号 | `2026-034` |
+| 角色 | 宿主模块（`kind=module`） |
+| 指令域 | `strenua` |
+| 界面 | Aurora 描述式页面「PowerSW」（场景 `HistoryStrenua`） |
+| MCP 投影 | `readonly` |
+| 版本与宿主下限 | [`HistoryStrenuaVersion.props`](./b-Code/HistoryStrenua/HistoryStrenuaVersion.props) |
+
+## 能力
+
+| 按钮 | 指令 | 用途 |
+| --- | --- | --- |
+| 孔标注 | `strenua.hole.callout` | 点一个工程图视图，把视图里看得见的孔全部加孔标注；已有标注的孔跳过 |
+| 取消 | `strenua.quick.cancel` | 取消正在执行的快捷指令（包括正在等你点视图的那一条） |
+| — | `strenua.quick.list` | 列出全部快捷指令及上次结果（只读） |
+
+孔标注选视图两种顺序都行：先在 SolidWorks 里点视图再按按钮，或者按完按钮 60 秒内去点视图。
+参数、返回与失败语义见 [模块 API](./b-Office/package/模块API.md)。
 
 ## 入口
 
 | 入口 | 用途 |
 | --- | --- |
-| [`AGENTS.md`](./AGENTS.md) | AI 读取顺序、真值规则、工作边界与完成要求 |
-| [`project.manifest.json`](./project.manifest.json) | 可机器读取的项目身份、路径、命令和上下文排除项 |
-| [`b-Office/package/复用说明.md`](./b-Office/package/复用说明.md) | 文档包边界与建议读取顺序 |
-| [`b-Office/文档中心.md`](./b-Office/文档中心.md#目录规范) | 文档索引及根目录 a/b/z 规范 |
-| [`b-Office/current/项目概览.md`](./b-Office/current/项目概览.md) | 项目目标、范围、状态和交付物 |
-| [`b-Office/current/技术合同.md`](./b-Office/current/技术合同.md) | 现行需求和系统架构 |
-| [`b-Office/current/有效决策.md`](./b-Office/current/有效决策.md) | 当前仍然有效的关键决策 |
-| [`b-Office/current/验证合同.md`](./b-Office/current/验证合同.md) | 分层验证方法与证据要求 |
+| [`AGENTS.md`](./AGENTS.md) | AI 工作合同：读取顺序、真值判定、边界 |
+| [`project.manifest.json`](./project.manifest.json) | 项目身份、活动目录、文档与命令 |
+| [文档中心](./b-Office/文档中心.md) | 文档索引与读取顺序 |
+| [项目概览](./b-Office/current/项目概览.md) | 目标、范围与状态 |
+| [技术合同](./b-Office/current/技术合同.md) | 现行需求与架构 |
+| [有效决策](./b-Office/current/有效决策.md) | 仍然有效的关键决策 |
+| [验证合同](./b-Office/current/验证合同.md) | 验证层级、命令与证据 |
+| [模块 API](./b-Office/package/模块API.md) | 跨模块消费合同 |
 
-## 从模板建立项目
+## 目录
 
-1. 以本分支建立新的项目分支和工作树，不直接修改本模板。
-2. 修改 `project.manifest.json` 中的项目身份、类型、活动目录和命令，并将
-   `template.isTemplate` 改为 `false`。
-3. 按项目需要创建 `a-*` 子项目、`b-*` 项目组件或 `z-*` 跨项目复用元目录，使用能表达
-   职责的名称，并登记到 manifest。
-4. 替换 `b-Office/current/` 中全部 `{{...}}` 占位内容，删除不适用的小节。
-5. 更新根 README，使其描述真实项目，而不是模板。
-6. 执行严格验收：
+| 路径 | 职责 |
+| --- | --- |
+| `b-Code/HistoryStrenua/` | 模块源码、manifest 与 `eng/` 构建脚本 |
+| `b-Code/HistoryStrenua.Tests/` | 离线自动验证 |
+| `b-Code/` | 项目合同检查 |
+| `b-Office/` | 项目文档：`current/` 现行合同、`package/` 消费合同、`history/` 只读归档 |
+| `z-Publish/` | 正式快照与 `history/` 归档，由宿主管线写入 |
+
+## 构建与验证
 
 ```powershell
+dotnet build .\b-Code\HistoryStrenua\HistoryStrenua.csproj -c Release -p:NuGetAudit=false
+dotnet run --project .\b-Code\HistoryStrenua.Tests\HistoryStrenua.Tests.csproj -c Release -p:NuGetAudit=false
 powershell -NoProfile -ExecutionPolicy Bypass -File .\b-Code\Test-ProjectContract.ps1 -Instantiation
 ```
 
-严格验收通过只代表项目入口和文档合同完整；产品本身仍须执行 manifest 中声明的构建、
-测试和验收命令。
+自动验证全程离线，不需要也不会碰 SolidWorks。真机验收步骤见验证合同的 VERIFY-LIVE。
 
-## 模板验证
+## 开发与发布
 
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\b-Code\Test-ProjectContract.ps1
-```
+改动只进 `vulcan.dev.start` 创建的工作区，经宿主 Console CLI 走
+`vulcan.dev.start` → `vulcan.dev.submit`（候选构建并热装送审）→ `vulcan.dev.finish`（批准后并回并写入 `z-Publish`）。
+本仓不自行发布；`eng/Build-HistoryStrenuaPackage.ps1` 只用于本地候选构建。
 
-作者：Pinavia
+**加一个快捷按钮**：写一个 `QuickCommand`（在已附着 SolidWorks 的 STA 线程上执行），
+登记进 `QuickCommands.All`。按钮、动作声明、指令注册和状态表都由登记表生成。
+
+## 要点
+
+- SolidWorks Interop 不在编译期引用，运行时从本机安装目录加载；没装 SolidWorks 的机器照样能构建和跑测试。
+- 一次只跑一条快捷指令：它们共用同一个 SolidWorks 的选择集。
+- 页面 owner 由指令域推出（`strenua` → `HistoryStrenua`），合同检查守着这条。
+
+## 保留内容
+- 本模板项目介绍：此为最初的准备的项目模板
+    每个分支项目都会由他去继承
+- 作者：Pinavia - 2025
+
+![logo](./Logo.png)

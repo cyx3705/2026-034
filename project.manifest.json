@@ -6,27 +6,41 @@
     "strictValidationArgument": "-Instantiation"
   },
   "project": {
-    "id": "0000-001",
-    "name": "AIReady",
-    "title": "OneHistory AI-Ready \u9879\u76EE\u6A21\u677F",
+    "id": "2026-034",
+    "name": "HistoryStrenua",
+    "title": "HistoryStrenua PowerSW 运行时快捷指令",
     "kind": [
-      "template",
-      "multidisciplinary"
+      "software",
+      "cad-automation",
+      "appshell-module"
     ],
-    "status": "template"
+    "status": "active",
+    "version": "1.0.0",
+    "branch": "main"
   },
   "paths": {
     "activeRoots": [
       "b-Office/current",
       "b-Office/package",
+      "b-Code/HistoryStrenua",
+      "b-Code/HistoryStrenua.Tests",
       "b-Code"
     ],
     "sourceRoots": [
-      "b-Code"
+      "b-Code/HistoryStrenua",
+      "b-Code/HistoryStrenua.Tests"
     ],
-    "generatedRoots": [],
+    "generatedRoots": [
+      "b-Code/**/bin",
+      "b-Code/**/obj",
+      "z-Publish"
+    ],
     "archiveRoots": [
-      "b-Office/history"
+      "b-Office/history",
+      "z-Publish/history"
+    ],
+    "releaseRoots": [
+      "z-Publish"
     ],
     "allowedRootDirectoryPrefixes": [
       "a-",
@@ -35,27 +49,32 @@
     ]
   },
   "documents": {
-    "center": "b-Office/\u6587\u6863\u4E2D\u5FC3.md",
-    "package": "b-Office/package/\u590D\u7528\u8BF4\u660E.md",
-    "structure": "b-Office/\u6587\u6863\u4E2D\u5FC3.md",
-    "overview": "b-Office/current/\u9879\u76EE\u6982\u89C8.md",
-    "technicalContract": "b-Office/current/\u6280\u672F\u5408\u540C.md",
-    "decisions": "b-Office/current/\u6709\u6548\u51B3\u7B56.md",
-    "verification": "b-Office/current/\u9A8C\u8BC1\u5408\u540C.md",
-    "historyBoundary": "b-Office/history/\u5386\u53F2\u8D44\u6599\u8BF4\u660E.md"
+    "center": "b-Office/文档中心.md",
+    "package": "b-Office/package/模块API.md",
+    "structure": "b-Office/文档中心.md",
+    "overview": "b-Office/current/项目概览.md",
+    "technicalContract": "b-Office/current/技术合同.md",
+    "decisions": "b-Office/current/有效决策.md",
+    "verification": "b-Office/current/验证合同.md",
+    "historyBoundary": "b-Office/history/历史资料说明.md"
   },
   "commands": {
     "setup": null,
-    "build": null,
-    "test": null,
-    "verify": "powershell -NoProfile -ExecutionPolicy Bypass -File .\\b-Code\\Test-ProjectContract.ps1",
+    "build": "dotnet build .\\b-Code\\HistoryStrenua\\HistoryStrenua.csproj -c Release -p:NuGetAudit=false",
+    "test": "dotnet run --project .\\b-Code\\HistoryStrenua.Tests\\HistoryStrenua.Tests.csproj -c Release -p:NuGetAudit=false",
+    "verify": "powershell -NoProfile -ExecutionPolicy Bypass -File .\\b-Code\\Test-ProjectContract.ps1 -Instantiation",
     "run": null,
-    "package": null
+    "package": "powershell -NoProfile -ExecutionPolicy Bypass -File .\\b-Code\\HistoryStrenua\\eng\\Build-HistoryStrenuaPackage.ps1"
   },
-  "externalDependencies": [],
+  "externalDependencies": [
+    "HistoryVulcan 5.1.2 或更新的发布快照：C:\\OneHistory\\HistoryClio\\2026-023-HistoryVulcan\\z-Publish",
+    ".NET 8 SDK 与 Windows Desktop Runtime（目标框架 net8.0-windows）",
+    "SolidWorks 2025 SP5 COM 自动化（运行时从安装目录 api\\redist 加载官方 Interop；构建不需要）",
+    "HistoryAurora（可选）：PowerSW 页面由它按描述协议渲染；没有它指令照样能在控制台执行"
+  ],
   "contextExclusions": [
     "b-Office/history/**",
-    "b-Publish/**",
+    "z-Publish/**",
     "**/bin/**",
     "**/obj/**",
     "**/node_modules/**",

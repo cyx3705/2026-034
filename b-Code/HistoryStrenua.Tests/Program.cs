@@ -572,6 +572,7 @@ static void TestSlotCenterMarks()
     Equal(2, plan.Groups.Count);
     Equal("0,2,1,3", string.Join(",", plan.Groups[0].EdgeIndices));
     True(plan.Groups[0].Linear, "腰型孔端头成线性组");
+    True(plan.Groups[0].Slot && !plan.Groups[1].Slot, "腰型孔那组要按槽口样式插");
     True(!plan.Groups[1].Linear, "单个圆孔用单个");
     // 标在腰型孔端头上的旧符号线要删。
     Equal("0", string.Join(",", plan.Obsolete));

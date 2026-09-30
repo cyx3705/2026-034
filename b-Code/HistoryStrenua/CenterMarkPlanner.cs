@@ -7,7 +7,8 @@ internal sealed record ExistingCenterMark(int Index, IReadOnlyList<SheetPoint> C
 
 /// <summary>要加的一组中心符号线：一种孔一组。</summary>
 /// <param name="EdgeIndices">这一种里每个孔取一条边，按图纸上从上到下、从左到右排。</param>
-internal sealed record CenterMarkGroup(IReadOnlyList<int> EdgeIndices)
+/// <param name="Slot">这一种是腰型孔：每个腰型孔两端各占一个位置，插入时要按槽口样式（见 <c>CenterMark.InsertLinear</c>）。</param>
+internal sealed record CenterMarkGroup(IReadOnlyList<int> EdgeIndices, bool Slot = false)
 {
     /// <summary>两个孔以上用「线性中心符号线 + 连接线」；只有一个孔就是单个中心符号线。</summary>
     public bool Linear => EdgeIndices.Count > 1;
@@ -47,7 +48,7 @@ internal static class CenterMarkPlanner
         var groups = kinds
             .OrderByDescending(kind => Math.Round(kind[0].Y / HoleCalloutPlanner.CenterTolerance))
             .ThenBy(kind => kind[0].X)
-            .Select(kind => new CenterMarkGroup(kind.Select(hole => hole.Index).ToList()))
+            .Select(kind => new CenterMarkGroup(kind.Select(hole => hole.Index).ToList(), kind[0].Slot >= 0))
             .ToList();
         var (holeCount, slotCount) = HoleCalloutPlanner.Count(holes);
         return new CenterMarkPlan(groups, Obsolete(holes, existing), holeCount, kinds.Count, slotCount);

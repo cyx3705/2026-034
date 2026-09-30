@@ -62,16 +62,21 @@ internal static class CenterMark
             foreach (var group in plan.Groups)
             {
                 context.Cancellation.ThrowIfCancellationRequested();
-                if (group.Linear && InsertLinear(api, scan, group))
+                switch (group.Linear ? InsertLinear(api, scan, group) : null)
                 {
-                    linear++;
-                    continue;
+                    case true:
+                        linear++;
+                        continue;
+                    case false:
+                        // SolidWorks 收下了，但自己拆成了每个孔一个单个（不能再补插，否则重复）。
+                        single += group.EdgeIndices.Count;
+                        continue;
                 }
 
                 // 单孔的种；或 SolidWorks 不接受这组孔排成线性组时，退回逐个单个中心符号线。
                 foreach (var index in group.EdgeIndices)
                 {
-                    if (Insert(api, scan, [index], StyleSingle) is not null)
+                    if (Insert(api, scan, [index], StyleSingle, slot: false) is not null)
                         single++;
                     else
                         failed++;
@@ -101,16 +106,26 @@ internal static class CenterMark
                 .ToList();
         });
 
-    /// <summary>一种孔插一组线性中心符号线并打开连接线。SolidWorks 不接受时返回 false，由调用方退回单个。</summary>
-    private static bool InsertLinear(SolidWorksApi api, ScannedView scan, CenterMarkGroup group)
+    /// <summary>
+    /// 一种孔插一组线性中心符号线并打开连接线。
+    /// </summary>
+    /// <remarks>
+    /// 腰型孔端头是圆弧：<c>InsertCenterMark3</c> 的第三个参数（槽口样式）不给 true，SolidWorks 不报错、
+    /// 却把每个端头各建成一个单个（真机 SW 2025 SP5 实测，1.3.0 首轮因此误报成线性组）。所以腰型孔那一种给 true，
+    /// 并且一律读回 <c>Style</c> 核对建成的是不是线性组。
+    /// </remarks>
+    /// <returns>true = 线性组；false = SolidWorks 自己拆成了单个；null = 没接受，由调用方退回逐个单个。</returns>
+    private static bool? InsertLinear(SolidWorksApi api, ScannedView scan, CenterMarkGroup group)
     {
-        if (Insert(api, scan, group.EdgeIndices, StyleLinearGroup) is not { } mark)
+        if (Insert(api, scan, group.EdgeIndices, StyleLinearGroup, group.Slot) is not { } mark)
+            return null;
+        if (api.CallInt(mark, "ICenterMark", "get_Style") != StyleLinearGroup)
             return false;
         api.Call(mark, "ICenterMark", "set_ConnectionLines", LinearConnectLines);
         return true;
     }
 
-    private static object? Insert(SolidWorksApi api, ScannedView scan, IReadOnlyList<int> edgeIndices, int style)
+    private static object? Insert(SolidWorksApi api, ScannedView scan, IReadOnlyList<int> edgeIndices, int style, bool slot)
     {
         api.Call(scan.Document, "IModelDoc2", "ClearSelection2", true);
         for (var i = 0; i < edgeIndices.Count; i++)
@@ -119,7 +134,7 @@ internal static class CenterMark
                 return null;
         }
 
-        return api.Call(scan.Document, "IDrawingDoc", "InsertCenterMark3", style, false, false);
+        return api.Call(scan.Document, "IDrawingDoc", "InsertCenterMark3", style, false, slot);
     }
 
     /// <summary>

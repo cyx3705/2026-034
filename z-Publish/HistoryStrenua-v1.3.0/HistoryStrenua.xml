@@ -36,7 +36,15 @@
             <summary>删掉标着孔的旧中心符号线（<see cref="T:HistoryStrenua.AnnotationEraser"/>：删完回读，最多三遍）。</summary>
         </member>
         <member name="M:HistoryStrenua.CenterMark.InsertLinear(HistoryStrenua.SolidWorks.SolidWorksApi,HistoryStrenua.ScannedView,HistoryStrenua.CenterMarkGroup)">
-            <summary>一种孔插一组线性中心符号线并打开连接线。SolidWorks 不接受时返回 false，由调用方退回单个。</summary>
+            <summary>
+            一种孔插一组线性中心符号线并打开连接线。
+            </summary>
+            <remarks>
+            腰型孔端头是圆弧：<c>InsertCenterMark3</c> 的第三个参数（槽口样式）不给 true，SolidWorks 不报错、
+            却把每个端头各建成一个单个（真机 SW 2025 SP5 实测，1.3.0 首轮因此误报成线性组）。所以腰型孔那一种给 true，
+            并且一律读回 <c>Style</c> 核对建成的是不是线性组。
+            </remarks>
+            <returns>true = 线性组；false = SolidWorks 自己拆成了单个；null = 没接受，由调用方退回逐个单个。</returns>
         </member>
         <member name="M:HistoryStrenua.CenterMark.ReadCenterMarks(HistoryStrenua.SolidWorks.SolidWorksApi,HistoryStrenua.HoleScan.ViewGeometry,System.Object)">
             <summary>
@@ -63,13 +71,18 @@
         <member name="T:HistoryStrenua.CenterMarkGroup">
             <summary>要加的一组中心符号线：一种孔一组。</summary>
             <param name="EdgeIndices">这一种里每个孔取一条边，按图纸上从上到下、从左到右排。</param>
+            <param name="Slot">这一种是腰型孔：每个腰型孔两端各占一个位置，插入时要按槽口样式（见 <c>CenterMark.InsertLinear</c>）。</param>
         </member>
-        <member name="M:HistoryStrenua.CenterMarkGroup.#ctor(System.Collections.Generic.IReadOnlyList{System.Int32})">
+        <member name="M:HistoryStrenua.CenterMarkGroup.#ctor(System.Collections.Generic.IReadOnlyList{System.Int32},System.Boolean)">
             <summary>要加的一组中心符号线：一种孔一组。</summary>
             <param name="EdgeIndices">这一种里每个孔取一条边，按图纸上从上到下、从左到右排。</param>
+            <param name="Slot">这一种是腰型孔：每个腰型孔两端各占一个位置，插入时要按槽口样式（见 <c>CenterMark.InsertLinear</c>）。</param>
         </member>
         <member name="P:HistoryStrenua.CenterMarkGroup.EdgeIndices">
             <summary>这一种里每个孔取一条边，按图纸上从上到下、从左到右排。</summary>
+        </member>
+        <member name="P:HistoryStrenua.CenterMarkGroup.Slot">
+            <summary>这一种是腰型孔：每个腰型孔两端各占一个位置，插入时要按槽口样式（见 <c>CenterMark.InsertLinear</c>）。</summary>
         </member>
         <member name="P:HistoryStrenua.CenterMarkGroup.Linear">
             <summary>两个孔以上用「线性中心符号线 + 连接线」；只有一个孔就是单个中心符号线。</summary>

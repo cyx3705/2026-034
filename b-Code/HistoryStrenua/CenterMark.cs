@@ -8,7 +8,8 @@ namespace HistoryStrenua;
 /// </summary>
 /// <remarks>
 /// <para>认孔、分种与「孔标注」相同（<see cref="HoleScan"/>、<see cref="CenterMarkPlanner"/>）：一种孔一组，
-/// 同一组的孔由连接线串起来；只有一个孔的种用单个中心符号线。</para>
+/// 同一组的孔由连接线串起来；只有一个孔的种用单个中心符号线。
+/// 腰型孔两端的圆弧各当一个孔（1.3.0），一个腰型孔在组里占两个位置。</para>
 /// <para>「重新标记」：先删掉标着这些孔的旧中心符号线（单个的、成组的都删），再按本次分种重建。
 /// 不在孔上的中心符号线不动。删除有时要第二遍才删干净（真机实测），所以删完回读、最多删三遍。</para>
 /// </remarks>
@@ -18,7 +19,7 @@ internal static class CenterMark
         Key: "center-mark",
         CommandName: StrenuaIdentity.Domain + ".hole.centermark",
         Title: "中心符号线",
-        Usage: "在工程图里点一个视图（先点后按、先按后点都行，60 秒内），该视图里全部的孔删掉旧中心符号线后重标：每种孔一组线性中心符号线带连接线，单孔用单个。",
+        Usage: "在工程图里点一个视图（先点后按、先按后点都行，60 秒内），该视图里全部的孔删掉旧中心符号线后重标：每种孔一组线性中心符号线带连接线，单孔用单个；腰型孔两端各标一个。",
         Run: Run);
 
     // swAnnotationType_e / swCenterMarkStyle_e / swCenterMarkConnectionLine_e
@@ -38,10 +39,10 @@ internal static class CenterMark
         if (plan.HoleCount == 0)
             return QuickOutcome.Ok($"视图「{viewName}」里没有正对图纸的孔，中心符号线没有改动。");
 
-        context.Report($"中心符号线：视图「{viewName}」认出 {plan.HoleCount} 个孔共 {plan.KindCount} 种，"
+        context.Report($"中心符号线：视图「{viewName}」认出 {plan.Summary}，"
             + $"删掉 {plan.Obsolete.Count} 个旧中心符号线后按种重标。");
         _ = api.Call(document, "IDrawingDoc", "ActivateView", viewName);
-        var holes = HoleCalloutPlanner.MergeConcentric(scan.Candidates);
+        var holes = HoleCalloutPlanner.Recognize(scan.Candidates);
         int removed;
         int leftover;
         var linear = 0;
@@ -83,7 +84,7 @@ internal static class CenterMark
             api.Call(document, "IModelDoc2", "GraphicsRedraw2");
         }
 
-        var message = $"视图「{viewName}」：{plan.HoleCount} 个孔共 {plan.KindCount} 种，删掉旧中心符号线 {removed} 个，"
+        var message = $"视图「{viewName}」：{plan.Summary}，删掉旧中心符号线 {removed} 个，"
             + $"新加线性带连接线 {linear} 组、单个 {single} 个"
             + (failed > 0 ? $"，{failed} 个孔 SolidWorks 没有接受" : string.Empty)
             + "。";

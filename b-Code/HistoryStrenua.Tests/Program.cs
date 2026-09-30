@@ -24,6 +24,11 @@ var tests = new (string Name, Action Run)[]
     ("hole position: datums are the leftmost and topmost straight edges", TestPositionDatums),
     ("hole position: only linear dimensions on holes are redone", TestPositionObsolete),
     ("hole position: pattern prefix text", TestPatternPrefix),
+    ("slots: two facing half circles pair up", TestSlotPairing),
+    ("slots: semicircle and bulge direction", TestSlotGeometry),
+    ("slots: one callout per kind, on the upper end", TestSlotCallout),
+    ("slots: center marks on both ends", TestSlotCenterMarks),
+    ("slots: position on the upper end only", TestSlotPosition),
     ("distinct holes stay distinct", TestDistinctHoles),
     ("targets read top-down, left-right", TestTargetOrder),
     ("placement sits up-left of the hole", TestPlacement),
@@ -456,6 +461,146 @@ static void TestPatternPrefix()
     Equal("10 x 60 =", HolePositionPlanner.PatternPrefix(10, 0.06));
     Equal("4 x 12.5 =", HolePositionPlanner.PatternPrefix(4, 0.0125));
     Equal("5 x 20 =", HolePositionPlanner.PatternPrefix(5, 0.0200000001));
+}
+
+/// <summary>
+/// 一个腰型孔的两条端头半圆（图纸坐标，米）：两端圆心 (x1,y1)、(x2,y2)，各朝背离对方的方向鼓。
+/// </summary>
+static HoleEdge[] Slot(int index, double x1, double y1, double x2, double y2, double radius, string kind)
+{
+    var length = Math.Sqrt(Math.Pow(x2 - x1, 2) + Math.Pow(y2 - y1, 2));
+    var (ux, uy) = ((x2 - x1) / length, (y2 - y1) / length);
+    return
+    [
+        new HoleEdge(index, x1, y1, radius, kind, -ux, -uy),
+        new HoleEdge(index + 1, x2, y2, radius, kind, ux, uy),
+    ];
+}
+
+static void TestSlotPairing()
+{
+    List<HoleEdge> edges =
+    [
+        // 两个竖腰型孔首尾相接排成一列：中间相对的两端（y=.13 与 .15）是互相朝着鼓的，不能配成一对。
+        .. Slot(0, 0.10, 0.18, 0.10, 0.15, 0.003, "/Slot"),
+        .. Slot(2, 0.10, 0.13, 0.10, 0.10, 0.003, "/Slot"),
+        // 开口槽口只有一个端头半圆：配不上，丢掉。
+        new HoleEdge(4, 0.30, 0.10, 0.003, "/Notch", 0, 1),
+        // 同位置同朝向、但不是同一个特征的半圆：不配。
+        new HoleEdge(5, 0.20, 0.10, 0.003, "/A", -1, 0),
+        new HoleEdge(6, 0.25, 0.10, 0.003, "/B", 1, 0),
+        // 圆孔原样保留。
+        new HoleEdge(7, 0.40, 0.10, 0.002, "/Round"),
+    ];
+    // 同心合并按半径排过，这里按下标看。
+    var holes = HoleCalloutPlanner.Recognize(edges).OrderBy(hole => hole.Index).ToList();
+    Equal("0,1,2,3,7", string.Join(",", holes.Select(hole => hole.Index)));
+    Equal(holes[0].Slot, holes[1].Slot);
+    Equal(holes[2].Slot, holes[3].Slot);
+    True(holes[0].Slot != holes[2].Slot, "两个腰型孔编号不同");
+    Equal(-1, holes[4].Slot);
+    True(holes[0].Kind.StartsWith("/Slot/腰", StringComparison.Ordinal), "腰型孔的种名带上长度");
+    Equal("/Round", holes[4].Kind);
+    Equal((3, 2), HoleCalloutPlanner.Count(holes));
+    Equal("3 个孔（含 2 个腰型孔）共 2 种", HoleCalloutPlanner.Summary(3, 2, 2));
+    Equal("12 个孔共 3 种", HoleCalloutPlanner.Summary(12, 0, 3));
+
+    // 沉头腰型孔：沉头端头与底端头同心，合并后仍是一对（取小的）。
+    var counterbored = HoleCalloutPlanner.Recognize(
+        [.. Slot(0, 0.1, 0.2, 0.1, 0.1, 0.005, "/CSlot"), .. Slot(2, 0.1, 0.2, 0.1, 0.1, 0.003, "/CSlot")]);
+    Equal("2,3", string.Join(",", counterbored.Select(hole => hole.Index)));
+    Equal(counterbored[0].Slot, counterbored[1].Slot);
+
+    // 同一特征里长短不同的腰型孔是两种。
+    var lengths = HoleCalloutPlanner.GroupKinds(HoleCalloutPlanner.Recognize(
+        [.. Slot(0, 0.1, 0.2, 0.1, 0.18, 0.003, "/S"), .. Slot(2, 0.2, 0.2, 0.2, 0.17, 0.003, "/S")]));
+    Equal(2, lengths.Count);
+}
+
+static void TestSlotGeometry()
+{
+    // 圆心原点、轴 +Z、半径 5：(5,0,0)→(-5,0,0) 是半圈；(5,0,0)→(0,5,0) 是四分之一圈。
+    double[] circle = [0, 0, 0, 0, 0, 1, 0.005];
+    True(SlotPlanner.IsSemicircle(circle, [0.005, 0, 0], [-0.005, 0, 0]), "半圈");
+    True(!SlotPlanner.IsSemicircle(circle, [0.005, 0, 0], [0, 0.005, 0]), "四分之一圈（内角圆角）不是");
+
+    // 轴 × 弦 = (0,0,1) × (-1,0,0) = (0,-1,0)。
+    var normal = SlotPlanner.ChordNormal(circle, [0.005, 0, 0], [-0.005, 0, 0]);
+    Near(0, normal.X);
+    Near(-1, normal.Y);
+    double[] probe = [0, -0.005, 0];
+    // 弧在上半边：离 probe 最近的是端点（约 √2 倍半径远），鼓向反方向 +Y。
+    Near(1, SlotPlanner.Bulge(normal, probe, [0.005, 0, 0], 0.005).Y);
+    // 弧在下半边：probe 自己就在弧上，鼓向 -Y。
+    Near(-1, SlotPlanner.Bulge(normal, probe, probe, 0.005).Y);
+}
+
+static void TestSlotCallout()
+{
+    // 两个同特征的竖腰型孔 + 两个圆孔：两种各标一次；腰型孔标在最左那个腰型孔的上端。
+    List<HoleEdge> edges =
+    [
+        .. Slot(0, 0.10, 0.20, 0.10, 0.17, 0.003, "/Slot"),
+        .. Slot(2, 0.14, 0.20, 0.14, 0.17, 0.003, "/Slot"),
+        new HoleEdge(4, 0.10, 0.10, 0.002, "/Round"),
+        new HoleEdge(5, 0.14, 0.10, 0.002, "/Round"),
+    ];
+    var plan = HoleCalloutPlanner.Plan(edges, []);
+    Equal(4, plan.HoleCount);
+    Equal(2, plan.SlotCount);
+    Equal(2, plan.KindCount);
+    Equal("0,4", string.Join(",", plan.Targets.Select(target => target.EdgeIndex)));
+    Equal("4 个孔（含 2 个腰型孔）共 2 种", plan.Summary);
+
+    // 已有孔标注挂在某个腰型孔的下端：整种算标过。
+    var skipped = HoleCalloutPlanner.Plan(edges, [new SheetPoint(0.14, 0.17)]);
+    Equal(1, skipped.AlreadyAnnotated);
+    Equal("4", string.Join(",", skipped.Targets.Select(target => target.EdgeIndex)));
+}
+
+static void TestSlotCenterMarks()
+{
+    // 腰型孔两端各当一个孔标：两个竖腰型孔排成 2×2，一组线性；圆孔自成一组。
+    List<HoleEdge> edges =
+    [
+        .. Slot(0, 0.10, 0.20, 0.10, 0.17, 0.003, "/Slot"),
+        .. Slot(2, 0.14, 0.20, 0.14, 0.17, 0.003, "/Slot"),
+        new HoleEdge(4, 0.10, 0.10, 0.002, "/Round"),
+    ];
+    var plan = CenterMarkPlanner.Plan(edges, [new ExistingCenterMark(0, [new SheetPoint(0.14, 0.17)]), new ExistingCenterMark(1, [new SheetPoint(0.3, 0.3)])]);
+    Equal(3, plan.HoleCount);
+    Equal(2, plan.Groups.Count);
+    Equal("0,2,1,3", string.Join(",", plan.Groups[0].EdgeIndices));
+    True(plan.Groups[0].Linear, "腰型孔端头成线性组");
+    True(!plan.Groups[1].Linear, "单个圆孔用单个");
+    // 标在腰型孔端头上的旧符号线要删。
+    Equal("0", string.Join(",", plan.Obsolete));
+
+    // 只有一个腰型孔：两端也是一组线性，连接线就是它的中心线。
+    var lone = CenterMarkPlanner.Plan(Slot(0, 0.1, 0.2, 0.1, 0.17, 0.003, "/Slot"), []);
+    Equal("0,1", string.Join(",", lone.Groups.Single().EdgeIndices));
+    True(lone.Groups.Single().Linear, "一个腰型孔两端连成线性组");
+}
+
+static void TestSlotPosition()
+{
+    // 左基准 x=.05、上基准 y=.25。竖腰型孔上端 (.10,.20)、下端 (.10,.17)；横腰型孔左端 (.15,.12)、右端 (.19,.12)。
+    List<HoleEdge> edges =
+    [
+        .. Slot(0, 0.10, 0.17, 0.10, 0.20, 0.003, "/V"),
+        .. Slot(2, 0.19, 0.12, 0.15, 0.12, 0.003, "/H"),
+    ];
+    var plan = HolePositionPlanner.Plan(edges, 0.05, 0.25, 1);
+    Equal(2, plan.HoleCount);
+    Equal(2, plan.SlotCount);
+    // 每个腰型孔只标一端：竖的标上端（下标 1），横的一样高取左端（下标 3）；每个方向各从基准一个。
+    Equal(4, plan.Dimensions.Count);
+    True(plan.Dimensions.All(d => d.FromEdgeIndex is null), "两种都从基准标");
+    Equal("1,3", string.Join(",", plan.Dimensions.Select(d => d.ToEdgeIndex).Distinct().OrderBy(i => i)));
+
+    // 旧尺寸挂在腰型孔下端上也要删。
+    var holes = HoleCalloutPlanner.Recognize(edges);
+    Equal("0", string.Join(",", HolePositionPlanner.Obsolete(holes, [new ExistingDimension(0, 12, [new SheetPoint(0.10, 0.17)])])));
 }
 
 static void TestDistinctHoles()

@@ -33,7 +33,11 @@ internal sealed record ScannedView(
 /// <para>
 /// 「全部类型的孔」指：异形孔向导的各种孔（柱形沉头、锥形沉头、螺纹孔、直孔……）和手工切出来的圆孔。
 /// 判据是几何而不是特征——完整一圈的圆边、旁边贴着一张内凹的同半径圆柱面、轴线正对图纸。
-/// 所以导入件、镜像件、阵列出来的孔一样认得；槽口两端的半圆不是整圈，不算孔。
+/// 所以导入件、镜像件、阵列出来的孔一样认得。
+/// </para>
+/// <para>
+/// 腰型孔（1.3.0 起）：两端恰好半圈的圆弧、同样贴着内凹的同半径圆柱面，各当一个候选，再由
+/// <see cref="SlotPlanner"/> 两两配对；配不上的半圆（开口槽口的端头）仍不算孔。
 /// </para>
 /// </remarks>
 internal static class HoleScan
@@ -156,13 +160,18 @@ internal static class HoleScan
         private readonly object _viewTransform = api.Call(view, "IView", "get_ModelToViewTransform")
             ?? throw new QuickCommandException("SolidWorks 没有返回视图变换。");
 
-        /// <summary>是孔边就返回它在图纸上的圆心与半径（<c>Index</c> 由调用方补）。</summary>
+        /// <summary>
+        /// 是孔边就返回它在图纸上的圆心与半径（<c>Index</c> 由调用方补）。整圈的圆边是圆孔；
+        /// 恰好半圈的圆弧是腰型孔的端头，另记下它朝哪边鼓，配对见 <see cref="SlotPlanner"/>。
+        /// </summary>
         public HoleEdge? TryReadHole(object edge)
         {
             if (Circle(edge) is not { } circle)
                 return null;
-            // 整圈的边没有端点；槽口两端的半圆、被切掉一截的孔口都有。
-            if (api.Call(edge, "IEdge", "GetStartVertex") is not null)
+            // 整圈的边没有端点；腰型孔、槽口两端的半圆和被切掉一截的孔口都有——只留恰好半圈的。
+            double[]? bulge = null;
+            if (api.Call(edge, "IEdge", "GetStartVertex") is { } start
+                && (bulge = SlotBulge(edge, circle, start)) is null)
                 return null;
             if (HoleWall(edge, circle) is not { } wall)
                 return null;
@@ -173,8 +182,43 @@ internal static class HoleScan
                 return null;
 
             var center = ToSheet(transforms, "CreatePoint", "IMathPoint", circle[0], circle[1], circle[2]);
-            var scale = api.Call(view, "IView", "get_ScaleDecimal") is { } value ? Convert.ToDouble(value) : 1.0;
-            return new HoleEdge(0, center[0], center[1], circle[6] * scale, Kind(edge, wall));
+            var (bx, by) = (0.0, 0.0);
+            if (bulge is not null)
+            {
+                // 轴线正对图纸，鼓出方向就在图纸平面里；向量变换带着比例，重新归一。
+                var sheet = ToSheet(transforms, "CreateVector", "IMathVector", bulge[0], bulge[1], bulge[2]);
+                var length = Math.Sqrt(sheet[0] * sheet[0] + sheet[1] * sheet[1]);
+                if (length <= 0)
+                    return null;
+                (bx, by) = (sheet[0] / length, sheet[1] / length);
+            }
+
+            return new HoleEdge(0, center[0], center[1], circle[6] * Scale, Kind(edge, wall), bx, by);
+        }
+
+        /// <summary>
+        /// 恰好半圈的圆弧朝哪边鼓（零件坐标里的单位向量）；不是恰好半圈返回 null。
+        /// 判法见 <see cref="SlotPlanner.Bulge"/>：在「圆心 + 半径 × 弦法向」处问圆弧上最近的点。
+        /// </summary>
+        private double[]? SlotBulge(object edge, double[] circle, object start)
+        {
+            if (api.Call(edge, "IEdge", "GetEndVertex") is not { } end)
+                return null;
+            var s = api.CallDoubles(start, "IVertex", "GetPoint");
+            var e = api.CallDoubles(end, "IVertex", "GetPoint");
+            if (s.Length < 3 || e.Length < 3 || !SlotPlanner.IsSemicircle(circle, s, e))
+                return null;
+
+            var normal = SlotPlanner.ChordNormal(circle, s, e);
+            if (normal == (0, 0, 0))
+                return null;
+            var radius = circle[6];
+            double[] probe = [circle[0] + radius * normal.X, circle[1] + radius * normal.Y, circle[2] + radius * normal.Z];
+            var closest = api.CallDoubles(edge, "IEdge", "GetClosestPointOn", probe[0], probe[1], probe[2]);
+            if (closest.Length < 3)
+                return null;
+            var (x, y, z) = SlotPlanner.Bulge(normal, probe, closest, radius);
+            return [x, y, z];
         }
 
         /// <summary>

@@ -8,7 +8,8 @@ namespace HistoryStrenua;
 /// </summary>
 /// <remarks>
 /// <para>认孔、分种与「孔标注」相同（<see cref="HoleScan"/>）；怎么标见 <see cref="HolePositionPlanner"/>：
-/// 同种孔接着前一个孔标，不同种孔从基准标；同种孔一个方向超过 4 个且等距用阵列标法「(N-1) x 间距 =总长」。</para>
+/// 同种孔接着前一个孔标，不同种孔从基准标；同种孔一个方向超过 4 个且等距用阵列标法「(N-1) x 间距 =总长」。
+/// 腰型孔只标上方那一端圆弧的圆心（1.3.0，用户定）。</para>
 /// <para>「重新标」：先删掉连着这些孔的旧线性尺寸（孔标注、直径尺寸、外形尺寸不动），再全部重标。</para>
 /// </remarks>
 internal static class HolePosition
@@ -17,7 +18,7 @@ internal static class HolePosition
         Key: "hole-position",
         CommandName: StrenuaIdentity.Domain + ".hole.position",
         Title: "孔位尺寸",
-        Usage: "在工程图里点一个视图（先点后按、先按后点都行，60 秒内），该视图里全部的孔删掉旧位置尺寸后，以零件左侧、上侧直边为基准重标：同种孔接着前一个标，不同种从基准标；同种一个方向超过 4 个且等距时标「(N-1) x 间距 =总长」。",
+        Usage: "在工程图里点一个视图（先点后按、先按后点都行，60 秒内），该视图里全部的孔删掉旧位置尺寸后，以零件左侧、上侧直边为基准重标：同种孔接着前一个标，不同种从基准标；同种一个方向超过 4 个且等距时标「(N-1) x 间距 =总长」；腰型孔标在上方那个圆上。",
         Run: Run);
 
     // swDimensionTextParts_e / swSelectType_e
@@ -31,7 +32,7 @@ internal static class HolePosition
         var scan = HoleScan.Scan(context, "孔位尺寸", withLines: true);
         var (document, viewName) = (scan.Document, scan.ViewName);
 
-        var holes = HoleCalloutPlanner.MergeConcentric(scan.Candidates);
+        var holes = HoleCalloutPlanner.Recognize(scan.Candidates);
         if (holes.Count == 0)
             return QuickOutcome.Ok($"视图「{viewName}」里没有正对图纸的孔，没有加尺寸。");
 
@@ -44,7 +45,7 @@ internal static class HolePosition
         }
 
         var plan = HolePositionPlanner.Plan(scan.Candidates, scan.Lines[l].X1, scan.Lines[t].Y1, scan.Geometry.Scale);
-        context.Report($"孔位尺寸：视图「{viewName}」认出 {plan.HoleCount} 个孔共 {plan.KindCount} 种，"
+        context.Report($"孔位尺寸：视图「{viewName}」认出 {plan.Summary}，"
             + $"删掉孔上的旧位置尺寸后标 {plan.Dimensions.Count} 个（阵列 {plan.PatternCount} 个）。");
         _ = api.Call(document, "IDrawingDoc", "ActivateView", viewName);
 
@@ -85,7 +86,7 @@ internal static class HolePosition
             api.Call(document, "IModelDoc2", "GraphicsRedraw2");
         }
 
-        var message = $"视图「{viewName}」：{plan.HoleCount} 个孔共 {plan.KindCount} 种，删掉旧位置尺寸 {removed} 个，"
+        var message = $"视图「{viewName}」：{plan.Summary}，删掉旧位置尺寸 {removed} 个，"
             + $"新加 {added} 个（阵列标法 {plan.PatternCount} 个；连在中心线上 {onCenterLines} 个，其余孔上没有中心符号线、连在孔边上）"
             + (failed > 0 ? $"，{failed} 个 SolidWorks 没有接受" : string.Empty)
             + "。";

@@ -9,7 +9,17 @@ namespace HistoryStrenua;
 /// 孔的「种」：孔壁所属的组件与特征。同一种里同孔径的孔只标一次——SolidWorks 的孔标注
 /// 会自己在前面写上「N×」，每个都标就是把同一行字重复 N 遍。
 /// </param>
-internal readonly record struct HoleEdge(int Index, double X, double Y, double Radius, string Kind = "");
+/// <param name="BulgeX">腰型孔端头半圆朝哪边鼓（图纸上的单位向量 X）；整圈的圆孔为 0。</param>
+/// <param name="BulgeY">同上，Y。</param>
+/// <param name="Slot">
+/// 腰型孔编号（1.3.0 起）：配成一对的两个端头编号相同；圆孔为 -1。由 <see cref="SlotPlanner.Pair"/> 填。
+/// </param>
+internal readonly record struct HoleEdge(
+    int Index, double X, double Y, double Radius, string Kind = "", double BulgeX = 0, double BulgeY = 0, int Slot = -1)
+{
+    /// <summary>是腰型孔端头的半圆（不是整圈的圆孔）。</summary>
+    public bool IsSlotEnd => BulgeX != 0 || BulgeY != 0;
+}
 
 /// <summary>图纸上的一个点（米）。</summary>
 internal readonly record struct SheetPoint(double X, double Y);
@@ -22,10 +32,15 @@ internal readonly record struct SheetSegment(double X1, double Y1, double X2, do
 
 /// <summary>规划结果。</summary>
 /// <param name="Targets">要加的标注，每种孔一个，按图纸上从上到下、从左到右排。</param>
-/// <param name="HoleCount">视图里认出的孔数（同心的算一个）。</param>
+/// <param name="HoleCount">视图里认出的孔数（同心的算一个，一个腰型孔算一个）。</param>
 /// <param name="KindCount">孔的种数。</param>
 /// <param name="AlreadyAnnotated">已经有孔标注、本次跳过的种数。</param>
-internal sealed record HoleCalloutPlan(IReadOnlyList<CalloutTarget> Targets, int HoleCount, int KindCount, int AlreadyAnnotated);
+/// <param name="SlotCount">其中腰型孔的个数。</param>
+internal sealed record HoleCalloutPlan(IReadOnlyList<CalloutTarget> Targets, int HoleCount, int KindCount, int AlreadyAnnotated, int SlotCount = 0)
+{
+    /// <summary>回执里的「N 个孔（含 M 个腰型孔）共 K 种」。</summary>
+    public string Summary => HoleCalloutPlanner.Summary(HoleCount, SlotCount, KindCount);
+}
 
 /// <summary>
 /// 孔标注的纯几何部分：哪些圆边算孔、同心的怎么合并、已经标过的怎么跳过、标注放在哪。
@@ -110,14 +125,18 @@ internal static class HoleCalloutPlanner
     /// <summary>
     /// 把候选边合并成孔、把孔归成种，每种挑一个孔标注，已经标过的种跳过，定下标注放在哪。
     /// </summary>
-    /// <param name="edges">视图里正对图纸的孔边。</param>
+    /// <param name="edges">视图里正对图纸的孔边（含腰型孔端头的半圆）。</param>
     /// <param name="annotatedCenters">这个视图里已有孔标注所指的孔心。</param>
+    /// <remarks>
+    /// 腰型孔两端都留在种里：已有标注挂在哪一端都算标过；新标注标在这一种最靠左上的那一端上
+    /// （SolidWorks 的孔标注从腰型孔任一端的圆弧进去都是整个腰型孔的规格）。
+    /// </remarks>
     public static HoleCalloutPlan Plan(IReadOnlyList<HoleEdge> edges, IReadOnlyList<SheetPoint> annotatedCenters)
     {
         ArgumentNullException.ThrowIfNull(edges);
         ArgumentNullException.ThrowIfNull(annotatedCenters);
 
-        var holes = MergeConcentric(edges);
+        var holes = Recognize(edges);
         var kinds = GroupKinds(holes);
 
         var targets = new List<(HoleEdge Hole, CalloutTarget Target)>();
@@ -136,16 +155,45 @@ internal static class HoleCalloutPlanner
             targets.Add((first, new CalloutTarget(first.Index, new SheetPoint(first.X, first.Y), Placement(first))));
         }
 
+        var (holeCount, slotCount) = Count(holes);
         return new HoleCalloutPlan(
             targets
                 .OrderByDescending(item => Math.Round(item.Hole.Y / CenterTolerance))
                 .ThenBy(item => item.Hole.X)
                 .Select(item => item.Target)
                 .ToList(),
-            holes.Count,
+            holeCount,
             kinds.Count,
-            annotated);
+            annotated,
+            slotCount);
     }
+
+    /// <summary>
+    /// 候选边 → 孔：同心合并（<see cref="MergeConcentric"/>），再把腰型孔两端配成对（<see cref="SlotPlanner.Pair"/>）。
+    /// 腰型孔的两个端头各是一个元素，编号相同；配不上的半圆丢掉。三条孔类指令都从这里取孔。
+    /// </summary>
+    public static List<HoleEdge> Recognize(IReadOnlyList<HoleEdge> edges)
+        => SlotPlanner.Pair(MergeConcentric(edges));
+
+    /// <summary>
+    /// 每个腰型孔只留一端：最上面的那一端（一样高取左边的）。孔位尺寸只标这一端的圆心。圆孔原样保留。
+    /// </summary>
+    public static List<HoleEdge> Representatives(IReadOnlyList<HoleEdge> holes)
+        => holes
+            .Where(hole => hole.Slot < 0)
+            .Concat(holes.Where(hole => hole.Slot >= 0).GroupBy(hole => hole.Slot).Select(slot => ReadingOrder(slot).First()))
+            .ToList();
+
+    /// <summary>孔数（一个腰型孔算一个）与其中的腰型孔数。</summary>
+    public static (int Holes, int Slots) Count(IReadOnlyList<HoleEdge> holes)
+    {
+        var slots = holes.Where(hole => hole.Slot >= 0).Select(hole => hole.Slot).Distinct().Count();
+        return (holes.Count(hole => hole.Slot < 0) + slots, slots);
+    }
+
+    /// <summary>回执里的「12 个孔共 3 种」「14 个孔（含 2 个腰型孔）共 4 种」。</summary>
+    public static string Summary(int holes, int slots, int kinds)
+        => $"{holes} 个孔" + (slots > 0 ? $"（含 {slots} 个腰型孔）" : string.Empty) + $"共 {kinds} 种";
 
     /// <summary>
     /// 同心的归成一个孔，取最小的那条：通孔取孔径本身，沉头/锥孔取底孔。
@@ -164,7 +212,8 @@ internal static class HoleCalloutPlanner
     }
 
     /// <summary>
-    /// 一种 = 同一特征、同一孔径。孔径按图纸上 0.001 mm 取整，免得浮点尾数把一种拆成几种。
+    /// 一种 = 同一特征、同一孔径（腰型孔另加同一长度，<see cref="SlotPlanner.Pair"/> 已写进种名）。
+    /// 孔径按图纸上 0.001 mm 取整，免得浮点尾数把一种拆成几种。
     /// 每种里的孔按图纸上从上到下、从左到右排。
     /// </summary>
     public static List<List<HoleEdge>> GroupKinds(IEnumerable<HoleEdge> holes)

@@ -29,14 +29,19 @@ internal sealed record ExistingDimension(int Index, int Type, IReadOnlyList<Shee
 
 /// <summary>规划结果。</summary>
 /// <param name="Dimensions">要加的尺寸，先水平后竖直，同方向按层由里到外。</param>
-/// <param name="HoleCount">视图里认出的孔数（同心的算一个）。</param>
+/// <param name="HoleCount">视图里认出的孔数（同心的算一个，一个腰型孔算一个）。</param>
 /// <param name="KindCount">孔的种数。</param>
 /// <param name="PatternCount">用了阵列标法的尺寸个数。</param>
-internal sealed record HolePositionPlan(IReadOnlyList<PositionDimension> Dimensions, int HoleCount, int KindCount, int PatternCount);
+/// <param name="SlotCount">其中腰型孔的个数。</param>
+internal sealed record HolePositionPlan(IReadOnlyList<PositionDimension> Dimensions, int HoleCount, int KindCount, int PatternCount, int SlotCount = 0)
+{
+    /// <summary>回执里的「N 个孔（含 M 个腰型孔）共 K 种」。</summary>
+    public string Summary => HoleCalloutPlanner.Summary(HoleCount, SlotCount, KindCount);
+}
 
 /// <summary>
 /// 「孔位尺寸」的纯几何部分：基准边、每种孔怎么标、尺寸放在哪、哪些旧尺寸要删。
-/// 认孔与分种与孔标注完全相同（<see cref="HoleCalloutPlanner.MergeConcentric"/>、<see cref="HoleCalloutPlanner.GroupKinds"/>）。
+/// 认孔与分种与孔标注完全相同（<see cref="HoleCalloutPlanner.Recognize"/>、<see cref="HoleCalloutPlanner.GroupKinds"/>）。
 /// </summary>
 /// <remarks>
 /// <para>基准是视图里零件最左的竖直直边与最上的水平直边。</para>
@@ -53,6 +58,10 @@ internal sealed record HolePositionPlan(IReadOnlyList<PositionDimension> Dimensi
 /// <para>
 /// 尺寸一种孔占一层，水平的在视图上方、竖直的在视图左侧；跨度短的层在里面，免得尺寸界线互相穿过。
 /// 阵列标法那一种占两层：阵列尺寸在里、从基准到第一个孔的那个在外（用户给的样图就是这样）。
+/// </para>
+/// <para>
+/// 腰型孔（1.3.0）只取上方那一端圆弧的圆心当孔位（一样高取左边那端，<see cref="HoleCalloutPlanner.Representatives"/>），
+/// 其余规格由孔标注一次写全，不另标长度。
 /// </para>
 /// </remarks>
 internal static class HolePositionPlanner
@@ -77,7 +86,7 @@ internal static class HolePositionPlanner
     private const int HorizontalLinearDimension = 11;
     private const int VerticalLinearDimension = 12;
 
-    /// <param name="edges">视图里正对图纸的孔边。</param>
+    /// <param name="edges">视图里正对图纸的孔边（含腰型孔端头的半圆）。</param>
     /// <param name="left">左侧基准边的 X（图纸坐标）。</param>
     /// <param name="top">上侧基准边的 Y（图纸坐标）。</param>
     /// <param name="scale">视图比例（图纸长度 / 模型长度），用来把间距换成模型尺寸写进文字。</param>
@@ -87,8 +96,8 @@ internal static class HolePositionPlanner
         if (scale <= 0)
             throw new ArgumentOutOfRangeException(nameof(scale));
 
-        var holes = HoleCalloutPlanner.MergeConcentric(edges);
-        var kinds = HoleCalloutPlanner.GroupKinds(holes);
+        var holes = HoleCalloutPlanner.Recognize(edges);
+        var kinds = HoleCalloutPlanner.GroupKinds(HoleCalloutPlanner.Representatives(holes));
         var dimensions = new List<PositionDimension>();
         var patterns = 0;
         var datum = new Datum(left, top);
@@ -162,7 +171,8 @@ internal static class HolePositionPlanner
             }
         }
 
-        return new HolePositionPlan(dimensions, holes.Count, kinds.Count, patterns);
+        var (holeCount, slotCount) = HoleCalloutPlanner.Count(holes);
+        return new HolePositionPlan(dimensions, holeCount, kinds.Count, patterns, slotCount);
     }
 
     /// <summary>阵列标法的文字前缀：「10 x 60 =」，后面紧跟 SolidWorks 自己的尺寸值（总长）。</summary>

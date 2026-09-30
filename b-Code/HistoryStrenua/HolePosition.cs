@@ -10,7 +10,7 @@ namespace HistoryStrenua;
 /// <para>认孔、分种与「孔标注」相同（<see cref="HoleScan"/>）；怎么标见 <see cref="HolePositionPlanner"/>：
 /// 同种孔接着前一个孔标，不同种孔从基准标；同种孔一个方向超过 4 个且等距用阵列标法「(N-1) x 间距 =总长」。
 /// 腰型孔只标上方那一端圆弧的圆心（1.3.0，用户定）。</para>
-/// <para>「重新标」：先删掉连着这些孔的旧线性尺寸（孔标注、直径尺寸、外形尺寸不动），再全部重标。</para>
+/// <para>「重新标」：先删掉连着这些孔的旧线性尺寸与视图里悬空的线性尺寸（孔标注、直径尺寸、外形尺寸不动），再全部重标。</para>
 /// </remarks>
 internal static class HolePosition
 {
@@ -18,7 +18,7 @@ internal static class HolePosition
         Key: "hole-position",
         CommandName: StrenuaIdentity.Domain + ".hole.position",
         Title: "孔位尺寸",
-        Usage: "在工程图里点一个视图（先点后按、先按后点都行，60 秒内），该视图里全部的孔删掉旧位置尺寸后，以零件左侧、上侧直边为基准重标：同种孔接着前一个标，不同种从基准标；同种一个方向超过 4 个且等距时标「(N-1) x 间距 =总长」；腰型孔标在上方那个圆上。",
+        Usage: "在工程图里点一个视图（先点后按、先按后点都行，60 秒内），该视图里全部的孔删掉旧位置尺寸（含悬空的线性尺寸）后，以零件左侧、上侧直边为基准重标：同种孔接着前一个标，不同种从基准标；同种一个方向超过 4 个且等距时标「(N-1) x 间距 =总长」；腰型孔标在上方那个圆上。",
         Run: Run);
 
     // swDimensionTextParts_e / swSelectType_e
@@ -184,7 +184,7 @@ internal static class HolePosition
             {
                 var type = api.CallInt(dimension, "IDisplayDimension", "get_Type2");
                 var centers = HoleCallout.AttachedCircleCenters(api, scan.Geometry, annotation).ToList();
-                existing.Add(new ExistingDimension(annotations.Count, type, centers, AttachedLines(api, scan, annotation)));
+                existing.Add(new ExistingDimension(annotations.Count, type, centers, AttachedLines(api, scan, annotation), IsDangling(api, annotation)));
                 annotations.Add(annotation);
             }
 
@@ -193,6 +193,15 @@ internal static class HolePosition
 
         return HolePositionPlanner.Obsolete(holes, existing).Select(index => annotations[index]).ToList();
     }
+
+    /// <summary>
+    /// 尺寸悬空了没有：<c>IAnnotation.IsDangling</c>；保险起见附着对象里有空的也算
+    /// （真机上「中心符号线」删掉旧符号线后，挂在上面的尺寸附着类型读回 0、对象为空）。
+    /// </summary>
+    private static bool IsDangling(SolidWorksApi api, object annotation)
+        => api.CallBool(annotation, "IAnnotation", "IsDangling")
+            || api.CallArray(annotation, "IAnnotation", "GetAttachedEntities3").Any(entity => entity is null)
+            || api.CallArray(annotation, "IAnnotation", "GetAttachedEntityTypes").Any(type => Convert.ToInt32(type) == 0);
 
     /// <summary>
     /// 注解连着的视图草图线（中心符号线、中心线）在图纸上的样子。草图坐标是模型尺寸、原点在视图位置，

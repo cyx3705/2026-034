@@ -25,7 +25,9 @@ internal sealed record PositionDimension(PositionAxis Axis, int? FromEdgeIndex, 
 /// <param name="Type"><c>IDisplayDimension.Type2</c>。</param>
 /// <param name="Centers">它附着的圆边的圆心（图纸坐标）。</param>
 /// <param name="Lines">它附着的视图草图线（中心符号线的线、中心线），图纸坐标。</param>
-internal sealed record ExistingDimension(int Index, int Type, IReadOnlyList<SheetPoint> Centers, IReadOnlyList<SheetSegment>? Lines = null);
+/// <param name="Dangling">悬空：至少一头的附着丢了（<c>IAnnotation.IsDangling</c>，或附着对象读出来是空的）。</param>
+internal sealed record ExistingDimension(
+    int Index, int Type, IReadOnlyList<SheetPoint> Centers, IReadOnlyList<SheetSegment>? Lines = null, bool Dangling = false);
 
 /// <summary>规划结果。</summary>
 /// <param name="Dimensions">要加的尺寸，先水平后竖直，同方向按层由里到外。</param>
@@ -223,10 +225,14 @@ internal static class HolePositionPlanner
     /// 本指令连在中心符号线上的）。只动线性尺寸（水平、竖直、斜的）；孔标注、直径尺寸不是这里的类型，不动；
     /// 不连着孔的尺寸（外形尺寸）也不动。
     /// </summary>
+    /// <remarks>
+    /// 视图里<b>悬空</b>的线性尺寸也删（1.3.0，用户定）：「中心符号线」删旧符号线时，挂在上面的位置尺寸就悬空了，
+    /// 悬空尺寸连着什么已经读不出来，不删就和重标的新尺寸叠在一起。别的原因悬空的线性尺寸会被一并删掉。
+    /// </remarks>
     public static List<int> Obsolete(IReadOnlyList<HoleEdge> holes, IReadOnlyList<ExistingDimension> existing)
         => existing
             .Where(dimension => IsLinear(dimension.Type))
-            .Where(dimension => holes.Any(hole =>
+            .Where(dimension => dimension.Dangling || holes.Any(hole =>
                 dimension.Centers.Any(center => HoleCalloutPlanner.SameCenter(center, new SheetPoint(hole.X, hole.Y)))
                 || (dimension.Lines ?? []).Any(line => PassesThrough(line, hole))))
             .Select(dimension => dimension.Index)

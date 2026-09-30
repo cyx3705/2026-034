@@ -451,8 +451,12 @@ static void TestPositionObsolete()
         new(6, 2, [], [new SheetSegment(0.13, 0.065, 0.13, 0.055)]),
         // 连着的中心线不过任何孔心：不动
         new(7, 2, [], [new SheetSegment(0.30, 0.10, 0.30, 0.20)]),
+        // 悬空的线性尺寸（挂着的旧中心符号线被删了，连着什么已读不出）：删
+        new(8, 2, [], [], Dangling: true),
+        // 悬空的直径尺寸：不是线性尺寸，不动
+        new(9, 6, [], [], Dangling: true),
     ];
-    Equal("0,1,5,6", string.Join(",", HolePositionPlanner.Obsolete(holes, existing)));
+    Equal("0,1,5,6,8", string.Join(",", HolePositionPlanner.Obsolete(holes, existing)));
     True(!HolePositionPlanner.PassesThrough(new SheetSegment(0.13, 0.07, 0.13, 0.08), holes[0]), "线段延长线过孔心不算");
 }
 

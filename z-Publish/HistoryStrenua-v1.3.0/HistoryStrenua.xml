@@ -424,7 +424,7 @@
             <para>认孔、分种与「孔标注」相同（<see cref="T:HistoryStrenua.HoleScan"/>）；怎么标见 <see cref="T:HistoryStrenua.HolePositionPlanner"/>：
             同种孔接着前一个孔标，不同种孔从基准标；同种孔一个方向超过 4 个且等距用阵列标法「(N-1) x 间距 =总长」。
             腰型孔只标上方那一端圆弧的圆心（1.3.0，用户定）。</para>
-            <para>「重新标」：先删掉连着这些孔的旧线性尺寸（孔标注、直径尺寸、外形尺寸不动），再全部重标。</para>
+            <para>「重新标」：先删掉连着这些孔的旧线性尺寸与视图里悬空的线性尺寸（孔标注、直径尺寸、外形尺寸不动），再全部重标。</para>
             </remarks>
         </member>
         <member name="M:HistoryStrenua.HolePosition.Insert(HistoryStrenua.SolidWorks.SolidWorksApi,HistoryStrenua.ScannedView,System.Object,HistoryStrenua.PositionDimension)">
@@ -456,6 +456,12 @@
         <member name="M:HistoryStrenua.HolePosition.ReadObsolete(HistoryStrenua.SolidWorks.SolidWorksApi,HistoryStrenua.ScannedView,System.Collections.Generic.IReadOnlyList{HistoryStrenua.HoleEdge})">
             <summary>
             视图里连着这些孔的旧线性尺寸（<c>IAnnotation</c>）：连着孔边的，或连着穿过孔心的中心线的。孔标注不算。
+            </summary>
+        </member>
+        <member name="M:HistoryStrenua.HolePosition.IsDangling(HistoryStrenua.SolidWorks.SolidWorksApi,System.Object)">
+            <summary>
+            尺寸悬空了没有：<c>IAnnotation.IsDangling</c>；保险起见附着对象里有空的也算
+            （真机上「中心符号线」删掉旧符号线后，挂在上面的尺寸附着类型读回 0、对象为空）。
             </summary>
         </member>
         <member name="M:HistoryStrenua.HolePosition.AttachedLines(HistoryStrenua.SolidWorks.SolidWorksApi,HistoryStrenua.ScannedView,System.Object)">
@@ -510,13 +516,15 @@
             <param name="Type"><c>IDisplayDimension.Type2</c>。</param>
             <param name="Centers">它附着的圆边的圆心（图纸坐标）。</param>
             <param name="Lines">它附着的视图草图线（中心符号线的线、中心线），图纸坐标。</param>
+            <param name="Dangling">悬空：至少一头的附着丢了（<c>IAnnotation.IsDangling</c>，或附着对象读出来是空的）。</param>
         </member>
-        <member name="M:HistoryStrenua.ExistingDimension.#ctor(System.Int32,System.Int32,System.Collections.Generic.IReadOnlyList{HistoryStrenua.SheetPoint},System.Collections.Generic.IReadOnlyList{HistoryStrenua.SheetSegment})">
+        <member name="M:HistoryStrenua.ExistingDimension.#ctor(System.Int32,System.Int32,System.Collections.Generic.IReadOnlyList{HistoryStrenua.SheetPoint},System.Collections.Generic.IReadOnlyList{HistoryStrenua.SheetSegment},System.Boolean)">
             <summary>视图里已有的一个尺寸：它的类型（<c>swDimensionType_e</c>）与它连着的圆边圆心、中心线。</summary>
             <param name="Index">回指调用方手里那个尺寸。</param>
             <param name="Type"><c>IDisplayDimension.Type2</c>。</param>
             <param name="Centers">它附着的圆边的圆心（图纸坐标）。</param>
             <param name="Lines">它附着的视图草图线（中心符号线的线、中心线），图纸坐标。</param>
+            <param name="Dangling">悬空：至少一头的附着丢了（<c>IAnnotation.IsDangling</c>，或附着对象读出来是空的）。</param>
         </member>
         <member name="P:HistoryStrenua.ExistingDimension.Index">
             <summary>回指调用方手里那个尺寸。</summary>
@@ -529,6 +537,9 @@
         </member>
         <member name="P:HistoryStrenua.ExistingDimension.Lines">
             <summary>它附着的视图草图线（中心符号线的线、中心线），图纸坐标。</summary>
+        </member>
+        <member name="P:HistoryStrenua.ExistingDimension.Dangling">
+            <summary>悬空：至少一头的附着丢了（<c>IAnnotation.IsDangling</c>，或附着对象读出来是空的）。</summary>
         </member>
         <member name="T:HistoryStrenua.HolePositionPlan">
             <summary>规划结果。</summary>
@@ -629,6 +640,10 @@
             本指令连在中心符号线上的）。只动线性尺寸（水平、竖直、斜的）；孔标注、直径尺寸不是这里的类型，不动；
             不连着孔的尺寸（外形尺寸）也不动。
             </summary>
+            <remarks>
+            视图里<b>悬空</b>的线性尺寸也删（1.3.0，用户定）：「中心符号线」删旧符号线时，挂在上面的位置尺寸就悬空了，
+            悬空尺寸连着什么已经读不出来，不删就和重标的新尺寸叠在一起。别的原因悬空的线性尺寸会被一并删掉。
+            </remarks>
         </member>
         <member name="M:HistoryStrenua.HolePositionPlanner.IsLinear(System.Int32)">
             <summary>

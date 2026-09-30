@@ -80,5 +80,32 @@
     "**/node_modules/**",
     "**/.vs/**",
     "artifacts/**"
-  ]
+  ],
+  "publish": {
+    "versionProps": "b-Code\\HistoryStrenua\\HistoryStrenuaVersion.props",
+    "versionProperty": "HistoryStrenuaVersion",
+    "sourceManifest": "b-Code\\HistoryStrenua\\module.manifest.json",
+    "package": {
+      "project": "b-Code\\HistoryStrenua\\HistoryStrenua.csproj",
+      "files": [
+        "HistoryStrenua.dll",
+        "HistoryStrenua.xml",
+        "module.manifest.json"
+      ]
+    },
+    "validation": [
+      {
+        "tool": "dotnet.exe",
+        "arguments": [
+          "run",
+          "--project",
+          "b-Code\\HistoryStrenua.Tests\\HistoryStrenua.Tests.csproj",
+          "-c",
+          "Release",
+          "-p:NuGetAudit=false"
+        ],
+        "description": "Run HistoryStrenua offline tests"
+      }
+    ]
+  }
 }

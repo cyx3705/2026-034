@@ -22,7 +22,7 @@ public sealed class HistoryStrenuaModule : IModuleContextAware
         context.RegisterCommands(registry => Register(registry, runner));
     }
 
-    internal static void Register(CommandRegistry registry, QuickCommandRunner runner)
+    internal static void Register(ICommandRegistrar registry, QuickCommandRunner runner)
     {
         foreach (var command in QuickCommands.All)
         {
@@ -35,7 +35,7 @@ public sealed class HistoryStrenuaModule : IModuleContextAware
                 Example = command.CommandName,
                 Level = CommandLevel.Run,
                 Handler = context => runner.RunAsync(command, context),
-            }, StrenuaIdentity.Source);
+            });
         }
 
         registry.Register(new CommandDescriptor
@@ -47,7 +47,7 @@ public sealed class HistoryStrenuaModule : IModuleContextAware
             Example = StrenuaIdentity.Domain + ".quick.list",
             Readonly = true,
             Handler = CommandDescriptor.Sync(_ => CommandResult.Ok(ListText(runner), StrenuaPage.Rows(runner))),
-        }, StrenuaIdentity.Source);
+        });
 
         registry.Register(new CommandDescriptor
         {
@@ -57,10 +57,10 @@ public sealed class HistoryStrenuaModule : IModuleContextAware
             Summary = "取消正在执行的 PowerSW 快捷指令（包括正在等你点视图的那一条）",
             Example = StrenuaIdentity.Domain + ".quick.cancel",
             Handler = CommandDescriptor.Sync(_ => runner.Cancel()),
-        }, StrenuaIdentity.Source);
+        });
 
-        registry.Register(Internal("describe", "返回 PowerSW 页面描述", _ => Json(StrenuaPage.Describe())), StrenuaIdentity.Source);
-        registry.Register(Internal("actions", "返回 PowerSW 页面动作声明", _ => Json(StrenuaPage.Actions())), StrenuaIdentity.Source);
+        registry.Register(Internal("describe", "返回 PowerSW 页面描述", _ => Json(StrenuaPage.Describe())));
+        registry.Register(Internal("actions", "返回 PowerSW 页面动作声明", _ => Json(StrenuaPage.Actions())));
         registry.Register(new CommandDescriptor
         {
             Name = StrenuaIdentity.Domain + ".ui.data",
@@ -74,7 +74,7 @@ public sealed class HistoryStrenuaModule : IModuleContextAware
                 context.GetString("view")?.Trim().ToLowerInvariant() is null or "commands"
                     ? CommandResult.Ok("PowerSW 快捷指令", StrenuaPage.Rows(runner))
                     : CommandResult.Fail("未知 view；支持 commands")),
-        }, StrenuaIdentity.Source);
+        });
     }
 
     private static string ListText(QuickCommandRunner runner)

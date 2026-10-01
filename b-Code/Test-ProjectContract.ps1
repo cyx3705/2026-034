@@ -174,4 +174,4 @@ if ($errors.Count -gt 0) {
     exit 1
 }
 
-Write-Output "HistoryStrenua project contract: PASS ($moduleVersion; Vulcan 5.1.2)"
+Write-Output "HistoryStrenua project contract: PASS ($moduleVersion; Vulcan 6.0.0)"

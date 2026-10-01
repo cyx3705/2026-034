@@ -11,7 +11,7 @@ namespace HistoryStrenua;
 /// 一次只跑一条，是因为所有快捷指令都作用在用户同一个 SolidWorks 的同一个选择集上——
 /// 两条同时跑，一条的 ClearSelection 会把另一条正在等的视图选择清掉。
 /// </remarks>
-internal sealed class QuickCommandRunner(CommandBus? bus)
+internal sealed class QuickCommandRunner(ICommandBus? bus)
 {
     private readonly object _gate = new();
     private readonly Dictionary<string, QuickCommandStatus> _status = new(StringComparer.Ordinal);
@@ -122,8 +122,7 @@ internal sealed class QuickCommandRunner(CommandBus? bus)
         try
         {
             await bus.ExecuteAsync(
-                $"aurora.ui.refreshdata node={StrenuaPage.StatusTableId}",
-                StrenuaIdentity.Source).ConfigureAwait(false);
+                $"aurora.ui.refreshdata node={StrenuaPage.StatusTableId}", "").ConfigureAwait(false);
         }
         catch (Exception)
         {

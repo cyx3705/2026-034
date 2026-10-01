@@ -16,9 +16,6 @@ internal static class StrenuaIdentity
     /// </summary>
     public const string PageOwner = "HistoryStrenua";
 
-    /// <summary>注册来源。</summary>
-    public const string Source = "module:HistoryStrenua";
-
     /// <summary>用户看到的页面标题。模块叫 Strenua，面向用户的功能名是 PowerSW。</summary>
     public const string PageTitle = "PowerSW";
 }

@@ -33,7 +33,7 @@ HistoryStrenua 是 HistoryVulcan 的 SolidWorks 易用性模块，面向用户�
 | — | `strenua.quick.list` | 列出全部快捷指令及上次结果（只读） |
 
 三条孔类指令认孔、分种的规则相同；选视图两种顺序都行：先在 SolidWorks 里点视图再按按钮，或者按完按钮 60 秒内去点视图。
-参数、返回与失败语义见 [模块 API](./b-Office/package/模块API.md)。
+参数读注册自描述：`diana.docs.read domain=strenua`（宿主 6.1.0 起没有消费文档）；回执与 Data 形状见 [技术合同](./b-Office/current/技术合同.md)「对外约定」。
 
 ## 入口
 
@@ -46,7 +46,6 @@ HistoryStrenua 是 HistoryVulcan 的 SolidWorks 易用性模块，面向用户�
 | [技术合同](./b-Office/current/技术合同.md) | 现行需求与架构 |
 | [有效决策](./b-Office/current/有效决策.md) | 仍然有效的关键决策 |
 | [验证合同](./b-Office/current/验证合同.md) | 验证层级、命令与证据 |
-| [模块 API](./b-Office/package/模块API.md) | 跨模块消费合同 |
 
 ## 目录
 
@@ -55,7 +54,7 @@ HistoryStrenua 是 HistoryVulcan 的 SolidWorks 易用性模块，面向用户�
 | `b-Code/HistoryStrenua/` | 模块源码、manifest 与 `eng/` 构建脚本 |
 | `b-Code/HistoryStrenua.Tests/` | 离线自动验证 |
 | `b-Code/` | 项目合同检查 |
-| `b-Office/` | 项目文档：`current/` 现行合同、`package/` 消费合同、`history/` 只读归档 |
+| `b-Office/` | 项目文档：`current/` 现行合同、`history/` 只读归档 |
 | `z-Publish/` | 正式快照与 `history/` 归档，由宿主管线写入 |
 
 ## 构建与验证

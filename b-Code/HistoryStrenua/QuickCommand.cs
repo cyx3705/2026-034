@@ -19,12 +19,14 @@ namespace HistoryStrenua;
 /// <param name="Key">稳定标识，也是表格行 id 与动作 id 的后缀。</param>
 /// <param name="CommandName">总线指令名，形如 <c>strenua.&lt;类&gt;.&lt;方法&gt;</c>。</param>
 /// <param name="Title">按钮文字。</param>
-/// <param name="Usage">怎么用：写进状态表与指令摘要。</param>
+/// <param name="Summary">一句话说明（120 字内）：写进指令自描述的 Summary。</param>
+/// <param name="Usage">怎么用的完整说明：写进页面状态表与 <c>strenua.quick.list</c>。</param>
 /// <param name="Run">在已附着 SolidWorks 的 STA 线程上执行。</param>
 internal sealed record QuickCommand(
     string Key,
     string CommandName,
     string Title,
+    string Summary,
     string Usage,
     Func<QuickCommandContext, QuickOutcome> Run)
 {

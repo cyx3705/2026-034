@@ -31,7 +31,7 @@ public sealed class HistoryStrenuaModule : IModuleContextAware
                 Name = command.CommandName,
                 Domain = StrenuaIdentity.Domain,
                 CommandClass = command.CommandClass,
-                Summary = $"PowerSW「{command.Title}」：{command.Usage}",
+                Summary = $"PowerSW「{command.Title}」：{command.Summary}",
                 Example = command.CommandName,
                 Level = CommandLevel.Run,
                 Handler = context => runner.RunAsync(command, context),

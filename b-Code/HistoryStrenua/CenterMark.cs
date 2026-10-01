@@ -19,6 +19,7 @@ internal static class CenterMark
         Key: "center-mark",
         CommandName: StrenuaIdentity.Domain + ".hole.centermark",
         Title: "中心符号线",
+        Summary: "点一个工程图视图，删掉视图里孔上的旧中心符号线后按种重标（线性带连接线，单孔用单个）。",
         Usage: "在工程图里点一个视图（先点后按、先按后点都行，60 秒内），该视图里全部的孔删掉旧中心符号线后重标：每种孔一组线性中心符号线带连接线，单孔用单个；腰型孔两端各标一个。",
         Run: Run);
 

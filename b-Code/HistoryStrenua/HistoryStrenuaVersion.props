@@ -2,7 +2,7 @@
   <PropertyGroup>
     <!-- 版本的唯一真源。module.manifest.json 与根 project.manifest.json 必须同值，
          打包脚本与合同检查会逐一比对——宿主对版本不一致的处理是静默跳过整个模块。 -->
-    <HistoryStrenuaVersion>1.4.0</HistoryStrenuaVersion>
+    <HistoryStrenuaVersion>1.4.1</HistoryStrenuaVersion>
     <!-- 模块接入面只用注册器 + 命令总线 + CommandContext.Progress，5.1.2 起冻结。 -->
     <MinimumHistoryVulcanVersion>6.0.0</MinimumHistoryVulcanVersion>
     <VersionPrefix>$(HistoryStrenuaVersion)</VersionPrefix>

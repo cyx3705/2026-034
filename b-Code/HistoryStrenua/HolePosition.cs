@@ -18,6 +18,7 @@ internal static class HolePosition
         Key: "hole-position",
         CommandName: StrenuaIdentity.Domain + ".hole.position",
         Title: "孔位尺寸",
+        Summary: "点一个工程图视图，删掉孔的旧位置尺寸后以零件左侧、上侧直边为基准重标全部孔位尺寸。",
         Usage: "在工程图里点一个视图（先点后按、先按后点都行，60 秒内），该视图里全部的孔删掉旧位置尺寸（含悬空的线性尺寸）后，以零件左侧、上侧直边为基准重标：同种孔接着前一个标，不同种从基准标；同种一个方向超过 4 个且等距时标「(N-1) x 间距 =总长」；腰型孔标在上方那个圆上。",
         Run: Run);
 

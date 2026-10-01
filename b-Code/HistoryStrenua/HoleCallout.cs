@@ -16,6 +16,7 @@ internal static class HoleCallout
         Key: "hole-callout",
         CommandName: StrenuaIdentity.Domain + ".hole.callout",
         Title: "孔标注",
+        Summary: "点一个工程图视图，视图里每种孔（含腰型孔）各标一次孔标注，已有标注的种跳过。",
         Usage: "在工程图里点一个视图（先点后按、先按后点都行，60 秒内），该视图里每种孔（含腰型孔）标一次（数量由 SolidWorks 的 N× 带出）；已有标注的种跳过。",
         Run: Run);
 

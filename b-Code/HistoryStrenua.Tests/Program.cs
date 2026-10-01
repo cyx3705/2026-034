@@ -162,7 +162,7 @@ static void TestStatusRows()
 static void TestButtonRowsWrap()
 {
     var many = Enumerable.Range(0, StrenuaPage.ButtonsPerRow + 2)
-        .Select(i => new QuickCommand($"k{i}", $"strenua.test.k{i}", $"指令{i}", "测试", _ => QuickOutcome.Ok("ok")))
+        .Select(i => new QuickCommand($"k{i}", $"strenua.test.k{i}", $"指令{i}", "测试", "测试", _ => QuickOutcome.Ok("ok")))
         .ToList();
     using var description = JsonDocument.Parse(StrenuaPage.Describe(many));
     var panel = Descendants(description.RootElement)

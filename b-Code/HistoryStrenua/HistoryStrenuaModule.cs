@@ -94,7 +94,7 @@ public sealed class HistoryStrenuaModule : IModuleContextAware
         registry.Register(Option(StrenuaOption.Clearance, "clearance", "避障",
             "页面「避障」开关：开着时孔标注、孔位尺寸加完后把压在别的孔相关注解上的文字挪开（默认开）", runner.Options));
         registry.Register(Option(StrenuaOption.Chain, "chain", "尺寸链",
-            "页面「尺寸链」开关：开着时孔位尺寸每个方向全部孔一条链逐段标，不分种、不用阵列写法（默认关）", runner.Options));
+            "页面「尺寸链」开关：开着时孔位尺寸改用 SW 原生尺寸链，每个方向全部孔一条链，不分种、不用阵列（默认关）", runner.Options));
     }
 
     /// <summary>

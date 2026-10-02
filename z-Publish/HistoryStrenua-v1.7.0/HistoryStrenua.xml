@@ -688,7 +688,7 @@
             <remarks>
             <para>认孔、分种与「孔标注」相同（<see cref="T:HistoryStrenua.HoleScan"/>）；怎么标见 <see cref="T:HistoryStrenua.HolePositionPlanner"/>：
             同种孔接着前一个孔标，不同种孔从基准标；同种孔一个方向超过 4 个且等距用阵列标法「(N-1) x 间距 =总长」。
-            页面「尺寸链」开关打开时（1.7.0）改为每个方向全部孔一条链、逐段标。
+            页面「尺寸链」开关打开时（1.7.0）改为每个方向全部孔一条 SolidWorks 原生尺寸链（<see cref="M:HistoryStrenua.HolePosition.InsertChain(HistoryStrenua.SolidWorks.SolidWorksApi,HistoryStrenua.ScannedView,System.Object,System.Collections.Generic.IReadOnlyList{HistoryStrenua.PositionDimension})"/>）。
             腰型孔只标上方那一端圆弧的圆心（1.3.0，用户定）。</para>
             <para>「重新标」：先删掉连着这些孔的旧线性尺寸与视图里悬空的线性尺寸（孔标注、直径尺寸、外形尺寸不动），再全部重标。</para>
             <para>最后做标注避障（1.6.0，<see cref="M:HistoryStrenua.Clearance.ClearDimensions(HistoryStrenua.QuickCommandContext,HistoryStrenua.ScannedView,System.Collections.Generic.IReadOnlyList{HistoryStrenua.HoleEdge})"/>）：尺寸数字压在别的孔相关注解上就沿尺寸线滑开。
@@ -715,6 +715,19 @@
             <para>建出来的不是线性尺寸就删掉，退回选孔边再建。</para>
             </remarks>
             <returns>加上了没有，以及是不是连在中心线上。</returns>
+        </member>
+        <member name="M:HistoryStrenua.HolePosition.InsertChain(HistoryStrenua.SolidWorks.SolidWorksApi,HistoryStrenua.ScannedView,System.Object,System.Collections.Generic.IReadOnlyList{HistoryStrenua.PositionDimension})">
+            <summary>
+            一个方向的一条 SolidWorks 原生尺寸链（「尺寸链」工具，<c>IModelDocExtension.InsertChainDimensions</c>）：
+            依次选基准边与各站的孔边，传 null 让它用预选（真机 SW 2025 SP5：直接传 <c>GetVisibleEntities2</c> 的边返回 null，
+            预选才行；方向由基准边定，竖边出水平链、横边出竖直链）。
+            </summary>
+            <remarks>
+            <para>只连孔边、不连中心符号线：预选里混进中心符号线时 SolidWorks 返回 null。量到的仍是圆心，值相同。</para>
+            <para>新建的链放在图纸外（尺寸线在 y≈0 或 x≈0）且每段文字带引线偏开（<c>OffsetText</c> = true）。逐段关掉偏开，
+            再按规划位置 <c>SetPosition2</c>——关掉之后尺寸线跟着文字走；每段各自移，不会带动同链其他段。</para>
+            </remarks>
+            <returns>链里加上的尺寸个数；0 表示 SolidWorks 没接受，调用方退回逐个标。</returns>
         </member>
         <member name="M:HistoryStrenua.HolePosition.Discard(HistoryStrenua.SolidWorks.SolidWorksApi,HistoryStrenua.ScannedView,System.Object)">
             <summary>删掉刚建错的尺寸（例如 SolidWorks 建成了角度尺寸）。</summary>
@@ -1424,7 +1437,7 @@
             <summary>避障：孔标注、孔位尺寸加完后把压在别的孔相关注解上的文字挪开。</summary>
         </member>
         <member name="P:HistoryStrenua.StrenuaOptions.Chain">
-            <summary>尺寸链模式：孔位尺寸每个方向全部孔排成一条链（基准→第一个→下一个…），不分种、不用阵列写法。</summary>
+            <summary>尺寸链模式：孔位尺寸每个方向全部孔一条 SolidWorks 原生尺寸链（基准→第一个→下一个…），不分种、不用阵列写法。</summary>
         </member>
         <member name="M:HistoryStrenua.StrenuaOptions.Set(HistoryStrenua.StrenuaOption,System.Boolean)">
             <summary>改一个开关并存档。</summary>

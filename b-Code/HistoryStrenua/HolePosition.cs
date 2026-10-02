@@ -9,7 +9,7 @@ namespace HistoryStrenua;
 /// <remarks>
 /// <para>认孔、分种与「孔标注」相同（<see cref="HoleScan"/>）；怎么标见 <see cref="HolePositionPlanner"/>：
 /// 同种孔接着前一个孔标，不同种孔从基准标；同种孔一个方向超过 4 个且等距用阵列标法「(N-1) x 间距 =总长」。
-/// 页面「尺寸链」开关打开时（1.7.0）改为每个方向全部孔一条链、逐段标。
+/// 页面「尺寸链」开关打开时（1.7.0）改为每个方向全部孔一条 SolidWorks 原生尺寸链（<see cref="InsertChain"/>）。
 /// 腰型孔只标上方那一端圆弧的圆心（1.3.0，用户定）。</para>
 /// <para>「重新标」：先删掉连着这些孔的旧线性尺寸与视图里悬空的线性尺寸（孔标注、直径尺寸、外形尺寸不动），再全部重标。</para>
 /// <para>最后做标注避障（1.6.0，<see cref="Clearance.ClearDimensions"/>）：尺寸数字压在别的孔相关注解上就沿尺寸线滑开。
@@ -22,7 +22,7 @@ internal static class HolePosition
         CommandName: StrenuaIdentity.Domain + ".hole.position",
         Title: "孔位尺寸",
         Summary: "点一个工程图视图，删掉孔的旧位置尺寸后以零件左侧、上侧直边为基准重标全部孔位尺寸。",
-        Usage: "在工程图里点一个视图（先点后按、先按后点都行，60 秒内），该视图里全部的孔删掉旧位置尺寸（含悬空的线性尺寸）后，以零件左侧、上侧直边为基准重标：同种孔接着前一个标，不同种从基准标；同种一个方向超过 4 个且等距时标「(N-1) x 间距 =总长」（页面「尺寸链」开关打开时改为每个方向全部孔一条链、逐段标）；腰型孔标在上方那个圆上；「避障」开关开着时，数字压在别的孔的尺寸、中心符号线等线条上就沿尺寸线滑开。",
+        Usage: "在工程图里点一个视图（先点后按、先按后点都行，60 秒内），该视图里全部的孔删掉旧位置尺寸（含悬空的线性尺寸）后，以零件左侧、上侧直边为基准重标：同种孔接着前一个标，不同种从基准标；同种一个方向超过 4 个且等距时标「(N-1) x 间距 =总长」（页面「尺寸链」开关打开时改用 SolidWorks 原生尺寸链，每个方向全部孔一条链）；腰型孔标在上方那个圆上；「避障」开关开着时，数字压在别的孔的尺寸、中心符号线等线条上就沿尺寸线滑开。",
         Run: context => Run(context, null));
 
     // swDimensionTextParts_e / swSelectType_e
@@ -60,6 +60,7 @@ internal static class HolePosition
         var added = 0;
         var onCenterLines = 0;
         var failed = 0;
+        var nativeChains = 0;
         var clearance = default(ClearanceResult);
         try
         {
@@ -72,7 +73,32 @@ internal static class HolePosition
             }
 
             context.SetState("加尺寸");
-            foreach (var dimension in plan.Dimensions)
+            var pending = plan.Dimensions;
+            if (chain)
+            {
+                // 尺寸链模式用 SolidWorks 原生尺寸链（DEC-018）；某个方向 SolidWorks 不接受时，那个方向退回逐个标。
+                var leftOver = new List<PositionDimension>();
+                foreach (var axis in new[] { PositionAxis.Horizontal, PositionAxis.Vertical })
+                {
+                    context.Cancellation.ThrowIfCancellationRequested();
+                    var links = plan.Dimensions.Where(dimension => dimension.Axis == axis).ToList();
+                    if (links.Count == 0)
+                        continue;
+                    var chained = InsertChain(api, scan, scan.LineEdges[axis == PositionAxis.Horizontal ? l : t], links);
+                    if (chained == 0)
+                        leftOver.AddRange(links);
+                    else
+                    {
+                        added += chained;
+                        failed += links.Count - chained;
+                        nativeChains++;
+                    }
+                }
+
+                pending = leftOver;
+            }
+
+            foreach (var dimension in pending)
             {
                 context.Cancellation.ThrowIfCancellationRequested();
                 var datumEdge = scan.LineEdges[dimension.Axis == PositionAxis.Horizontal ? l : t];
@@ -101,7 +127,7 @@ internal static class HolePosition
         }
 
         var message = $"视图「{viewName}」：{plan.Summary}，删掉旧位置尺寸 {removed} 个，"
-            + $"新加 {added} 个（{(chain ? "尺寸链模式" : $"阵列标法 {plan.PatternCount} 个")}；连在中心线上 {onCenterLines} 个，其余孔上没有中心符号线、连在孔边上）"
+            + $"新加 {added} 个（{(chain ? $"尺寸链模式，原生尺寸链 {nativeChains} 条" : $"阵列标法 {plan.PatternCount} 个")}；连在中心线上 {onCenterLines} 个，其余孔上没有中心符号线、连在孔边上）"
             + (failed > 0 ? $"，{failed} 个 SolidWorks 没有接受" : string.Empty)
             + clearance.Describe("尺寸数字")
             + "。";
@@ -148,6 +174,46 @@ internal static class HolePosition
         }
 
         return (false, false);
+    }
+
+    /// <summary>
+    /// 一个方向的一条 SolidWorks 原生尺寸链（「尺寸链」工具，<c>IModelDocExtension.InsertChainDimensions</c>）：
+    /// 依次选基准边与各站的孔边，传 null 让它用预选（真机 SW 2025 SP5：直接传 <c>GetVisibleEntities2</c> 的边返回 null，
+    /// 预选才行；方向由基准边定，竖边出水平链、横边出竖直链）。
+    /// </summary>
+    /// <remarks>
+    /// <para>只连孔边、不连中心符号线：预选里混进中心符号线时 SolidWorks 返回 null。量到的仍是圆心，值相同。</para>
+    /// <para>新建的链放在图纸外（尺寸线在 y≈0 或 x≈0）且每段文字带引线偏开（<c>OffsetText</c> = true）。逐段关掉偏开，
+    /// 再按规划位置 <c>SetPosition2</c>——关掉之后尺寸线跟着文字走；每段各自移，不会带动同链其他段。</para>
+    /// </remarks>
+    /// <returns>链里加上的尺寸个数；0 表示 SolidWorks 没接受，调用方退回逐个标。</returns>
+    private static int InsertChain(SolidWorksApi api, ScannedView scan, object datumEdge, IReadOnlyList<PositionDimension> links)
+    {
+        api.Call(scan.Document, "IModelDoc2", "ClearSelection2", true);
+        if (!SelectEdge(api, scan, datumEdge, false))
+            return 0;
+        foreach (var link in links)
+        {
+            if (!SelectEdge(api, scan, scan.Edges[link.ToEdgeIndex], true))
+                return 0;
+        }
+
+        if (api.Call(scan.Document, "IModelDoc2", "get_Extension") is not { } extension)
+            return 0;
+        var created = api.CallArray(extension, "IModelDocExtension", "InsertChainDimensions", (object?)null);
+        api.Call(scan.Document, "IModelDoc2", "ClearSelection2", true);
+        var placed = 0;
+        for (var i = 0; i < created.Length && i < links.Count; i++)
+        {
+            if (created[i] is not { } displayDimension)
+                continue;
+            api.Call(displayDimension, "IDisplayDimension", "set_OffsetText", false);
+            if (api.Call(displayDimension, "IDisplayDimension", "GetAnnotation") is { } annotation)
+                api.Call(annotation, "IAnnotation", "SetPosition2", links[i].TextAt.X, links[i].TextAt.Y, 0.0);
+            placed++;
+        }
+
+        return placed;
     }
 
     /// <summary>删掉刚建错的尺寸（例如 SolidWorks 建成了角度尺寸）。</summary>

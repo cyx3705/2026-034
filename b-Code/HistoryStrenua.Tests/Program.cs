@@ -10,7 +10,8 @@ var tests = new (string Name, Action Run)[]
     ("page owner follows domain", TestPageOwner),
     ("buttons, actions and commands line up", TestPageWiring),
     ("status rows", TestStatusRows),
-    ("button rows wrap", TestButtonRowsWrap),
+    ("toolbar: float, search, class, cancel", TestToolbar),
+    ("search and class filter rows", TestRowFilter),
     ("cancel when idle", TestCancelWhenIdle),
     ("concentric edges are one hole", TestConcentricMerge),
     ("annotated holes are skipped", TestAnnotatedSkipped),
@@ -71,6 +72,7 @@ static void TestCommandRegistration()
         "strenua.hole.centermark",
         "strenua.hole.position",
         "strenua.quick.list",
+        "strenua.quick.run",
         "strenua.quick.cancel",
         "strenua.ui.describe",
         "strenua.ui.actions",
@@ -89,6 +91,9 @@ static void TestCommandRegistration()
     True(hole.HiddenReason is null, "快捷指令要能在控制台直接敲");
     True(registry.TryGet("strenua.hole.centermark", out var centerMark) && !centerMark!.Readonly, "中心符号线会改工程图，不是只读");
     True(registry.TryGet("strenua.quick.list", out var list) && list!.Readonly, "列表是只读的");
+    True(registry.TryGet("strenua.quick.run", out var run) && !run!.Readonly, "按 key 执行会改工程图，不是只读");
+    var keys = run!.Parameters!.Single(p => p.Name == "key").AllowedValues!;
+    True(QuickCommands.All.All(command => keys.Contains(command.Key)), "quick.run 的 key 候选应覆盖全部快捷指令");
     foreach (var method in new[] { "describe", "actions", "data" })
     {
         True(registry.TryGet("strenua.ui." + method, out var ui), $"缺少 strenua.ui.{method}");
@@ -124,25 +129,31 @@ static void TestPageWiring()
         var id = action.GetProperty("id").GetString()!;
         var command = action.GetProperty("command").GetString()!;
         True(declared.TryAdd(id, command), $"动作 id 重复：{id}");
-        True(registry.TryGet(command, out _), $"动作 {id} 指向未注册的指令 {command}");
+        // aurora.* 由 Aurora 注册，不在本模块的注册表里。
+        if (!command.StartsWith("aurora.", StringComparison.Ordinal))
+            True(registry.TryGet(command, out _), $"动作 {id} 指向未注册的指令 {command}");
     }
 
+    Equal("aurora.ui.float", declared[StrenuaPage.FloatActionId]);
+    Equal("strenua.quick.run", declared[StrenuaPage.RunActionId]);
+
     using var description = JsonDocument.Parse(StrenuaPage.Describe());
-    var buttons = Descendants(description.RootElement)
+    var bound = Descendants(description.RootElement)
         .Where(node => node.TryGetProperty("kind", out var kind) && kind.GetString() == "button")
         .Select(node => node.GetProperty("action").GetString()!)
+        .Concat(Descendants(description.RootElement)
+            .Where(node => node.TryGetProperty("cellAction", out _))
+            .Select(node => node.GetProperty("cellAction").GetString()!))
         .ToList();
-    foreach (var command in QuickCommands.All)
-        True(buttons.Contains(command.ActionId), $"页面缺少「{command.Title}」按钮");
-    True(buttons.Contains(StrenuaPage.CancelActionId), "页面缺少取消按钮");
-    foreach (var button in buttons)
-        True(declared.ContainsKey(button), $"按钮绑定了未声明的动作 {button}");
+    True(bound.Contains(StrenuaPage.RunActionId), "指令表第一列应绑执行动作");
+    foreach (var action in bound)
+        True(declared.ContainsKey(action), $"页面绑定了未声明的动作 {action}");
 
     var sources = Descendants(description.RootElement)
         .Where(node => node.TryGetProperty("dataSource", out _))
         .Select(node => node.GetProperty("dataSource").GetProperty("command").GetString()!)
         .ToList();
-    True(sources.Count > 0, "页面应有状态表");
+    True(sources.Count > 0, "页面应有指令表");
     foreach (var source in sources)
         True(registry.TryGet(source, out _), $"表格取数指向未注册的指令 {source}");
 }
@@ -156,23 +167,47 @@ static void TestStatusRows()
     Equal("就绪", hole["state"]);
     Equal(string.Empty, hole["result"]);
     foreach (var row in rows)
-        True(new[] { "id", "title", "usage", "state", "result", "time" }.All(row.ContainsKey), "状态行缺列");
+        True(new[] { "id", "title", "class", "usage", "state", "result", "time" }.All(row.ContainsKey), "状态行缺列");
 }
 
-static void TestButtonRowsWrap()
+static void TestToolbar()
 {
-    var many = Enumerable.Range(0, StrenuaPage.ButtonsPerRow + 2)
-        .Select(i => new QuickCommand($"k{i}", $"strenua.test.k{i}", $"指令{i}", "测试", "测试", _ => QuickOutcome.Ok("ok")))
-        .ToList();
-    using var description = JsonDocument.Parse(StrenuaPage.Describe(many));
+    using var description = JsonDocument.Parse(StrenuaPage.Describe());
     var panel = Descendants(description.RootElement)
         .First(node => node.TryGetProperty("id", out var id) && id.GetString() == StrenuaPage.PanelId);
     var rows = panel.GetProperty("rows").EnumerateArray().ToList();
-    // 6 个指令 + 取消 = 7 个按钮，每行 4 个 → 两行。
-    Equal(2, rows.Count);
-    Equal(StrenuaPage.ButtonsPerRow, rows[0].GetProperty("widgets").GetArrayLength());
-    var last = rows[^1].GetProperty("widgets").EnumerateArray().Last();
-    Equal(StrenuaPage.CancelActionId, last.GetProperty("action").GetString()!);
+    Equal(1, rows.Count);
+    var widgets = rows[0].GetProperty("widgets").EnumerateArray().ToList();
+    Equal(4, widgets.Count);
+    Equal(StrenuaPage.FloatActionId, widgets[0].GetProperty("action").GetString()!);
+    Equal(StrenuaPage.SearchChannel, widgets[1].GetProperty("channel").GetString()!);
+    Equal("select", widgets[2].GetProperty("mode").GetString()!);
+    Equal(StrenuaPage.ClassChannel, widgets[2].GetProperty("channel").GetString()!);
+    Equal(StrenuaPage.AllClasses, widgets[2].GetProperty("options")[0].GetString()!);
+    Equal(StrenuaPage.CancelActionId, widgets[3].GetProperty("action").GetString()!);
+
+    // 指令表取数要跟着两个通道走。
+    var args = Descendants(description.RootElement)
+        .First(node => node.TryGetProperty("dataSource", out _))
+        .GetProperty("dataSource").GetProperty("args");
+    Equal("{selection." + StrenuaPage.SearchChannel + ".value}", args.GetProperty("query").GetString()!);
+    Equal("{selection." + StrenuaPage.ClassChannel + ".value}", args.GetProperty("class").GetString()!);
+}
+
+static void TestRowFilter()
+{
+    var runner = new QuickCommandRunner(null);
+    Equal(QuickCommands.All.Count, StrenuaPage.Rows(runner, "", StrenuaPage.AllClasses).Count);
+    Equal(QuickCommands.All.Count, StrenuaPage.Rows(runner, "  ", "孔").Count);
+    Equal(QuickCommands.All.Count, StrenuaPage.Rows(runner, null, "hole").Count);
+    Equal(0, StrenuaPage.Rows(runner, null, "没有这个类").Count);
+    var callout = StrenuaPage.Rows(runner, "孔标注", null);
+    Equal(1, callout.Count);
+    Equal("hole-callout", callout[0]["id"]);
+    Equal("孔", callout[0]["class"]);
+    // 多段词都要命中；指令名也算。
+    Equal(1, StrenuaPage.Rows(runner, "strenua.hole centermark", null).Count);
+    Equal(0, StrenuaPage.Rows(runner, "孔标注 不存在的词", null).Count);
 }
 
 static void TestCancelWhenIdle()

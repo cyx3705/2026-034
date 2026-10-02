@@ -4,7 +4,7 @@ using HistoryVulcan.Core.Modules;
 namespace HistoryStrenua;
 
 /// <summary>
-/// 模块装配入口：登记页面协议三条指令、每条快捷指令一条总线指令，外加列表与取消。
+/// 模块装配入口：登记页面协议三条指令、每条快捷指令一条总线指令，外加列表、按 key 执行与取消。
 /// </summary>
 /// <remarks>
 /// 判断一段代码该不该进这个仓，用这条：它是否作用于用户**正在用**的 SolidWorks、
@@ -51,6 +51,35 @@ public sealed class HistoryStrenuaModule : IModuleContextAware
 
         registry.Register(new CommandDescriptor
         {
+            Name = StrenuaIdentity.Domain + ".quick.run",
+            Domain = StrenuaIdentity.Domain,
+            CommandClass = "quick",
+            Summary = "按 key 执行一条 PowerSW 快捷指令（页面指令表点名称走的就是这条）",
+            Example = StrenuaIdentity.Domain + ".quick.run key=" + QuickCommands.All[0].Key,
+            Level = CommandLevel.Run,
+            Parameters =
+            [
+                new ParameterSpec
+                {
+                    Name = "key",
+                    Description = "快捷指令的 key（strenua.quick.list 返回行的 id 列）",
+                    Required = true,
+                    Position = 0,
+                    AllowedValues = QuickCommands.All.Select(command => command.Key).ToArray(),
+                },
+            ],
+            Handler = context =>
+            {
+                var key = context.RequireString("key").Trim();
+                var command = QuickCommands.All.FirstOrDefault(item => item.Key == key);
+                return command is null
+                    ? Task.FromResult(CommandResult.Fail($"没有 key={key} 的快捷指令"))
+                    : runner.RunAsync(command, context);
+            },
+        });
+
+        registry.Register(new CommandDescriptor
+        {
             Name = StrenuaIdentity.Domain + ".quick.cancel",
             Domain = StrenuaIdentity.Domain,
             CommandClass = "quick",
@@ -66,13 +95,15 @@ public sealed class HistoryStrenuaModule : IModuleContextAware
             Name = StrenuaIdentity.Domain + ".ui.data",
             Domain = StrenuaIdentity.Domain,
             CommandClass = "ui",
-            Summary = "返回 PowerSW 状态表的行",
+            Summary = "返回 PowerSW 指令表的行（query 搜索词、class 类名筛选）",
             Readonly = true,
             HiddenReason = Hidden,
             AllowUnspecifiedParameters = true,
             Handler = CommandDescriptor.Sync(context =>
                 context.GetString("view")?.Trim().ToLowerInvariant() is null or "commands"
-                    ? CommandResult.Ok("PowerSW 快捷指令", StrenuaPage.Rows(runner))
+                    ? CommandResult.Ok(
+                        "PowerSW 快捷指令",
+                        StrenuaPage.Rows(runner, context.GetString("query"), context.GetString("class")))
                     : CommandResult.Fail("未知 view；支持 commands")),
         });
     }

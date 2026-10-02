@@ -5,7 +5,7 @@
 ## 定位
 
 HistoryStrenua 是 HistoryVulcan 的 SolidWorks 易用性模块，面向用户的名字叫 **PowerSW**。
-它附着到你**正在用**的那个 SolidWorks，把重复的手工操作做成一排快捷按钮；每个按钮同时是一条宿主指令，
+它附着到你**正在用**的那个 SolidWorks，把重复的手工操作做成一键快捷指令；每条同时是一条宿主指令，
 控制台里也能直接敲。
 
 - 它只作用于用户已打开的 SolidWorks：不启动、不隐藏、不接管、不退出。
@@ -24,15 +24,18 @@ HistoryStrenua 是 HistoryVulcan 的 SolidWorks 易用性模块，面向用户�
 
 ## 能力
 
-| 按钮 | 指令 | 用途 |
+| 页面上 | 指令 | 用途 |
 | --- | --- | --- |
 | 孔标注 | `strenua.hole.callout` | 点一个工程图视图，视图里每种孔标一次（数量由 SW 的「N×」带出），标在孔左上方；已标过的种跳过 |
 | 中心符号线 | `strenua.hole.centermark` | 点一个工程图视图，视图里全部的孔删掉旧中心符号线后重标：每种孔一组「线性中心符号线 + 连接线」，单孔用单个 |
 | 孔位尺寸 | `strenua.hole.position` | 点一个工程图视图，以零件左侧、上侧为基准重标全部孔的位置尺寸：同种孔接着标、不同种从基准标，同种超过 4 个等距标「(N-1) x 间距 =总长」；按中心线标，并排的孔不重复 |
-| 取消 | `strenua.quick.cancel` | 取消正在执行的快捷指令（包括正在等你点视图的那一条） |
+| 工具条「取消」 | `strenua.quick.cancel` | 取消正在执行的快捷指令（包括正在等你点视图的那一条） |
 | — | `strenua.quick.list` | 列出全部快捷指令及上次结果（只读） |
+| 指令表点名称 | `strenua.quick.run` | 按 key 执行一条快捷指令 |
+| 工具条「浮动」 | `aurora.ui.float name=powersw` | 整页浮成置顶小窗，操作 SolidWorks 时也点得到，拖空白处移动；再点还原（需 Aurora 1.30.1+） |
 
-三条孔类指令认孔、分种的规则相同；选视图两种顺序都行：先在 SolidWorks 里点视图再按按钮，或者按完按钮 60 秒内去点视图。
+页面只有一行工具条（浮动 / 搜索 / 类 / 取消）和一张指令表，点表里「指令」列的名称就执行。
+三条孔类指令认孔、分种的规则相同；选视图两种顺序都行：先在 SolidWorks 里点视图再点指令名，或者点完 60 秒内去点视图。
 参数读注册自描述：`diana.docs.read domain=strenua`（宿主 6.1.0 起没有消费文档）；回执与 Data 形状见 [技术合同](./b-Office/current/技术合同.md)「对外约定」。
 
 ## 入口
@@ -73,8 +76,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\b-Code\Test-ProjectContrac
 `vulcan.dev.start` → `vulcan.dev.submit`（候选构建并热装送审）→ `vulcan.dev.finish`（批准后并回并写入 `z-Publish`）。
 本仓不自行发布；`eng/Build-HistoryStrenuaPackage.ps1` 只用于本地候选构建。
 
-**加一个快捷按钮**：写一个 `QuickCommand`（在已附着 SolidWorks 的 STA 线程上执行），
-登记进 `QuickCommands.All`。按钮、动作声明、指令注册和状态表都由登记表生成。
+**加一条快捷指令**：写一个 `QuickCommand`（在已附着 SolidWorks 的 STA 线程上执行），
+登记进 `QuickCommands.All`。指令表行、类选项、动作声明和指令注册都由登记表生成；新类在 `QuickCommands` 的类名表里登记中文名。
 
 ## 要点
 

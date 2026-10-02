@@ -27,7 +27,7 @@ internal sealed record ScannedView(
 /// </summary>
 /// <remarks>
 /// <para>
-/// 选视图两种顺序都行：按按钮前已经在 SolidWorks 里选中了视图（或视图里的任何东西），直接用它；
+/// 选视图两种顺序都行：执行前已经在 SolidWorks 里选中了视图（或视图里的任何东西），直接用它；
 /// 没选就等用户去点，最多 <see cref="SelectionTimeout"/>。
 /// </para>
 /// <para>

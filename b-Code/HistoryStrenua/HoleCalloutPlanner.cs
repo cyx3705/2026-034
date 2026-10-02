@@ -14,8 +14,9 @@ namespace HistoryStrenua;
 /// <param name="Slot">
 /// 腰型孔编号（1.3.0 起）：配成一对的两个端头编号相同；圆孔为 -1。由 <see cref="SlotPlanner.Pair"/> 填。
 /// </param>
+/// <param name="Dowel">孔壁是异形孔向导的销钉孔（1.6.0 起，判法见 <c>HoleScan.ViewGeometry</c>）。</param>
 internal readonly record struct HoleEdge(
-    int Index, double X, double Y, double Radius, string Kind = "", double BulgeX = 0, double BulgeY = 0, int Slot = -1)
+    int Index, double X, double Y, double Radius, string Kind = "", double BulgeX = 0, double BulgeY = 0, int Slot = -1, bool Dowel = false)
 {
     /// <summary>是腰型孔端头的半圆（不是整圈的圆孔）。</summary>
     public bool IsSlotEnd => BulgeX != 0 || BulgeY != 0;
@@ -240,16 +241,17 @@ internal static class HoleCalloutPlanner
     }
 
     /// <summary>
-    /// 孔标注的引线折点：显示数据里最长的那条水平线（文字下划线）的右端。没有水平线返回 null。
+    /// 孔标注的引线折点：显示数据里最长的那条水平线（文字下划线）的右端（文字在折点右边时取左端，1.6.0）。
+    /// 没有水平线返回 null。
     /// </summary>
-    public static SheetPoint? ShoulderEnd(IEnumerable<SheetSegment> lines)
+    public static SheetPoint? ShoulderEnd(IEnumerable<SheetSegment> lines, bool textLeft = true)
     {
         var shoulder = lines
             .Where(line => Math.Abs(line.Y1 - line.Y2) < 1e-7 && Math.Abs(line.X1 - line.X2) > 1e-6)
             .OrderByDescending(line => Math.Abs(line.X1 - line.X2))
             .Cast<SheetSegment?>()
             .FirstOrDefault();
-        return shoulder is { } s ? new SheetPoint(Math.Max(s.X1, s.X2), s.Y1) : null;
+        return shoulder is { } s ? new SheetPoint(textLeft ? Math.Max(s.X1, s.X2) : Math.Min(s.X1, s.X2), s.Y1) : null;
     }
 
     private static bool SameCenter(double ax, double ay, double bx, double by)

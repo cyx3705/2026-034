@@ -55,15 +55,12 @@ internal static class HoleScan
     /// <param name="context">快捷指令上下文。</param>
     /// <param name="title">指令名，写进进度与失败消息，如「孔标注」。</param>
     /// <param name="withLines">同时收集视图里的直边（孔位尺寸找基准用）。</param>
-    public static ScannedView Scan(QuickCommandContext context, string title, bool withLines = false)
+    /// <param name="view">直接处理这个视图，不看选择、不等点选（「孔标注全流程」逐个视图调用时给）。</param>
+    public static ScannedView Scan(QuickCommandContext context, string title, bool withLines = false, object? view = null)
     {
         var api = context.Api;
-        var document = context.Session.ActiveDocument()
-            ?? throw new QuickCommandException("SolidWorks 里没有打开的文档。请先打开工程图。");
-        if (api.CallInt(document, "IModelDoc2", "GetType") != DocumentDrawing)
-            throw new QuickCommandException($"当前活动文档「{api.CallString(document, "IModelDoc2", "GetTitle")}」不是工程图。请切到工程图再按。");
-
-        var view = WaitForView(context, document, title);
+        var document = ActiveDrawing(context);
+        view ??= WaitForView(context, document, title);
         var viewName = api.CallString(view, "IView", "get_Name");
         var model = api.Call(view, "IView", "get_ReferencedDocument")
             ?? throw new QuickCommandException($"视图「{viewName}」没有引用模型（空视图，或模型是轻化/未加载状态）。");
@@ -94,6 +91,37 @@ internal static class HoleScan
         }
 
         return new ScannedView(document, view, viewName, geometry, edges, candidates, lineEdges, lines);
+    }
+
+    /// <summary>活动文档，必须是工程图。</summary>
+    public static object ActiveDrawing(QuickCommandContext context)
+    {
+        var api = context.Api;
+        var document = context.Session.ActiveDocument()
+            ?? throw new QuickCommandException("SolidWorks 里没有打开的文档。请先打开工程图。");
+        if (api.CallInt(document, "IModelDoc2", "GetType") != DocumentDrawing)
+            throw new QuickCommandException($"当前活动文档「{api.CallString(document, "IModelDoc2", "GetTitle")}」不是工程图。请切到工程图再按。");
+        return document;
+    }
+
+    /// <summary>
+    /// 当前图纸页上的全部视图（不含图纸本身），按 SolidWorks 的视图顺序。
+    /// <c>IDrawingDoc.GetFirstView</c> 返回的是当前图纸页，往后 <c>GetNextView</c> 只走这一页的视图。
+    /// </summary>
+    public static List<object> SheetViews(SolidWorksApi api, object document)
+    {
+        var views = new List<object>();
+        var view = api.Call(document, "IDrawingDoc", "GetFirstView") is { } sheet
+            ? api.Call(sheet, "IView", "GetNextView")
+            : null;
+        while (view is not null)
+        {
+            if (api.CallInt(view, "IView", "get_Type") != ViewSheet)
+                views.Add(view);
+            view = api.Call(view, "IView", "GetNextView");
+        }
+
+        return views;
     }
 
     /// <summary>
@@ -193,7 +221,8 @@ internal static class HoleScan
                 (bx, by) = (sheet[0] / length, sheet[1] / length);
             }
 
-            return new HoleEdge(0, center[0], center[1], circle[6] * Scale, Kind(edge, wall), bx, by);
+            var (kind, dowel) = Kind(edge, wall);
+            return new HoleEdge(0, center[0], center[1], circle[6] * Scale, kind, bx, by, Dowel: dowel);
         }
 
         /// <summary>
@@ -224,34 +253,74 @@ internal static class HoleScan
         /// <summary>
         /// 孔的「种」：组件 + 孔壁所属特征。同一个异形孔向导特征、同一次拉伸切除、同一个阵列里的孔是一种，
         /// SolidWorks 的孔标注会把它们数成「N×」。取不到特征时退回只按组件分（再由孔径细分）。
+        /// 同时回答这是不是销钉孔（<see cref="IsDowelFeature"/>）。
         /// </summary>
-        private string Kind(object edge, object wall)
+        private (string Kind, bool Dowel) Kind(object edge, object wall)
         {
             var component = api.Call(edge, "IEntity", "GetComponent") is { } owner
                 ? api.CallString(owner, "IComponent2", "get_Name2")
                 : string.Empty;
             string feature;
+            var dowel = false;
             try
             {
-                feature = api.Call(wall, "IFace2", "GetFeature") is { } owning
-                    ? api.CallString(owning, "IFeature", "get_Name")
-                    : string.Empty;
+                if (api.Call(wall, "IFace2", "GetFeature") is { } owning)
+                {
+                    feature = api.CallString(owning, "IFeature", "get_Name");
+                    var key = component + "/" + feature;
+                    if (!_dowelFeatures.TryGetValue(key, out dowel))
+                        _dowelFeatures[key] = dowel = IsDowelFeature(owning);
+                }
+                else
+                {
+                    feature = string.Empty;
+                }
             }
             catch (Exception ex) when (ex is System.Runtime.InteropServices.COMException or InvalidCastException)
             {
                 feature = string.Empty;
             }
 
-            return component + "/" + feature;
+            return (component + "/" + feature, dowel);
         }
 
-        /// <summary>圆边的圆心在图纸上的位置；不是圆边返回 null。</summary>
+        private readonly Dictionary<string, bool> _dowelFeatures = new(StringComparer.Ordinal);
+
+        /// <summary>
+        /// 异形孔向导做的销钉孔：特征类型 <c>HoleWzd</c>，定义里的紧固件类型（<c>FastenerType2</c>）是各标准的
+        /// 「DowelHole」（<c>swWzdHoleStandardFastenerTypes_e</c> 703–712）。<c>Type</c> 是孔的细类（如柱形沉头通孔 14），不用它判。
+        /// </summary>
+        private bool IsDowelFeature(object feature)
+        {
+            try
+            {
+                return api.CallString(feature, "IFeature", "GetTypeName2") == "HoleWzd"
+                    && api.Call(feature, "IFeature", "GetDefinition") is { } definition
+                    && DowelPlanner.IsDowelFastener(api.CallInt(definition, "IWizardHoleFeatureData2", "get_FastenerType2"));
+            }
+            catch (Exception ex) when (ex is System.Runtime.InteropServices.COMException or InvalidCastException)
+            {
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// 圆边的圆心在图纸上的位置；不是圆边返回 null。注解附着的对象可能已经失效（悬空尺寸连着的边被删），
+        /// 这时 SolidWorks 给的对象不再是边，调用报类型不符——也当不是圆边。
+        /// </summary>
         public SheetPoint? TryReadCircleCenter(object edge)
         {
-            if (Circle(edge) is not { } circle)
+            try
+            {
+                if (Circle(edge) is not { } circle)
+                    return null;
+                var center = ToSheet(Transforms(edge), "CreatePoint", "IMathPoint", circle[0], circle[1], circle[2]);
+                return new SheetPoint(center[0], center[1]);
+            }
+            catch (Exception ex) when (ex is System.Runtime.InteropServices.COMException or InvalidCastException or System.Reflection.TargetException)
+            {
                 return null;
-            var center = ToSheet(Transforms(edge), "CreatePoint", "IMathPoint", circle[0], circle[1], circle[2]);
-            return new SheetPoint(center[0], center[1]);
+            }
         }
 
         /// <summary>直边在图纸上的两个端点；不是直边（或没有端点）返回 null。</summary>

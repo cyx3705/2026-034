@@ -30,6 +30,12 @@ var tests = new (string Name, Action Run)[]
     ("slots: one callout per kind, on the upper end", TestSlotCallout),
     ("slots: center marks on both ends", TestSlotCenterMarks),
     ("slots: position on the upper end only", TestSlotPosition),
+    ("dowels: only hole wizard dowel holes without a symbol", TestDowelPlan),
+    ("dowels: fastener types and arc center", TestDowelGeometry),
+    ("clearance: text boxes and lines (real drawing data)", TestClearanceHits),
+    ("clearance: dimension text slides along its line", TestClearanceSlide),
+    ("clearance: callout moves to a free corner", TestClearanceCallout),
+    ("full flow: steps and scope", TestFlowCommand),
     ("distinct holes stay distinct", TestDistinctHoles),
     ("targets read top-down, left-right", TestTargetOrder),
     ("placement sits up-left of the hole", TestPlacement),
@@ -71,6 +77,8 @@ static void TestCommandRegistration()
         "strenua.hole.callout",
         "strenua.hole.centermark",
         "strenua.hole.position",
+        "strenua.hole.dowel",
+        "strenua.hole.flow",
         "strenua.quick.list",
         "strenua.quick.run",
         "strenua.quick.cancel",
@@ -202,9 +210,8 @@ static void TestRowFilter()
     Equal(QuickCommands.All.Count, StrenuaPage.Rows(runner, null, "hole").Count);
     Equal(0, StrenuaPage.Rows(runner, null, "没有这个类").Count);
     var callout = StrenuaPage.Rows(runner, "孔标注", null);
-    Equal(1, callout.Count);
-    Equal("hole-callout", callout[0]["id"]);
-    Equal("孔", callout[0]["class"]);
+    Equal("hole-flow,hole-callout", string.Join(",", callout.Select(row => row["id"])));
+    Equal("孔", callout[1]["class"]);
     // 多段词都要命中；指令名也算。
     Equal(1, StrenuaPage.Rows(runner, "strenua.hole centermark", null).Count);
     Equal(0, StrenuaPage.Rows(runner, "孔标注 不存在的词", null).Count);
@@ -642,6 +649,140 @@ static void TestSlotPosition()
     Equal("0", string.Join(",", HolePositionPlanner.Obsolete(holes, [new ExistingDimension(0, 12, [new SheetPoint(0.10, 0.17)])])));
 }
 
+static void TestDowelPlan()
+{
+    // 两个销钉孔（其中一个已有符号）、一个同径普通孔、一个沉头销钉孔（两条同心边）、一对腰型孔端头（即便标成销钉也不算）。
+    var plan = DowelPlanner.Plan(
+        [
+            new HoleEdge(0, 0.10, 0.20, 0.003, "/销钉孔1", Dowel: true),
+            new HoleEdge(1, 0.15, 0.20, 0.003, "/销钉孔1", Dowel: true),
+            new HoleEdge(2, 0.20, 0.20, 0.003, "/Cut"),
+            new HoleEdge(3, 0.10, 0.10, 0.005, "/销钉孔2", Dowel: true),
+            new HoleEdge(4, 0.10, 0.10, 0.002, "/销钉孔2", Dowel: true),
+            .. Slot(5, 0.3, 0.2, 0.3, 0.1, 0.003, "/S").Select(edge => edge with { Dowel = true }),
+        ],
+        [new SheetPoint(0.15 + 1e-6, 0.20)]);
+    Equal(3, plan.DowelCount);
+    Equal(1, plan.AlreadyMarked);
+    Equal("0,4", string.Join(",", plan.EdgeIndices));
+    Equal(0, DowelPlanner.Plan([new HoleEdge(0, 0.1, 0.1, 0.003, "/Cut")], []).DowelCount);
+}
+
+static void TestDowelGeometry()
+{
+    True(DowelPlanner.IsDowelFastener(708), "GB 销钉孔");
+    True(DowelPlanner.IsDowelFastener(703) && DowelPlanner.IsDowelFastener(712), "703–712 都是销钉孔");
+    True(!DowelPlanner.IsDowelFastener(361), "GB 内六角圆柱头螺钉（沉头孔）不是");
+    // 真机读回（过渡板 View2 Ø5.5 孔上的销钉符号）：起点 (79.56,94.68)、中点 (79.56,91.93)、终点同起点，图纸 mm。
+    var center = DowelPlanner.ArcCenter([0.07956, 0.09468, 0.07956, 0.09193, 0.07956, 0.09468]);
+    Near(0.07956, center!.Value.X);
+    True(Math.Abs(center.Value.Y - 0.093305) < 1e-9, "圆心在起点与中点正中");
+    True(DowelPlanner.ArcCenter([0.1, 0.2]) is null, "点不够返回 null");
+}
+
+static void TestClearanceHits()
+{
+    // 过渡板 View2 真机显示数据（图纸 mm → m）。竖直尺寸「24」：基线点 (44.31,91.74)、角 π/2、宽 6.13、高 3.5。
+    static double M(double mm) => mm / 1000;
+    var text24 = new TextBox(M(44.31), M(91.74), M(6.13), M(3.5), Math.PI / 2);
+    var corners = text24.Corners().ToList();
+    True(corners.All(p => p.X <= M(44.31) + 1e-12 && p.X >= M(40.81) - 1e-12), "竖直尺寸的字往 -X 长 3.5 mm");
+    // 同一列上的「10」的尺寸线伸出箭头的那一截 (44.31,100.8)-(44.31,97.3) 伸到「24」字底下：算（分不清是谁的数）；
+    // 共线但停在字外的不算。
+    True(ClearancePlanner.Hits(text24, new SheetSegment(M(44.31), M(100.8), M(44.31), M(97.3))), "伸到字底下的共线尺寸线要算");
+    True(!ClearancePlanner.Hits(text24, new SheetSegment(M(44.31), M(105.8), M(44.31), M(98.5))), "停在字外的共线尺寸线不算");
+    // 一条水平尺寸界线横穿字：算。
+    True(ClearancePlanner.Hits(text24, new SheetSegment(M(30), M(94), M(60), M(94))), "横穿字的界线要算");
+    // 端点在字里、另一端在外：算；整条在外：不算。
+    True(ClearancePlanner.Hits(text24, new SheetSegment(M(42), M(93), M(42), M(80))), "伸进字里的线要算");
+    True(!ClearancePlanner.Hits(text24, new SheetSegment(M(30), M(80), M(60), M(80))), "外面的线不算");
+    // 水平尺寸「42.50」与「30」同层相邻：两段字不相交；字叠在一起才算。
+    var text4250 = new TextBox(M(63.57), M(113.8), M(10.74), M(3.5));
+    var text30 = new TextBox(M(83.99), M(113.8), M(6.13), M(3.5));
+    True(!ClearancePlanner.Hits(text4250, text30), "相邻的字不相交");
+    True(ClearancePlanner.Hits(text4250, text30.Shift(M(-15), 0)), "叠上的字要算");
+    True(ClearancePlanner.Hits(text4250, new TextBox(M(65), M(114.5), M(1), M(1))), "整个包在里面也算");
+    var obstacles = new Obstacles([new SheetSegment(M(30), M(94), M(60), M(94))], [text30]);
+    Equal(1, ClearancePlanner.Hits([text24], obstacles));
+    Equal(0, ClearancePlanner.Hits([text4250], obstacles));
+}
+
+static void TestClearanceSlide()
+{
+    // 水平尺寸数字宽 6 mm，正中有一条竖直界线穿过：沿尺寸线（+X 优先）滑到字完全离开（含留白）。
+    var text = new TextBox(0.100, 0.200, 0.006, 0.0035);
+    var obstacles = new Obstacles([new SheetSegment(0.103, 0.190, 0.103, 0.210)], []);
+    var offset = ClearancePlanner.Slide([text], 1, 0, obstacles);
+    True(offset is not null, "应能滑开");
+    Equal(0, ClearancePlanner.Hits(ClearancePlanner.Shift([text], offset!.Value, 0), obstacles));
+    True(Math.Abs(offset.Value - 0.0035) < 1e-12, $"应滑 3.5 mm（0.5 mm 一步、躲开 0.3 mm 留白），实际 {offset.Value * 1000:0.###}");
+    Equal(0.0, ClearancePlanner.Slide([text], 1, 0, Obstacles.Empty));
+    // 两边都被挡死：null，不挪。
+    var walls = Enumerable.Range(-40, 81).Select(i => new SheetSegment(0.1 + i * 0.001, 0.19, 0.1 + i * 0.001, 0.21)).ToList();
+    True(ClearancePlanner.Slide([text], 1, 0, new Obstacles(walls, [])) is null, "滑到头都压：不挪");
+
+    // 真机过渡板「9.50」：尺寸界线 x=58.31 与 63.06（跨度 4.75 mm），字宽 9.2 mm 装不下；自己的界线也算障碍，
+    // 尺寸线（与字平行）不算。字整个滑到界线外。
+    static double M(double mm) => mm / 1000;
+    SheetSegment[] own =
+    [
+        new(M(58.31), M(105.3), M(58.31), M(121.8)),
+        new(M(63.06), M(105.55), M(63.06), M(121.8)),
+        new(M(58.31), M(119.8), M(63.06), M(119.8)),
+    ];
+    var crossing = ClearancePlanner.CrossingLines(own, 0).ToList();
+    Equal(2, crossing.Count);
+    Equal(1, ClearancePlanner.CrossingLines(own, Math.PI / 2).Count());
+    var text950 = new TextBox(M(56.09), M(119.8), M(9.2), M(3.5));
+    var slide = ClearancePlanner.Slide([text950], 1, 0, new Obstacles(crossing, []));
+    var moved = text950.Shift(slide!.Value, 0);
+    True(moved.X >= M(63.06) || moved.X + moved.Width <= M(58.31), $"字应整个在界线外，实际 {moved.X * 1000:0.##}–{(moved.X + moved.Width) * 1000:0.##}");
+}
+
+static void TestClearanceCallout()
+{
+    // 真机：孔标注「2 x Ø5.50 完全贯穿」在左时下划线 32.5–65.44，右端（折点）= 文字右缘 64.19 + 1.25；
+    // 整块右移 50 mm 后 SolidWorks 把引线换到左侧，下划线左端 81.25 = 文字左缘 82.5 - 1.25。
+    static double M(double mm) => mm / 1000;
+    TextBox[] texts = [new(M(32.5), M(68.82), M(6.13), M(3.5)), new(M(42.74), M(68.82), M(21.45), M(3.5)), new(M(36.06), M(64.49), M(7.36), M(3.5))];
+    var (dx, dy) = ClearancePlanner.CalloutShift(texts, M(68.84), new CalloutSpot(new SheetPoint(M(65.44), M(68.84)), TextLeft: true));
+    True(Math.Abs(dx) < 1e-5 && Math.Abs(dy) < 1e-9, "原位折点不该挪");
+    (dx, _) = ClearancePlanner.CalloutShift(texts, M(68.84), new CalloutSpot(new SheetPoint(M(81.25), M(68.84)), TextLeft: false));
+    True(Math.Abs(dx - M(50)) < 1e-5, $"换到右侧应平移 50 mm，实际 {dx * 1000:0.###}");
+
+    // 孔在 (100,100) mm、半径 2 mm；左上角位压着一条水平线：换到右上。
+    var hole = new HoleEdge(0, M(100), M(100), M(2));
+    var spots = ClearancePlanner.CalloutSpots(hole).ToList();
+    Equal(12, spots.Count);
+    True(spots[0].TextLeft && spots[0].Shoulder.X < hole.X && spots[0].Shoulder.Y > hole.Y, "第一个是左上（默认）");
+    True(!spots[1].TextLeft && spots[1].Shoulder.X > hole.X && spots[1].Shoulder.Y > hole.Y, "第二个是右上，文字在右");
+    var first = ClearancePlanner.CalloutShift(texts, M(68.84), spots[0]);
+    var block = ClearancePlanner.Shift(texts, first.Dx, first.Dy);
+    var top = block.SelectMany(text => text.Corners()).Max(p => p.Y);
+    var obstacles = new Obstacles([new SheetSegment(M(40), top - M(1), M(99), top - M(1))], []);
+    var hits = ClearancePlanner.Hits(block, obstacles);
+    Equal(1, hits);
+    var chosen = ClearancePlanner.ChooseCallout(texts, M(68.84), hole, obstacles, hits);
+    Equal(spots[1], chosen!.Value);
+    // 四面八方都压且不比现在少：不挪。
+    var everywhere = new Obstacles(Enumerable.Range(0, 40).Select(i => new SheetSegment(0, M(50 + i * 2), M(300), M(50 + i * 2))).ToList(), []);
+    True(ClearancePlanner.ChooseCallout(texts, M(68.84), hole, everywhere, 1) is null, "没有更好的角位就不挪");
+}
+
+static void TestFlowCommand()
+{
+    var flow = QuickCommands.All.Single(command => command.Key == "hole-flow");
+    Equal("strenua.hole.flow", flow.CommandName);
+    Equal("孔标注全流程", flow.Title);
+    // 用户定的顺序写在用法里，页面上看得到。
+    var usage = flow.Usage;
+    True(usage.IndexOf("销钉符号", StringComparison.Ordinal) < usage.IndexOf("中心符号线", StringComparison.Ordinal)
+        && usage.IndexOf("中心符号线", StringComparison.Ordinal) < usage.IndexOf("孔位尺寸", StringComparison.Ordinal)
+        && usage.IndexOf("孔位尺寸", StringComparison.Ordinal) < usage.IndexOf("→ 孔标注", StringComparison.Ordinal), "步骤顺序");
+    True(usage.Contains("当前图纸页", StringComparison.Ordinal), "范围是当前图纸页");
+    Equal("hole-flow,dowel-symbol,center-mark,hole-position,hole-callout", string.Join(",", QuickCommands.All.Select(command => command.Key)));
+}
+
 static void TestDistinctHoles()
 {
     // 相距 0.1 mm 的两个孔不能被当成同心。
@@ -688,6 +829,8 @@ static void TestShoulderEnd()
     Near(0.0825, end!.Value.X);
     Near(0.2146, end.Value.Y);
     True(HoleCalloutPlanner.ShoulderEnd([new(0, 0, 0.01, 0.01)]) is null, "没有水平线时返回 null");
+    // 文字在折点右边（1.6.0 避障换到右侧角位）：折点是下划线左端。
+    Near(0.0483, HoleCalloutPlanner.ShoulderEnd(lines, textLeft: false)!.Value.X);
 }
 
 static void TestFacesViewer()

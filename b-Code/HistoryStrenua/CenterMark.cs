@@ -21,7 +21,7 @@ internal static class CenterMark
         Title: "中心符号线",
         Summary: "点一个工程图视图，删掉视图里孔上的旧中心符号线后按种重标（线性带连接线，单孔用单个）。",
         Usage: "在工程图里点一个视图（先点后按、先按后点都行，60 秒内），该视图里全部的孔删掉旧中心符号线后重标：每种孔一组线性中心符号线带连接线，单孔用单个；腰型孔两端各标一个。",
-        Run: Run);
+        Run: context => Run(context, null));
 
     // swAnnotationType_e / swCenterMarkStyle_e / swCenterMarkConnectionLine_e
     private const int AnnotationCenterMark = 13;
@@ -29,13 +29,15 @@ internal static class CenterMark
     private const int StyleLinearGroup = 3;
     private const int LinearConnectLines = 1;
 
-    private static QuickOutcome Run(QuickCommandContext context)
+    /// <param name="context">快捷指令上下文。</param>
+    /// <param name="view">直接处理这个视图（全流程用）；null 时取选中的或等用户点选。</param>
+    internal static QuickOutcome Run(QuickCommandContext context, object? view)
     {
         var api = context.Api;
-        var scan = HoleScan.Scan(context, "中心符号线");
-        var (document, view, viewName) = (scan.Document, scan.View, scan.ViewName);
+        var scan = HoleScan.Scan(context, "中心符号线", view: view);
+        var (document, viewName) = (scan.Document, scan.ViewName);
 
-        var existing = ReadCenterMarks(api, scan.Geometry, view);
+        var existing = ReadCenterMarks(api, scan.Geometry, scan.View);
         var plan = CenterMarkPlanner.Plan(scan.Candidates, existing.Select(mark => mark.Mark).ToList());
         if (plan.HoleCount == 0)
             return QuickOutcome.Ok($"视图「{viewName}」里没有正对图纸的孔，中心符号线没有改动。");
@@ -147,7 +149,7 @@ internal static class CenterMark
         var marks = new List<(object, ExistingCenterMark)>();
         foreach (var annotation in api.CallArray(view, "IView", "GetAnnotations"))
         {
-            if (api.CallInt(annotation, "IAnnotation", "GetType") != AnnotationCenterMark)
+            if (annotation is null || api.CallInt(annotation, "IAnnotation", "GetType") != AnnotationCenterMark)
                 continue;
             var centers = HoleCallout.AttachedCircleCenters(api, geometry, annotation).ToList();
             if (centers.Count == 0 && api.Call(annotation, "IAnnotation", "GetSpecificAnnotation") is { } mark)

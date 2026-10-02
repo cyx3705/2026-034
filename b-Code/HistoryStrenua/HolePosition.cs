@@ -11,6 +11,7 @@ namespace HistoryStrenua;
 /// 同种孔接着前一个孔标，不同种孔从基准标；同种孔一个方向超过 4 个且等距用阵列标法「(N-1) x 间距 =总长」。
 /// 腰型孔只标上方那一端圆弧的圆心（1.3.0，用户定）。</para>
 /// <para>「重新标」：先删掉连着这些孔的旧线性尺寸与视图里悬空的线性尺寸（孔标注、直径尺寸、外形尺寸不动），再全部重标。</para>
+/// <para>最后做标注避障（1.6.0，<see cref="Clearance.ClearDimensions"/>）：尺寸数字压在别的孔相关注解上就沿尺寸线滑开。</para>
 /// </remarks>
 internal static class HolePosition
 {
@@ -19,18 +20,19 @@ internal static class HolePosition
         CommandName: StrenuaIdentity.Domain + ".hole.position",
         Title: "孔位尺寸",
         Summary: "点一个工程图视图，删掉孔的旧位置尺寸后以零件左侧、上侧直边为基准重标全部孔位尺寸。",
-        Usage: "在工程图里点一个视图（先点后按、先按后点都行，60 秒内），该视图里全部的孔删掉旧位置尺寸（含悬空的线性尺寸）后，以零件左侧、上侧直边为基准重标：同种孔接着前一个标，不同种从基准标；同种一个方向超过 4 个且等距时标「(N-1) x 间距 =总长」；腰型孔标在上方那个圆上。",
-        Run: Run);
+        Usage: "在工程图里点一个视图（先点后按、先按后点都行，60 秒内），该视图里全部的孔删掉旧位置尺寸（含悬空的线性尺寸）后，以零件左侧、上侧直边为基准重标：同种孔接着前一个标，不同种从基准标；同种一个方向超过 4 个且等距时标「(N-1) x 间距 =总长」；腰型孔标在上方那个圆上；数字压在别的孔的尺寸、中心符号线等线条上就沿尺寸线滑开。",
+        Run: context => Run(context, null));
 
     // swDimensionTextParts_e / swSelectType_e
     private const int TextPrefix = 1;
-    private const int SelectExternalSketchSegment = 24;
     private const int SelectCenterMark = 100;
 
-    private static QuickOutcome Run(QuickCommandContext context)
+    /// <param name="context">快捷指令上下文。</param>
+    /// <param name="view">直接处理这个视图（全流程用）；null 时取选中的或等用户点选。</param>
+    internal static QuickOutcome Run(QuickCommandContext context, object? view)
     {
         var api = context.Api;
-        var scan = HoleScan.Scan(context, "孔位尺寸", withLines: true);
+        var scan = HoleScan.Scan(context, "孔位尺寸", withLines: true, view: view);
         var (document, viewName) = (scan.Document, scan.ViewName);
 
         var holes = HoleCalloutPlanner.Recognize(scan.Candidates);
@@ -54,6 +56,7 @@ internal static class HolePosition
         var added = 0;
         var onCenterLines = 0;
         var failed = 0;
+        ClearanceResult clearance;
         try
         {
             context.SetState("删旧尺寸");
@@ -80,6 +83,9 @@ internal static class HolePosition
                 if (centerLines)
                     onCenterLines++;
             }
+
+            context.SetState("避障");
+            clearance = Clearance.ClearDimensions(context, scan, holes);
         }
         finally
         {
@@ -90,6 +96,7 @@ internal static class HolePosition
         var message = $"视图「{viewName}」：{plan.Summary}，删掉旧位置尺寸 {removed} 个，"
             + $"新加 {added} 个（阵列标法 {plan.PatternCount} 个；连在中心线上 {onCenterLines} 个，其余孔上没有中心符号线、连在孔边上）"
             + (failed > 0 ? $"，{failed} 个 SolidWorks 没有接受" : string.Empty)
+            + clearance.Describe("尺寸数字")
             + "。";
         return added == 0 && plan.Dimensions.Count > 0 ? QuickOutcome.Fail(message) : QuickOutcome.Ok(message);
     }
@@ -208,7 +215,7 @@ internal static class HolePosition
     /// 注解连着的视图草图线（中心符号线、中心线）在图纸上的样子。草图坐标是模型尺寸、原点在视图位置，
     /// 图纸点 = 视图位置 + 草图点 × 比例；<c>GetXform</c> 不含旋转，所以旋转过的视图不认（返回空）。
     /// </summary>
-    private static List<SheetSegment> AttachedLines(SolidWorksApi api, ScannedView scan, object annotation)
+    internal static List<SheetSegment> AttachedLines(SolidWorksApi api, ScannedView scan, object annotation)
     {
         var lines = new List<SheetSegment>();
         var angle = api.Call(scan.View, "IView", "get_Angle") is { } value ? Convert.ToDouble(value) : 0.0;
@@ -216,24 +223,25 @@ internal static class HolePosition
         if (Math.Abs(angle) > 1e-9 || xform.Length < 3)
             return lines;
 
-        var types = api.CallArray(annotation, "IAnnotation", "GetAttachedEntityTypes").Select(Convert.ToInt32).ToArray();
-        var entities = api.CallArray(annotation, "IAnnotation", "GetAttachedEntities3");
-        for (var i = 0; i < entities.Length && i < types.Length; i++)
+        // 不按附着类型码筛：真机（1.6.0 过渡板）上有尺寸的附着类型报 1（边），对象却是视图草图线段
+        // （穿过孔心的中心线），按 24 筛就认不出它连着孔，重标时删不掉、新旧叠成两个。所以每个附着对象都试着当草图直线读。
+        foreach (var entity in api.CallArray(annotation, "IAnnotation", "GetAttachedEntities3"))
         {
-            if (types[i] != SelectExternalSketchSegment)
+            // 悬空（连着的中心符号线被删了）时对象读回 null。
+            if (entity is null)
                 continue;
             try
             {
-                if (api.Call(entities[i], "ISketchLine", "GetStartPoint2") is not { } start
-                    || api.Call(entities[i], "ISketchLine", "GetEndPoint2") is not { } end)
+                if (api.Call(entity, "ISketchLine", "GetStartPoint2") is not { } start
+                    || api.Call(entity, "ISketchLine", "GetEndPoint2") is not { } end)
                     continue;
                 double X(object point) => xform[0] + Convert.ToDouble(api.Call(point, "ISketchPoint", "get_X")) * xform[2];
                 double Y(object point) => xform[1] + Convert.ToDouble(api.Call(point, "ISketchPoint", "get_Y")) * xform[2];
                 lines.Add(new SheetSegment(X(start), Y(start), X(end), Y(end)));
             }
-            catch (Exception ex) when (ex is COMException or InvalidCastException)
+            catch (Exception ex) when (ex is COMException or InvalidCastException or System.Reflection.TargetException)
             {
-                // 不是直线（圆弧形的中心线之类）：不认。
+                // 是模型边、不是直线（圆弧形的中心线之类），或对象已失效：不认。
             }
         }
 

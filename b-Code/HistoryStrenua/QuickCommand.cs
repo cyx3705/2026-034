@@ -75,9 +75,11 @@ internal static class QuickCommands
 {
     public static IReadOnlyList<QuickCommand> All { get; } =
     [
-        HoleCallout.Command,
+        HoleFlow.Command,
+        DowelSymbol.Command,
         CenterMark.Command,
         HolePosition.Command,
+        HoleCallout.Command,
     ];
 
     /// <summary>命令类 → 页面上的类名。新类不登记也能用，只是显示成英文类名。</summary>

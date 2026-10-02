@@ -9,9 +9,10 @@ var tests = new (string Name, Action Run)[]
     ("command registration", TestCommandRegistration),
     ("page owner follows domain", TestPageOwner),
     ("buttons, actions and commands line up", TestPageWiring),
-    ("status rows", TestStatusRows),
-    ("toolbar: float, search, class, cancel", TestToolbar),
-    ("search and class filter rows", TestRowFilter),
+    ("list rows", TestListRows),
+    ("toolbar: float, drag area, class, cancel", TestToolbar),
+    ("class panels: buttons and switches", TestClassPanels),
+    ("options: defaults, persistence, commands", TestOptions),
     ("cancel when idle", TestCancelWhenIdle),
     ("concentric edges are one hole", TestConcentricMerge),
     ("annotated holes are skipped", TestAnnotatedSkipped),
@@ -25,6 +26,7 @@ var tests = new (string Name, Action Run)[]
     ("hole position: datums are the leftmost and topmost straight edges", TestPositionDatums),
     ("hole position: only linear dimensions on holes are redone", TestPositionObsolete),
     ("hole position: pattern prefix text", TestPatternPrefix),
+    ("hole position: chain mode is one chain per direction", TestPositionChain),
     ("slots: two facing half circles pair up", TestSlotPairing),
     ("slots: semicircle and bulge direction", TestSlotGeometry),
     ("slots: one callout per kind, on the upper end", TestSlotCallout),
@@ -65,7 +67,7 @@ return failed == 0 ? 0 : 1;
 static Registrar Registry()
 {
     var registry = new Registrar();
-    HistoryStrenuaModule.Register(registry, new QuickCommandRunner(null));
+    HistoryStrenuaModule.Register(registry, new QuickCommandRunner(new StrenuaOptions()));
     return registry;
 }
 
@@ -84,7 +86,8 @@ static void TestCommandRegistration()
         "strenua.quick.cancel",
         "strenua.ui.describe",
         "strenua.ui.actions",
-        "strenua.ui.data",
+        "strenua.option.clearance",
+        "strenua.option.chain",
     ];
     foreach (var name in expected)
     {
@@ -102,7 +105,11 @@ static void TestCommandRegistration()
     True(registry.TryGet("strenua.quick.run", out var run) && !run!.Readonly, "按 key 执行会改工程图，不是只读");
     var keys = run!.Parameters!.Single(p => p.Name == "key").AllowedValues!;
     True(QuickCommands.All.All(command => keys.Contains(command.Key)), "quick.run 的 key 候选应覆盖全部快捷指令");
-    foreach (var method in new[] { "describe", "actions", "data" })
+    True(!registry.TryGet("strenua.ui.data", out _), "1.7.0 起没有指令表，不该再有取数指令");
+    foreach (var method in new[] { "clearance", "chain" })
+        True(registry.TryGet("strenua.option." + method, out var option) && option!.HiddenReason is null && !option.Readonly,
+            $"strenua.option.{method} 改设置，要能在控制台敲");
+    foreach (var method in new[] { "describe", "actions" })
     {
         True(registry.TryGet("strenua.ui." + method, out var ui), $"缺少 strenua.ui.{method}");
         True(ui!.HiddenReason is not null, $"strenua.ui.{method} 是界面内部协议，必须 HiddenReason");
@@ -111,7 +118,7 @@ static void TestCommandRegistration()
 
 static void TestPageOwner()
 {
-    using var description = JsonDocument.Parse(StrenuaPage.Describe());
+    using var description = JsonDocument.Parse(StrenuaPage.Describe(new StrenuaOptions()));
     var root = description.RootElement;
     // Aurora 的判据：owner = "History" + 首字母大写的指令域；对不上整页被静默拒收。
     var expected = "History" + char.ToUpperInvariant(StrenuaIdentity.Domain[0]) + StrenuaIdentity.Domain[1..];
@@ -143,44 +150,40 @@ static void TestPageWiring()
     }
 
     Equal("aurora.ui.float", declared[StrenuaPage.FloatActionId]);
-    Equal("strenua.quick.run", declared[StrenuaPage.RunActionId]);
+    Equal("strenua.option.clearance", declared[StrenuaPage.ClearanceActionId]);
+    Equal("strenua.option.chain", declared[StrenuaPage.ChainActionId]);
 
-    using var description = JsonDocument.Parse(StrenuaPage.Describe());
+    using var description = JsonDocument.Parse(StrenuaPage.Describe(new StrenuaOptions()));
     var bound = Descendants(description.RootElement)
-        .Where(node => node.TryGetProperty("kind", out var kind) && kind.GetString() == "button")
+        .Where(node => node.TryGetProperty("kind", out var kind) && kind.GetString() is "button" or "switch")
         .Select(node => node.GetProperty("action").GetString()!)
-        .Concat(Descendants(description.RootElement)
-            .Where(node => node.TryGetProperty("cellAction", out _))
-            .Select(node => node.GetProperty("cellAction").GetString()!))
         .ToList();
-    True(bound.Contains(StrenuaPage.RunActionId), "指令表第一列应绑执行动作");
+    foreach (var command in QuickCommands.All)
+        True(bound.Contains(command.ActionId), $"指令「{command.Title}」应是页面上的一个按钮");
     foreach (var action in bound)
         True(declared.ContainsKey(action), $"页面绑定了未声明的动作 {action}");
 
-    var sources = Descendants(description.RootElement)
-        .Where(node => node.TryGetProperty("dataSource", out _))
-        .Select(node => node.GetProperty("dataSource").GetProperty("command").GetString()!)
-        .ToList();
-    True(sources.Count > 0, "页面应有指令表");
-    foreach (var source in sources)
-        True(registry.TryGet(source, out _), $"表格取数指向未注册的指令 {source}");
+    // 1.7.0：没有表格、也没有取数。
+    True(!Descendants(description.RootElement).Any(node => node.TryGetProperty("type", out var type) && type.GetString() == "table"),
+        "页面不该再有表格");
+    True(!Descendants(description.RootElement).Any(node => node.TryGetProperty("dataSource", out _)), "页面不该再取数");
 }
 
-static void TestStatusRows()
+static void TestListRows()
 {
-    var rows = StrenuaPage.Rows(new QuickCommandRunner(null));
+    var rows = HistoryStrenuaModule.ListRows(new QuickCommandRunner(new StrenuaOptions()));
     Equal(QuickCommands.All.Count, rows.Count);
     var hole = rows.Single(row => row["id"] == "hole-callout");
     Equal("孔标注", hole["title"]);
     Equal("就绪", hole["state"]);
     Equal(string.Empty, hole["result"]);
     foreach (var row in rows)
-        True(new[] { "id", "title", "class", "usage", "state", "result", "time" }.All(row.ContainsKey), "状态行缺列");
+        True(new[] { "id", "title", "class", "usage", "state", "result", "time" }.All(row.ContainsKey), "列表行缺列");
 }
 
 static void TestToolbar()
 {
-    using var description = JsonDocument.Parse(StrenuaPage.Describe());
+    using var description = JsonDocument.Parse(StrenuaPage.Describe(new StrenuaOptions()));
     var panel = Descendants(description.RootElement)
         .First(node => node.TryGetProperty("id", out var id) && id.GetString() == StrenuaPage.PanelId);
     var rows = panel.GetProperty("rows").EnumerateArray().ToList();
@@ -188,38 +191,93 @@ static void TestToolbar()
     var widgets = rows[0].GetProperty("widgets").EnumerateArray().ToList();
     Equal(4, widgets.Count);
     Equal(StrenuaPage.FloatActionId, widgets[0].GetProperty("action").GetString()!);
-    Equal(StrenuaPage.SearchChannel, widgets[1].GetProperty("channel").GetString()!);
+    // 中间是占余宽的文字：浮出后按住它拖动整窗。
+    Equal("text", widgets[1].GetProperty("kind").GetString()!);
+    True(widgets[1].GetProperty("flex").GetBoolean(), "占位文字应占余宽");
     Equal("select", widgets[2].GetProperty("mode").GetString()!);
     Equal(StrenuaPage.ClassChannel, widgets[2].GetProperty("channel").GetString()!);
-    Equal(StrenuaPage.AllClasses, widgets[2].GetProperty("options")[0].GetString()!);
+    Equal("孔", widgets[2].GetProperty("options")[0].GetString()!);
+    Equal("孔", widgets[2].GetProperty("value").GetString()!);
     Equal(StrenuaPage.CancelActionId, widgets[3].GetProperty("action").GetString()!);
-
-    // 指令表取数要跟着两个通道走。
-    var args = Descendants(description.RootElement)
-        .First(node => node.TryGetProperty("dataSource", out _))
-        .GetProperty("dataSource").GetProperty("args");
-    Equal("{selection." + StrenuaPage.SearchChannel + ".value}", args.GetProperty("query").GetString()!);
-    Equal("{selection." + StrenuaPage.ClassChannel + ".value}", args.GetProperty("class").GetString()!);
 }
 
-static void TestRowFilter()
+static void TestClassPanels()
 {
-    var runner = new QuickCommandRunner(null);
-    Equal(QuickCommands.All.Count, StrenuaPage.Rows(runner, "", StrenuaPage.AllClasses).Count);
-    Equal(QuickCommands.All.Count, StrenuaPage.Rows(runner, "  ", "孔").Count);
-    Equal(QuickCommands.All.Count, StrenuaPage.Rows(runner, null, "hole").Count);
-    Equal(0, StrenuaPage.Rows(runner, null, "没有这个类").Count);
-    var callout = StrenuaPage.Rows(runner, "孔标注", null);
-    Equal("hole-flow,hole-callout", string.Join(",", callout.Select(row => row["id"])));
-    Equal("孔", callout[1]["class"]);
-    // 多段词都要命中；指令名也算。
-    Equal(1, StrenuaPage.Rows(runner, "strenua.hole centermark", null).Count);
-    Equal(0, StrenuaPage.Rows(runner, "孔标注 不存在的词", null).Count);
+    var options = new StrenuaOptions();
+    options.Set(StrenuaOption.Clearance, false);
+    options.Set(StrenuaOption.Chain, true);
+    using var description = JsonDocument.Parse(StrenuaPage.Describe(options));
+    var container = Descendants(description.RootElement)
+        .First(node => node.TryGetProperty("id", out var id) && id.GetString() == StrenuaPage.ClassSwitchId);
+    Equal("switch", container.GetProperty("type").GetString()!);
+    Equal("{selection." + StrenuaPage.ClassChannel + ".value}", container.GetProperty("source").GetString()!);
+    var branches = container.GetProperty("children").EnumerateArray().ToList();
+    // 每个类选项正好一块面板，case 就是选项里的字。
+    Equal(string.Join(",", StrenuaPage.ClassOptions(QuickCommands.All)),
+        string.Join(",", branches.Select(branch => branch.GetProperty("case").GetString())));
+
+    var hole = branches.Single(branch => branch.GetProperty("id").GetString() == StrenuaPage.ClassPanelId("hole"));
+    var rows = hole.GetProperty("rows").EnumerateArray().ToList();
+    Equal(2, rows.Count);
+    var buttons = rows[0].GetProperty("widgets").EnumerateArray().ToList();
+    Equal(string.Join(",", QuickCommands.All.Where(c => c.CommandClass == "hole").Select(c => c.Title)),
+        string.Join(",", buttons.Select(button => button.GetProperty("text").GetString())));
+    // 开关在按钮下面，初值取当前设置。
+    var switches = rows[1].GetProperty("widgets").EnumerateArray().ToList();
+    Equal("避障,尺寸链", string.Join(",", switches.Select(w => w.GetProperty("label").GetString())));
+    True(switches.All(w => w.GetProperty("kind").GetString() == "switch"), "第二行应全是开关");
+    Equal("false", switches[0].GetProperty("value").GetString()!);
+    Equal("true", switches[1].GetProperty("value").GetString()!);
+}
+
+static void TestOptions()
+{
+    var defaults = new StrenuaOptions();
+    True(defaults.Clearance, "避障默认开");
+    True(!defaults.Chain, "尺寸链默认关");
+
+    var dir = Path.Combine(Path.GetTempPath(), "strenua-options-" + Guid.NewGuid().ToString("N"));
+    var path = Path.Combine(dir, StrenuaOptions.FileName);
+    try
+    {
+        // 目录还不存在也能存；重开读回上次。
+        var options = new StrenuaOptions(path);
+        Equal<string?>(null, options.Set(StrenuaOption.Clearance, false));
+        Equal<string?>(null, options.Set(StrenuaOption.Chain, true));
+        var reopened = new StrenuaOptions(path);
+        True(!reopened.Clearance && reopened.Chain, "重启后应保持上次的开关");
+
+        // 存档坏了、缺项：回默认值，不拦指令。
+        File.WriteAllText(path, "{ 坏的");
+        var broken = new StrenuaOptions(path);
+        True(broken.Clearance && !broken.Chain, "存档坏了应回默认值");
+        File.WriteAllText(path, "{\"Chain\":true}");
+        var partial = new StrenuaOptions(path);
+        True(partial.Clearance && partial.Chain, "缺的项按默认值");
+    }
+    finally
+    {
+        Directory.Delete(dir, true);
+    }
+
+    // 指令：带 value 改、不带报当前值、乱写拒绝。
+    var runner = new QuickCommandRunner(new StrenuaOptions());
+    var registry = new Registrar();
+    HistoryStrenuaModule.Register(registry, runner);
+    True(registry.TryGet("strenua.option.chain", out var chain), "缺少尺寸链开关指令");
+    CommandResult Run(Dictionary<string, string> values)
+        => chain!.Handler(new CommandContext(chain, values, "test", null, default)).GetAwaiter().GetResult();
+    var set = Run(new() { ["value"] = "true" });
+    True(set.Success && runner.Options.Chain, "value=true 应打开尺寸链");
+    var query = Run(new());
+    True(query.Success && query.Message.Contains("开"), "不带 value 应报当前值");
+    var bad = Run(new() { ["value"] = "maybe" });
+    True(!bad.Success && runner.Options.Chain, "乱写的 value 应拒绝且不改设置");
 }
 
 static void TestCancelWhenIdle()
 {
-    var result = new QuickCommandRunner(null).Cancel();
+    var result = new QuickCommandRunner(new StrenuaOptions()).Cancel();
     True(result.Success, "没有在跑时按取消也应成功，不该让宿主抢控制台");
 }
 
@@ -378,6 +436,38 @@ static void TestPositionPattern()
     var four = HolePositionPlanner.Plan(holes.Take(4).ToList(), left, top, scale);
     Equal(0, four.PatternCount);
     Equal(1 + 3 + 1, four.Dimensions.Count);
+}
+
+static void TestPositionChain()
+{
+    // 等距 11 孔：尺寸链模式不用阵列写法，水平基准 + 10 段，全在第一层。
+    var (holes, left, top, scale) = Strip(i => 10 + 60 * i);
+    var plan = HolePositionPlanner.Plan(holes, left, top, scale, chainMode: true);
+    Equal(0, plan.PatternCount);
+    var horizontal = plan.Dimensions.Where(d => d.Axis == PositionAxis.Horizontal).ToList();
+    Equal(11, horizontal.Count);
+    Equal<int?>(null, horizontal[0].FromEdgeIndex);
+    for (var i = 1; i < horizontal.Count; i++)
+        Equal<int?>(i - 1, horizontal[i].FromEdgeIndex);
+    True(plan.Dimensions.All(d => d.Prefix.Length == 0), "尺寸链模式不写阵列前缀");
+    True(horizontal.All(d => Math.Abs(d.TextAt.Y - (top + HolePositionPlanner.FirstTier)) < 1e-12), "一条链全在第一层");
+
+    // 移动底板：三种孔混在一条链里。水平列 x=.08/.10/.13/.15 → 4 段；竖直行 y=.20/.18/.13/.115/.06 → 5 段。
+    var mixed = HolePositionPlanner.Plan(MovingPlate(), 0.05, 0.25, 1, chainMode: true);
+    Equal(3, mixed.KindCount);
+    var h = mixed.Dimensions.Where(d => d.Axis == PositionAxis.Horizontal).ToList();
+    var v = mixed.Dimensions.Where(d => d.Axis == PositionAxis.Vertical).ToList();
+    Equal(4, h.Count);
+    Equal(5, v.Count);
+    Equal(1, h.Count(d => d.FromEdgeIndex is null));
+    Equal(1, v.Count(d => d.FromEdgeIndex is null));
+    Equal(1, h.Select(d => Math.Round(d.TextAt.Y, 9)).Distinct().Count());
+    Equal(1, v.Select(d => Math.Round(d.TextAt.X, 9)).Distinct().Count());
+    // 链里每一段都接着上一段的终点孔。
+    for (var i = 1; i < h.Count; i++)
+        Equal<int?>(h[i - 1].ToEdgeIndex, h[i].FromEdgeIndex);
+    for (var i = 1; i < v.Count; i++)
+        Equal<int?>(v[i - 1].ToEdgeIndex, v[i].FromEdgeIndex);
 }
 
 static void TestPositionUneven()

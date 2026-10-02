@@ -5,20 +5,23 @@ using HistoryVulcan.Core.Commands;
 namespace HistoryStrenua;
 
 /// <summary>
-/// 执行快捷指令：一次只跑一条、可取消，并记下每条指令的状态给页面状态表。
+/// 执行快捷指令：一次只跑一条、可取消，并记下每条指令的状态给 <c>strenua.quick.list</c>。
 /// </summary>
 /// <remarks>
 /// 一次只跑一条，是因为所有快捷指令都作用在用户同一个 SolidWorks 的同一个选择集上——
 /// 两条同时跑，一条的 ClearSelection 会把另一条正在等的视图选择清掉。
 /// </remarks>
-internal sealed class QuickCommandRunner(ICommandBus? bus)
+internal sealed class QuickCommandRunner(StrenuaOptions options)
 {
+    /// <summary>页面开关（避障、尺寸链模式）。</summary>
+    public StrenuaOptions Options { get; } = options;
+
     private readonly object _gate = new();
     private readonly Dictionary<string, QuickCommandStatus> _status = new(StringComparer.Ordinal);
     private CancellationTokenSource? _running;
     private string? _runningKey;
 
-    /// <summary>状态表的一行。</summary>
+    /// <summary>一条指令的状态。</summary>
     internal sealed record QuickCommandStatus(string State, string Result, DateTime? FinishedAt);
 
     public QuickCommandStatus StatusOf(string key)
@@ -44,13 +47,13 @@ internal sealed class QuickCommandRunner(ICommandBus? bus)
             _status[command.Key] = new QuickCommandStatus("附着 SolidWorks", string.Empty, null);
         }
 
-        await RefreshPageAsync().ConfigureAwait(false);
         QuickOutcome outcome;
         try
         {
             outcome = await SolidWorksSession.RunAsync(
                 session => command.Run(new QuickCommandContext(
                     session,
+                    Options,
                     message => context.Progress?.Report(message),
                     state => SetState(command.Key, state),
                     cancellation.Token)),
@@ -60,7 +63,6 @@ internal sealed class QuickCommandRunner(ICommandBus? bus)
         {
             outcome = new QuickOutcome(false, $"「{command.Title}」已取消。");
             Finish(command.Key, "已取消", outcome.Message);
-            await RefreshPageAsync().ConfigureAwait(false);
             return CommandResult.Fail(outcome.Message);
         }
         catch (QuickCommandException ex)
@@ -84,7 +86,6 @@ internal sealed class QuickCommandRunner(ICommandBus? bus)
         }
 
         Finish(command.Key, outcome.Success ? "完成" : "失败", outcome.Message);
-        await RefreshPageAsync().ConfigureAwait(false);
         return outcome.Success ? CommandResult.Ok(outcome.Message) : CommandResult.Fail(outcome.Message);
     }
 
@@ -104,29 +105,12 @@ internal sealed class QuickCommandRunner(ICommandBus? bus)
     {
         lock (_gate)
             _status[key] = new QuickCommandStatus(state, string.Empty, null);
-        // 状态格变了要让页面看到；不等它刷完，执行线程不该被界面拖住。
-        _ = RefreshPageAsync();
     }
 
     private void Finish(string key, string state, string result)
     {
         lock (_gate)
             _status[key] = new QuickCommandStatus(state, result, DateTime.Now);
-    }
-
-    /// <summary>页面没开着或没装 Aurora 时刷不到，不影响执行结果。</summary>
-    private async Task RefreshPageAsync()
-    {
-        if (bus is null)
-            return;
-        try
-        {
-            await bus.ExecuteAsync(
-                $"aurora.ui.refreshdata node={StrenuaPage.StatusTableId}", "").ConfigureAwait(false);
-        }
-        catch (Exception)
-        {
-        }
     }
 
     internal static string FormatTime(DateTime? time)

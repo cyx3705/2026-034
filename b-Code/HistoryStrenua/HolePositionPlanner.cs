@@ -92,7 +92,8 @@ internal static class HolePositionPlanner
     /// <param name="left">左侧基准边的 X（图纸坐标）。</param>
     /// <param name="top">上侧基准边的 Y（图纸坐标）。</param>
     /// <param name="scale">视图比例（图纸长度 / 模型长度），用来把间距换成模型尺寸写进文字。</param>
-    public static HolePositionPlan Plan(IReadOnlyList<HoleEdge> edges, double left, double top, double scale)
+    /// <param name="chainMode">尺寸链模式（1.7.0，页面开关）：见 <see cref="PlanChain"/>。</param>
+    public static HolePositionPlan Plan(IReadOnlyList<HoleEdge> edges, double left, double top, double scale, bool chainMode = false)
     {
         ArgumentNullException.ThrowIfNull(edges);
         if (scale <= 0)
@@ -100,6 +101,9 @@ internal static class HolePositionPlanner
 
         var holes = HoleCalloutPlanner.Recognize(edges);
         var kinds = HoleCalloutPlanner.GroupKinds(HoleCalloutPlanner.Representatives(holes));
+        if (chainMode)
+            return PlanChain(holes, kinds, left, top, scale);
+
         var dimensions = new List<PositionDimension>();
         var patterns = 0;
         var datum = new Datum(left, top);
@@ -175,6 +179,32 @@ internal static class HolePositionPlanner
 
         var (holeCount, slotCount) = HoleCalloutPlanner.Count(holes);
         return new HolePositionPlan(dimensions, holeCount, kinds.Count, patterns, slotCount);
+    }
+
+    /// <summary>
+    /// 尺寸链模式（1.7.0，用户定）：每个方向只有一条链——基准 → 第一列 → 第二列 → … → 最后一列，
+    /// 不分孔的种类，全排在第一层；等距也逐段标，不用阵列写法。同一坐标上的几个孔（不论哪种）算一站。
+    /// </summary>
+    private static HolePositionPlan PlanChain(
+        IReadOnlyList<HoleEdge> holes, IReadOnlyList<IReadOnlyList<HoleEdge>> kinds, double left, double top, double scale)
+    {
+        var all = kinds.SelectMany(kind => kind).ToList();
+        var datum = new Datum(left, top);
+        var dimensions = new List<PositionDimension>();
+        foreach (var axis in new[] { PositionAxis.Horizontal, PositionAxis.Vertical })
+        {
+            var stops = Chain(all, axis, axis == PositionAxis.Horizontal ? left : top, scale).Stops;
+            for (var i = 0; i < stops.Count; i++)
+            {
+                var from = i == 0 ? null : stops[i - 1];
+                if (stops[i].Offset - (from?.Offset ?? 0) <= HoleCalloutPlanner.CenterTolerance)
+                    continue;
+                dimensions.Add(Dimension(axis, from?.Hole.Index, stops[i].Hole, from?.Offset ?? 0, stops[i].Offset, datum, 0, string.Empty));
+            }
+        }
+
+        var (holeCount, slotCount) = HoleCalloutPlanner.Count(holes);
+        return new HolePositionPlan(dimensions, holeCount, kinds.Count, 0, slotCount);
     }
 
     /// <summary>阵列标法的文字前缀：「10 x 60 =」，后面紧跟 SolidWorks 自己的尺寸值（总长）。</summary>

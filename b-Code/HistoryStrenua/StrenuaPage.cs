@@ -4,29 +4,31 @@ using System.Text.Json;
 namespace HistoryStrenua;
 
 /// <summary>
-/// Aurora 页面协议 V1：一页 PowerSW。上面一条工具条，下面一张指令表。
+/// Aurora 页面协议 V1：一页 PowerSW。上面一条工具条，下面是按「类」切换的控制面板。
 /// </summary>
 /// <remarks>
 /// <para>
-/// 1.5.0 起没有按钮面板：按钮与表格是同一份清单，信息重复。指令表第一列「指令」就是入口——
-/// 点名称就执行（Aurora 可点击单元格，行内小按钮）。
+/// 1.7.0 起没有指令表（用户定）：表格和宿主的命令集页面完全重叠、信息又杂，删掉；每条快捷指令直接是控制面板上的一个按钮，
+/// 执行过程与结果照旧进控制台。
 /// </para>
 /// <para>
-/// 工具条从左到右：浮动、搜索、类、取消。「浮动」是普通按钮，动作指向 Aurora 的
-/// <c>aurora.ui.float</c>（1.30.1 起）：把整页浮成置顶小窗，操作 SolidWorks 时也点得到；
-/// 已浮出时再点就还原。搜索框与类选项框把值发上选择通道，指令表的取数参数引用这两个通道，值一变就重取。
+/// 工具条从左到右：浮动、占位、类、取消。「浮动」是普通按钮，动作指向 Aurora 的 <c>aurora.ui.float</c>（1.30.1 起）。
+/// 占位是一段占满余宽的说明文字，浮成小窗后按住它就能拖动整窗（按钮、选择框会吃掉按下，拖不动）。
+/// 「类」选择框把值发上 <see cref="ClassChannel"/>，下面的切换容器跟着它换成那一类的控制面板——将来加别的类，
+/// 加一块面板即可，工具条不变。
 /// </para>
-/// <para>表格行、类选项、动作声明全部从 <see cref="QuickCommands.All"/> 生成——加指令不改这里。</para>
+/// <para>
+/// 「孔」面板第一行是孔类指令的按钮，第二行是两个开关：避障（默认开）、尺寸链（默认关）。开关拨动即生效并记到本机
+/// （<see cref="StrenuaOptions"/>），页面描述里的初值取当前值。
+/// </para>
+/// <para>按钮、类选项、动作声明全部从 <see cref="QuickCommands.All"/> 生成——加指令不改这里。</para>
 /// </remarks>
 internal static class StrenuaPage
 {
     public const string PageId = "powersw";
     public const string PanelId = "quick-toolbar";
-    public const string StatusTableId = "quick-commands";
+    public const string ClassSwitchId = "class-panels";
     public const string CancelActionId = StrenuaIdentity.Domain + ".quick.cancel";
-
-    /// <summary>点指令表「指令」列时执行的动作：按被点那一行的 id 跑那一条快捷指令。</summary>
-    public const string RunActionId = StrenuaIdentity.Domain + ".quick.run";
 
     /// <summary>工具条「浮动」按钮的动作：调 Aurora 把本页浮出 / 还原。</summary>
     public const string FloatActionId = StrenuaIdentity.Domain + ".page.float";
@@ -34,20 +36,27 @@ internal static class StrenuaPage
     /// <summary>Aurora 的页面浮动指令（切换）。</summary>
     public const string FloatCommand = "aurora.ui.float";
 
-    public const string SearchChannel = StrenuaIdentity.Domain + ".search";
     public const string ClassChannel = StrenuaIdentity.Domain + ".class";
 
-    /// <summary>类选项框的第一项：不按类筛。</summary>
-    public const string AllClasses = "全部";
+    /// <summary>工具条中间的占位文字：占满余宽，浮出后按住它拖动整窗。</summary>
+    public const string DragHint = "PowerSW · 按住此处拖动";
+
+    /// <summary>开关的动作 id 与指令名相同。</summary>
+    public const string ClearanceActionId = StrenuaIdentity.Domain + ".option.clearance";
+
+    public const string ChainActionId = StrenuaIdentity.Domain + ".option.chain";
 
     private static readonly JsonSerializerOptions Options = new()
     {
         Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
     };
 
-    public static string Describe() => Describe(QuickCommands.All);
+    /// <summary>一类控制面板的 id。</summary>
+    public static string ClassPanelId(string commandClass) => "class-" + commandClass;
 
-    internal static string Describe(IReadOnlyList<QuickCommand> commands) => JsonSerializer.Serialize(new
+    public static string Describe(StrenuaOptions options) => Describe(QuickCommands.All, options);
+
+    internal static string Describe(IReadOnlyList<QuickCommand> commands, StrenuaOptions options) => JsonSerializer.Serialize(new
     {
         schemaVersion = 1,
         owner = StrenuaIdentity.PageOwner,
@@ -74,27 +83,12 @@ internal static class StrenuaPage
                         },
                         new
                         {
-                            type = "table",
-                            id = StatusTableId,
-                            dataSource = new
-                            {
-                                command = StrenuaIdentity.Domain + ".ui.data",
-                                args = new
-                                {
-                                    view = "commands",
-                                    query = "{selection." + SearchChannel + ".value}",
-                                    @class = "{selection." + ClassChannel + ".value}",
-                                },
-                            },
-                            columns = new object[]
-                            {
-                                new { key = "title", title = "指令", width = "90", cellAction = RunActionId, cellStyle = "button" },
-                                new { key = "class", title = "类", width = "40" },
-                                new { key = "usage", title = "用法", width = "2*" },
-                                new { key = "state", title = "状态", width = "90" },
-                                new { key = "result", title = "上次结果", width = "2*" },
-                                new { key = "time", title = "时间", width = "60" },
-                            },
+                            type = "switch",
+                            id = ClassSwitchId,
+                            source = "{selection." + ClassChannel + ".value}",
+                            children = Classes(commands)
+                                .Select(group => ClassPanel(group.Key, group.ToList(), options))
+                                .ToArray(),
                         },
                     },
                 },
@@ -118,11 +112,19 @@ internal static class StrenuaPage
             })
             .Append(new
             {
-                id = RunActionId,
-                title = "执行",
-                command = StrenuaIdentity.Domain + ".quick.run",
-                args = new { key = "{id}" },
-                summary = "执行这一行的快捷指令（执行过程与结果同时写进控制台）",
+                id = ClearanceActionId,
+                title = "避障",
+                command = ClearanceActionId,
+                args = new { value = "{value}" },
+                summary = "开着时孔标注、孔位尺寸加完后把压在别的孔相关注解线条上的文字挪开（默认开）",
+            })
+            .Append(new
+            {
+                id = ChainActionId,
+                title = "尺寸链",
+                command = ChainActionId,
+                args = new { value = "{value}" },
+                summary = "开着时孔位尺寸每个方向全部孔排成一条链（基准→第一个→下一个…）逐段标，不分种、不用阵列写法（默认关）",
             })
             .Append(new
             {
@@ -130,7 +132,7 @@ internal static class StrenuaPage
                 title = "浮动",
                 command = FloatCommand,
                 args = new { name = PageId },
-                summary = "把 PowerSW 浮成置顶小窗（操作 SolidWorks 时也点得到），拖空白处移动；已浮出时再点就还原",
+                summary = "把 PowerSW 浮成置顶小窗（操作 SolidWorks 时也点得到），按住工具条中间的文字拖动；已浮出时再点就还原",
             })
             .Append(new
             {
@@ -142,45 +144,64 @@ internal static class StrenuaPage
             .ToArray(),
     }, Options);
 
-    /// <summary>类选项框的候选：「全部」在前，其余按登记顺序去重。</summary>
+    /// <summary>类选项框的候选：按登记顺序去重。</summary>
     internal static IReadOnlyList<string> ClassOptions(IReadOnlyList<QuickCommand> commands)
-        => commands
-            .Select(command => command.ClassTitle)
-            .Distinct(StringComparer.Ordinal)
-            .Prepend(AllClasses)
-            .ToList();
+        => Classes(commands).Select(group => group.First().ClassTitle).ToList();
 
-    /// <summary>指令表的行：一条快捷指令一行，按搜索词与类筛过。</summary>
-    public static IReadOnlyList<IReadOnlyDictionary<string, string>> Rows(
-        QuickCommandRunner runner,
-        string? query = null,
-        string? commandClass = null)
-        => QuickCommands.Filter(QuickCommands.All, query, commandClass)
-            .Select(command =>
-            {
-                var status = runner.StatusOf(command.Key);
-                return (IReadOnlyDictionary<string, string>)new Dictionary<string, string>
-                {
-                    ["id"] = command.Key,
-                    ["title"] = command.Title,
-                    ["class"] = command.ClassTitle,
-                    ["usage"] = command.Usage,
-                    ["state"] = status.State,
-                    ["result"] = status.Result,
-                    ["time"] = QuickCommandRunner.FormatTime(status.FinishedAt),
-                };
-            })
-            .ToList();
+    /// <summary>按命令类分组，保持登记顺序。</summary>
+    private static IEnumerable<IGrouping<string, QuickCommand>> Classes(IReadOnlyList<QuickCommand> commands)
+        => commands.GroupBy(command => command.CommandClass, StringComparer.Ordinal);
 
-    /// <summary>工具条：浮动 | 搜索（占余宽） | 类 | 取消。</summary>
-    private static object Toolbar(IReadOnlyList<QuickCommand> commands) => new
+    /// <summary>工具条：浮动 | 占位（占余宽，浮出后拖这里） | 类 | 取消。</summary>
+    private static object Toolbar(IReadOnlyList<QuickCommand> commands)
     {
-        widgets = new object[]
+        var classes = ClassOptions(commands);
+        return new
         {
-            new { kind = "button", action = FloatActionId, text = "浮动" },
-            new { kind = "textbox", id = "search", label = "搜索", channel = SearchChannel, flex = true },
-            new { kind = "textbox", id = "class", label = "类", mode = "select", channel = ClassChannel, options = ClassOptions(commands), minWidth = 60 },
-            new { kind = "button", action = CancelActionId, text = "取消" },
-        },
-    };
+            widgets = new object[]
+            {
+                new { kind = "button", action = FloatActionId, text = "浮动" },
+                new { kind = "text", text = DragHint, flex = true },
+                new { kind = "textbox", id = "class", label = "类", mode = "select", channel = ClassChannel, options = classes, value = classes.FirstOrDefault() ?? string.Empty, minWidth = 60 },
+                new { kind = "button", action = CancelActionId, text = "取消" },
+            },
+        };
+    }
+
+    /// <summary>一类的控制面板：一行按钮；孔类再加一行开关。</summary>
+    private static object ClassPanel(string commandClass, IReadOnlyList<QuickCommand> commands, StrenuaOptions options)
+    {
+        var rows = new List<object>
+        {
+            new
+            {
+                mode = "even",
+                widgets = commands.Select(command => (object)new { kind = "button", action = command.ActionId, text = command.Title }).ToArray(),
+            },
+        };
+        if (commandClass == "hole")
+        {
+            rows.Add(new
+            {
+                mode = "even",
+                widgets = new object[]
+                {
+                    Switch("clearance", "避障", options.Clearance, ClearanceActionId),
+                    Switch("chain", "尺寸链", options.Chain, ChainActionId),
+                },
+            });
+        }
+
+        return new
+        {
+            type = "panel",
+            id = ClassPanelId(commandClass),
+            @case = commands[0].ClassTitle,
+            text = commands[0].ClassTitle,
+            rows,
+        };
+    }
+
+    private static object Switch(string id, string label, bool value, string action)
+        => new { kind = "switch", id, label, value = value ? "true" : "false", action };
 }

@@ -242,6 +242,40 @@ internal static class HolePositionPlanner
         return new HolePositionPlan([], holeCount, kinds.Count, 0, slotCount, groups);
     }
 
+    /// <summary>
+    /// 普通模式下每种孔各自想标的「中心线 → 中心线」段（不含基准到第一站，1.8.0 销孔标注用）：
+    /// 链式是相邻两站，阵列标法是第一站到最后一站。返回图纸坐标（水平段是两个 X、竖直段是两个 Y，小的在前）
+    /// 与这种孔是不是销钉孔。同一段被几种孔想标，<see cref="Plan"/> 只标一次——销孔标注据此判断销孔间尺寸是否兼管别的孔。
+    /// </summary>
+    public static List<(PositionAxis Axis, double From, double To, bool Dowel)> RequestedSpans(
+        IReadOnlyList<HoleEdge> edges, double left, double top, double scale)
+    {
+        ArgumentNullException.ThrowIfNull(edges);
+        var kinds = HoleCalloutPlanner.GroupKinds(HoleCalloutPlanner.Representatives(HoleCalloutPlanner.Recognize(edges)));
+        var spans = new List<(PositionAxis, double, double, bool)>();
+        foreach (var axis in new[] { PositionAxis.Horizontal, PositionAxis.Vertical })
+        {
+            var datum = axis == PositionAxis.Horizontal ? left : top;
+            double Sheet(double offset) => axis == PositionAxis.Horizontal ? datum + offset : datum - offset;
+            foreach (var kind in kinds)
+            {
+                var chain = Chain(kind, axis, datum, scale);
+                var stops = chain.Stops;
+                var dowel = kind.Count > 0 && kind[0].Dowel;
+                List<(Stop, Stop)> pairs = chain.Pattern
+                    ? [(stops[0], stops[^1])]
+                    : stops.Zip(stops.Skip(1)).ToList();
+                foreach (var (a, b) in pairs)
+                {
+                    var (p, q) = (Sheet(a.Offset), Sheet(b.Offset));
+                    spans.Add((axis, Math.Min(p, q), Math.Max(p, q), dowel));
+                }
+            }
+        }
+
+        return spans;
+    }
+
     /// <summary>阵列标法的文字前缀：「10 x 60 =」，后面紧跟 SolidWorks 自己的尺寸值（总长）。</summary>
     /// <param name="gaps">间距个数（孔数 - 1）。</param>
     /// <param name="pitch">间距，模型长度（米）。</param>

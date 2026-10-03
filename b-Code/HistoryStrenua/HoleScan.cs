@@ -12,6 +12,10 @@ namespace HistoryStrenua;
 /// <param name="Candidates">候选孔边在图纸上的样子（同心的尚未合并）。</param>
 /// <param name="LineEdges">视图里的直边本身（只在要求收集直边时有）。</param>
 /// <param name="Lines">直边在图纸上的样子，与 <paramref name="LineEdges"/> 一一对应。</param>
+/// <param name="Curves">
+/// 其余不是孔的边（圆角、整圆凸台、样条……）近似成的线段（只在要求收集直边时有，1.8.0）：
+/// 圆弧取起点 → 弧中点 → 终点两段，整圆取外接八边形，别的曲线取弦。外轮廓判定拿它挡射线。
+/// </param>
 internal sealed record ScannedView(
     object Document,
     object View,
@@ -20,7 +24,12 @@ internal sealed record ScannedView(
     IReadOnlyList<object> Edges,
     IReadOnlyList<HoleEdge> Candidates,
     IReadOnlyList<object> LineEdges,
-    IReadOnlyList<SheetSegment> Lines);
+    IReadOnlyList<SheetSegment> Lines,
+    IReadOnlyList<SheetSegment>? Curves = null)
+{
+    /// <summary>曲线边近似成的线段（没有时为空表）。</summary>
+    public IReadOnlyList<SheetSegment> CurveSegments => Curves ?? [];
+}
 
 /// <summary>
 /// 孔类快捷指令共用的前半段：确认活动文档是工程图、取用户点的视图、认出视图里全部的孔。
@@ -72,6 +81,7 @@ internal static class HoleScan
         var candidates = new List<HoleEdge>();
         var lineEdges = new List<object>();
         var lines = new List<SheetSegment>();
+        var curves = new List<SheetSegment>();
         foreach (var component in VisibleComponents(api, view, model))
         {
             foreach (var edge in api.CallArray(view, "IView", "GetVisibleEntities2", component, ViewEntityEdge))
@@ -87,10 +97,14 @@ internal static class HoleScan
                     lines.Add(line);
                     lineEdges.Add(edge);
                 }
+                else if (withLines)
+                {
+                    curves.AddRange(geometry.CurveOutline(edge));
+                }
             }
         }
 
-        return new ScannedView(document, view, viewName, geometry, edges, candidates, lineEdges, lines);
+        return new ScannedView(document, view, viewName, geometry, edges, candidates, lineEdges, lines, curves);
     }
 
     /// <summary>活动文档，必须是工程图。</summary>
@@ -343,8 +357,105 @@ internal static class HoleScan
             return new SheetSegment(p[0], p[1], q[0], q[1]);
         }
 
-        /// <summary>视图比例（图纸长度 / 模型长度）。</summary>
-        public double Scale => api.Call(view, "IView", "get_ScaleDecimal") is { } value ? Convert.ToDouble(value) : 1.0;
+        /// <summary>
+        /// 不是直边也不是孔的边近似成的线段（图纸坐标）：圆弧 = 起点 → 弧中点 → 终点，整圆 = 外接八边形，
+        /// 别的曲线 = 弦。弧中点用两个角平分方向各问一次 <c>GetClosestPointOn</c>，落在弧上的那个就是。读不出返回空。
+        /// </summary>
+        public IReadOnlyList<SheetSegment> CurveOutline(object edge)
+        {
+            try
+            {
+                var transforms = Transforms(edge);
+                SheetPoint Sheet(double[] p)
+                {
+                    var q = ToSheet(transforms, "CreatePoint", "IMathPoint", p[0], p[1], p[2]);
+                    return new SheetPoint(q[0], q[1]);
+                }
+
+                var circle = Circle(edge);
+                if (api.Call(edge, "IEdge", "GetStartVertex") is not { } start
+                    || api.Call(edge, "IEdge", "GetEndVertex") is not { } end)
+                {
+                    return circle is null
+                        ? []
+                        : ClearancePlanner.Octagon(Sheet([circle[0], circle[1], circle[2]]), circle[6] * Scale).ToList();
+                }
+
+                var s = api.CallDoubles(start, "IVertex", "GetPoint");
+                var e = api.CallDoubles(end, "IVertex", "GetPoint");
+                if (s.Length < 3 || e.Length < 3)
+                    return [];
+                var (a, b) = (Sheet(s), Sheet(e));
+                if (circle is not null && ArcMiddle(edge, circle, s, e) is { } middle)
+                {
+                    var m = Sheet(middle);
+                    return [new SheetSegment(a.X, a.Y, m.X, m.Y), new SheetSegment(m.X, m.Y, b.X, b.Y)];
+                }
+
+                return [new SheetSegment(a.X, a.Y, b.X, b.Y)];
+            }
+            catch (Exception ex) when (ex is System.Runtime.InteropServices.COMException or InvalidCastException or System.Reflection.TargetException)
+            {
+                return [];
+            }
+        }
+
+        /// <summary>圆弧的中点（零件坐标）：圆心沿弦中点方向的正反两侧各取一点问边上最近点，贴在弧上的那个。</summary>
+        private double[]? ArcMiddle(object edge, double[] circle, double[] s, double[] e)
+        {
+            var (cx, cy, cz, r) = (circle[0], circle[1], circle[2], circle[6]);
+            var (mx, my, mz) = ((s[0] + e[0]) / 2 - cx, (s[1] + e[1]) / 2 - cy, (s[2] + e[2]) / 2 - cz);
+            var length = Math.Sqrt(mx * mx + my * my + mz * mz);
+            if (length < r * 1e-6)
+            {
+                // 恰好半圈：弦过圆心，方向取轴 × 弦。
+                var (ax, ay, az) = (circle[3], circle[4], circle[5]);
+                var (dx, dy, dz) = (e[0] - s[0], e[1] - s[1], e[2] - s[2]);
+                (mx, my, mz) = (ay * dz - az * dy, az * dx - ax * dz, ax * dy - ay * dx);
+                length = Math.Sqrt(mx * mx + my * my + mz * mz);
+                if (length <= 0)
+                    return null;
+            }
+
+            foreach (var sign in new[] { 1.0, -1.0 })
+            {
+                double[] probe = [cx + sign * r * mx / length, cy + sign * r * my / length, cz + sign * r * mz / length];
+                var closest = api.CallDoubles(edge, "IEdge", "GetClosestPointOn", probe[0], probe[1], probe[2]);
+                if (closest.Length >= 3
+                    && Math.Abs(closest[0] - probe[0]) + Math.Abs(closest[1] - probe[1]) + Math.Abs(closest[2] - probe[2]) < r * 1e-4)
+                    return probe;
+            }
+
+            return null;
+        }
+
+        /// <summary>视图比例（图纸长度 / 模型长度）。读一次记下。</summary>
+        public double Scale => _scale ??= api.Call(view, "IView", "get_ScaleDecimal") is { } value ? Convert.ToDouble(value) : 1.0;
+
+        private double? _scale;
+
+        /// <summary>
+        /// 视图草图点 → 图纸的 <c>GetXform</c>（[视图位置 x, y, 比例, …]）；视图旋转过时为 null（<c>GetXform</c> 不含旋转）。读一次记下（1.8.0：
+        /// 读尺寸时每个附着对象都要用，逐个去问 SolidWorks 太慢）。
+        /// </summary>
+        public double[]? SketchXform
+        {
+            get
+            {
+                if (!_xformRead)
+                {
+                    var angle = api.Call(view, "IView", "get_Angle") is { } value ? Convert.ToDouble(value) : 0.0;
+                    var xform = api.CallDoubles(view, "IView", "GetXform");
+                    _xform = Math.Abs(angle) > 1e-9 || xform.Length < 3 ? null : xform;
+                    _xformRead = true;
+                }
+
+                return _xform;
+            }
+        }
+
+        private double[]? _xform;
+        private bool _xformRead;
 
         /// <summary>视图所引用模型（顶层）坐标系里的一个点，变到图纸上。</summary>
         public SheetPoint ModelPointToSheet(double x, double y, double z)

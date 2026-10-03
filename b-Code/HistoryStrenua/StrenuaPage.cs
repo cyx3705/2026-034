@@ -18,7 +18,7 @@ namespace HistoryStrenua;
 /// 加一块面板即可，工具条不变。
 /// </para>
 /// <para>
-/// 「孔」面板第一行是孔类指令的按钮，第二行是两个开关：避障（默认开）、尺寸链（默认关）。开关拨动即生效并记到本机
+/// 「孔」面板上面是孔类指令的按钮（每 4 个一行，1.8.0），下面一行是两个开关：避障（默认开）、尺寸链（默认关）。开关拨动即生效并记到本机
 /// （<see cref="StrenuaOptions"/>），页面描述里的初值取当前值。
 /// </para>
 /// <para>按钮、类选项、动作声明全部从 <see cref="QuickCommands.All"/> 生成——加指令不改这里。</para>
@@ -116,7 +116,7 @@ internal static class StrenuaPage
                 title = "避障",
                 command = ClearanceActionId,
                 args = new { value = "{value}" },
-                summary = "开着时孔标注、孔位尺寸加完后把压在别的孔相关注解线条上的文字挪开（默认开）",
+                summary = "开着时孔标注、孔位尺寸、销孔标注加完后把压在别的孔相关注解线条上的文字挪开（默认开）",
             })
             .Append(new
             {
@@ -124,7 +124,7 @@ internal static class StrenuaPage
                 title = "尺寸链",
                 command = ChainActionId,
                 args = new { value = "{value}" },
-                summary = "开着时孔位尺寸改用 SolidWorks 尺寸链（坐标尺寸）：每个方向一组，0 点在零件左侧 / 上侧直边，不分种、不用阵列写法（默认关）",
+                summary = "开着时孔位尺寸与外轮廓改用 SolidWorks 尺寸链（坐标尺寸）：每个方向一组，0 点在零件左侧 / 上侧直边，不分种、不用阵列写法（默认关）",
             })
             .Append(new
             {
@@ -168,17 +168,20 @@ internal static class StrenuaPage
         };
     }
 
-    /// <summary>一类的控制面板：一行按钮；孔类再加一行开关。</summary>
+    /// <summary>一行最多几个按钮（1.8.0：孔类到了 7 个，一行挤不下，按 4 个一行折）。</summary>
+    public const int ButtonsPerRow = 4;
+
+    /// <summary>一类的控制面板：按钮每 <see cref="ButtonsPerRow"/> 个一行；孔类再加一行开关。</summary>
     private static object ClassPanel(string commandClass, IReadOnlyList<QuickCommand> commands, StrenuaOptions options)
     {
-        var rows = new List<object>
-        {
-            new
+        var rows = commands
+            .Chunk(ButtonsPerRow)
+            .Select(chunk => (object)new
             {
                 mode = "even",
-                widgets = commands.Select(command => (object)new { kind = "button", action = command.ActionId, text = command.Title }).ToArray(),
-            },
-        };
+                widgets = chunk.Select(command => (object)new { kind = "button", action = command.ActionId, text = command.Title }).ToArray(),
+            })
+            .ToList();
         if (commandClass == "hole")
         {
             rows.Add(new

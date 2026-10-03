@@ -38,6 +38,14 @@ var tests = new (string Name, Action Run)[]
     ("clearance: dimension text slides along its line", TestClearanceSlide),
     ("clearance: callout moves to a free corner", TestClearanceCallout),
     ("full flow: steps and scope", TestFlowCommand),
+    ("dimension geometry: axis from anchors and value", TestDimensionAxes),
+    ("dowel fit: adjacent dowel spans, existing reused, others added", TestDowelFitSpans),
+    ("dowel fit: shared spans get the dowel-only suffix", TestDowelFitShared),
+    ("dowel fit: diameter variable of the callout", TestDowelFitDiameterVariable),
+    ("outline: outer edges by ray casting", TestOutlineOuterLines),
+    ("outline: stations, tiers and ordinate gaps", TestOutlineStations),
+    ("outline: obsolete outline dimensions", TestOutlineObsolete),
+    ("check: callouts, positions, dowels and outline", TestDimensionCheck),
     ("distinct holes stay distinct", TestDistinctHoles),
     ("targets read top-down, left-right", TestTargetOrder),
     ("placement sits up-left of the hole", TestPlacement),
@@ -81,6 +89,9 @@ static void TestCommandRegistration()
         "strenua.hole.position",
         "strenua.hole.dowel",
         "strenua.hole.flow",
+        "strenua.hole.dowelfit",
+        "strenua.hole.outline",
+        "strenua.check.dimension",
         "strenua.quick.list",
         "strenua.quick.run",
         "strenua.quick.cancel",
@@ -218,12 +229,18 @@ static void TestClassPanels()
 
     var hole = branches.Single(branch => branch.GetProperty("id").GetString() == StrenuaPage.ClassPanelId("hole"));
     var rows = hole.GetProperty("rows").EnumerateArray().ToList();
-    Equal(2, rows.Count);
-    var buttons = rows[0].GetProperty("widgets").EnumerateArray().ToList();
-    Equal(string.Join(",", QuickCommands.All.Where(c => c.CommandClass == "hole").Select(c => c.Title)),
-        string.Join(",", buttons.Select(button => button.GetProperty("text").GetString())));
+    var holeTitles = QuickCommands.All.Where(c => c.CommandClass == "hole").Select(c => c.Title).ToList();
+    var buttonRows = (holeTitles.Count + StrenuaPage.ButtonsPerRow - 1) / StrenuaPage.ButtonsPerRow;
+    Equal(buttonRows + 1, rows.Count);
+    var buttons = rows.Take(buttonRows).SelectMany(row => row.GetProperty("widgets").EnumerateArray()).ToList();
+    True(rows.Take(buttonRows).All(row => row.GetProperty("widgets").GetArrayLength() <= StrenuaPage.ButtonsPerRow), "一行最多 4 个按钮");
+    Equal(string.Join(",", holeTitles), string.Join(",", buttons.Select(button => button.GetProperty("text").GetString())));
+    // 检查类一块面板、只有按钮没有开关。
+    var check = branches.Single(branch => branch.GetProperty("id").GetString() == StrenuaPage.ClassPanelId("check"));
+    Equal("检查", check.GetProperty("case").GetString()!);
+    Equal(1, check.GetProperty("rows").GetArrayLength());
     // 开关在按钮下面，初值取当前设置。
-    var switches = rows[1].GetProperty("widgets").EnumerateArray().ToList();
+    var switches = rows[buttonRows].GetProperty("widgets").EnumerateArray().ToList();
     Equal("避障,尺寸链", string.Join(",", switches.Select(w => w.GetProperty("label").GetString())));
     True(switches.All(w => w.GetProperty("kind").GetString() == "switch"), "第二行应全是开关");
     Equal("false", switches[0].GetProperty("value").GetString()!);
@@ -904,9 +921,254 @@ static void TestFlowCommand()
     var usage = flow.Usage;
     True(usage.IndexOf("销钉符号", StringComparison.Ordinal) < usage.IndexOf("中心符号线", StringComparison.Ordinal)
         && usage.IndexOf("中心符号线", StringComparison.Ordinal) < usage.IndexOf("孔位尺寸", StringComparison.Ordinal)
-        && usage.IndexOf("孔位尺寸", StringComparison.Ordinal) < usage.IndexOf("→ 孔标注", StringComparison.Ordinal), "步骤顺序");
+        && usage.IndexOf("孔位尺寸", StringComparison.Ordinal) < usage.IndexOf("→ 外轮廓", StringComparison.Ordinal)
+        && usage.IndexOf("→ 外轮廓", StringComparison.Ordinal) < usage.IndexOf("→ 孔标注", StringComparison.Ordinal)
+        && usage.IndexOf("→ 孔标注", StringComparison.Ordinal) < usage.IndexOf("→ 销孔标注", StringComparison.Ordinal), "步骤顺序");
     True(usage.Contains("当前图纸页", StringComparison.Ordinal), "范围是当前图纸页");
-    Equal("hole-flow,dowel-symbol,center-mark,hole-position,hole-callout", string.Join(",", QuickCommands.All.Select(command => command.Key)));
+    Equal("hole-flow,dowel-symbol,center-mark,hole-position,hole-callout,dowel-fit,outline,check-dimension",
+        string.Join(",", QuickCommands.All.Select(command => command.Key)));
+}
+
+static DimensionAnchor C(double x, double y) => DimensionAnchor.Center(new SheetPoint(x, y));
+
+static DimensionAnchor L(double x1, double y1, double x2, double y2, bool model = true)
+    => DimensionAnchor.Line(new SheetSegment(x1, y1, x2, y2), model);
+
+static void TestDimensionAxes()
+{
+    // 比例 1:2：两孔心横向差 0.02（图纸）→ 模型 0.04。
+    var horizontal = new ViewDimension(0, 2, false, 0.04, [C(0.10, 0.20), C(0.12, 0.15)]);
+    Equal((true, false), DimensionGeometry.Axes(horizontal, 0.5));
+    var vertical = new ViewDimension(1, 2, false, 0.10, [C(0.10, 0.20), C(0.12, 0.15)]);
+    Equal((false, true), DimensionGeometry.Axes(vertical, 0.5));
+    // 连中心符号线竖线（只给 X）与左侧基准边（竖直模型边）。
+    var onLines = new ViewDimension(2, 2, false, 0.02, [L(0.12, 0.18, 0.12, 0.22, model: false), L(0.10, 0.0, 0.10, 0.3)]);
+    Equal((true, false), DimensionGeometry.Axes(onLines, 1.0));
+    Equal((0.10, 0.12), DimensionGeometry.Span(onLines, PositionAxis.Horizontal)!.Value);
+    True(DimensionGeometry.Span(onLines, PositionAxis.Vertical) is null, "竖线给不出 Y");
+    // 斜线不给坐标；值读不出的不认方向。
+    var slanted = DimensionAnchor.Line(new SheetSegment(0, 0, 0.1, 0.1), true);
+    True(slanted.X is null && slanted.Y is null, "斜线两个坐标都不给");
+    Equal((false, false), DimensionGeometry.Axes(new ViewDimension(3, 2, false, double.NaN, [C(0, 0), C(1, 0)]), 1));
+}
+
+static void TestDowelFitSpans()
+{
+    // 三个销孔：A(0.10,0.20)、B(0.15,0.20) 同一行，C(0.15,0.12) 在 B 正下方；一个普通孔。比例 1。
+    HoleEdge[] edges =
+    [
+        new(0, 0.10, 0.20, 0.003, "/销孔", Dowel: true),
+        new(1, 0.15, 0.20, 0.003, "/销孔", Dowel: true),
+        new(2, 0.15, 0.12, 0.003, "/销孔", Dowel: true),
+        new(3, 0.30, 0.20, 0.004, "/Cut"),
+    ];
+    // 已有一个 A→B 的水平尺寸（连孔边）；没有竖直的。
+    ViewDimension[] existing = [new(0, 2, false, 0.05, [C(0.10, 0.20), C(0.15, 0.20)])];
+    var plan = DowelFitPlanner.Plan(edges, existing, 1.0, chainMode: true, left: 0.05, top: 0.25);
+    Equal(3, plan.DowelCount);
+    Equal(1, plan.Kinds.Count);
+    Equal(2, plan.Spans.Count);
+    var h = plan.Spans.Single(span => span.Axis == PositionAxis.Horizontal);
+    Equal(0, h.Existing!.Value);
+    True(!h.Shared, "连着两个销孔，不兼管");
+    var v = plan.Spans.Single(span => span.Axis == PositionAxis.Vertical);
+    True(v.Existing is null, "竖直段要新加");
+    Near(0.12, v.From);
+    Near(0.20, v.To);
+    // 竖直站各取最左的孔：0.12 那站只有 C，0.20 那站 A 比 B 靠左。
+    Equal("2,0", $"{v.FromEdgeIndex},{v.ToEdgeIndex}");
+    True(v.TextAt.X < 0.10 - 0.003, "竖直尺寸放在较左那个孔的左边");
+    // 不跨种：另一种销孔 F 和 A 在同一行，也不与 A、B 连。
+    var mixed = DowelFitPlanner.Plan([.. edges, new(4, 0.40, 0.20, 0.002, "/销孔2", Dowel: true)], existing, 1.0, true, 0.05, 0.25);
+    Equal(2, mixed.Kinds.Count);
+    Equal(2, mixed.Spans.Count);
+    True(mixed.Spans.All(span => span.FromEdgeIndex != 4 && span.ToEdgeIndex != 4), "单个的另一种销孔没有销孔间尺寸");
+    // 普通孔与销孔之间不加；没有销孔就什么都没有。
+    Equal(0, DowelFitPlanner.Plan([edges[3]], [], 1.0, false, 0, 0.3).Spans.Count);
+    // 腰型孔端头即便标成销钉也不算。
+    Equal(0, DowelFitPlanner.Dowels(Slot(0, 0.3, 0.2, 0.3, 0.1, 0.003, "/S").Select(e => e with { Dowel = true }).ToList()).Count);
+}
+
+static void TestDowelFitShared()
+{
+    // 两个销孔 A(0.10,0.20)、B(0.15,0.20)；普通孔 P(0.10,0.10)、Q(0.15,0.10) 同一种、各在销孔的正下方——
+    // 普通模式下 P→Q 这段与 A→B 重叠，去重只标一次：销孔间尺寸要写「(仅销孔)」。
+    HoleEdge[] edges =
+    [
+        new(0, 0.10, 0.20, 0.003, "/销孔", Dowel: true),
+        new(1, 0.15, 0.20, 0.003, "/销孔", Dowel: true),
+        new(2, 0.10, 0.10, 0.004, "/Cut"),
+        new(3, 0.15, 0.10, 0.004, "/Cut"),
+    ];
+    var spans = HolePositionPlanner.RequestedSpans(edges, 0.05, 0.25, 1.0);
+    True(spans.Any(span => span.Axis == PositionAxis.Horizontal && !span.Dowel && Math.Abs(span.From - 0.10) < 1e-9 && Math.Abs(span.To - 0.15) < 1e-9),
+        "普通孔也想标 0.10→0.15");
+    var plan = DowelFitPlanner.Plan(edges, [], 1.0, chainMode: false, left: 0.05, top: 0.25);
+    True(plan.Spans.Single().Shared, "普通模式下重叠 → 兼管");
+    // 尺寸链模式没有线性尺寸去重，不写。
+    True(!DowelFitPlanner.Plan(edges, [], 1.0, chainMode: true, left: 0.05, top: 0.25).Spans.Single().Shared, "尺寸链模式不写");
+    // 已有的这段连在普通孔上（去重时留下的是普通孔那个）：也算兼管，且认得出它就是这段。
+    ViewDimension[] existing = [new(0, 2, false, 0.05, [C(0.10, 0.10), C(0.15, 0.10)])];
+    var reuse = DowelFitPlanner.Plan(edges.Take(2).ToList(), existing, 1.0, chainMode: true, left: 0.05, top: 0.25).Spans.Single();
+    Equal(0, reuse.Existing!.Value);
+    True(reuse.Shared, "连着别的孔 → 兼管");
+    // 连穿过销孔心的中心符号线：不算兼管。
+    ViewDimension[] onMarks = [new(0, 2, false, 0.05, [L(0.10, 0.19, 0.10, 0.21, false), L(0.15, 0.19, 0.15, 0.21, false)])];
+    var marks = DowelFitPlanner.Plan(edges.Take(2).ToList(), onMarks, 1.0, chainMode: true, left: 0.05, top: 0.25).Spans.Single();
+    True(marks.Existing == 0 && !marks.Shared, "连销孔中心符号线 → 就是销孔间尺寸");
+}
+
+static void TestDowelFitDiameterVariable()
+{
+    // 孔径 6 mm：深度 12 mm 不是；名字带 diam 的优先；毫米单位也认。
+    Equal(1, DowelFitPlanner.DiameterVariable([("<hw-depth>", 0.012), ("<hw-diam>", 0.006)], 0.006));
+    Equal(2, DowelFitPlanner.DiameterVariable([("<a>", double.NaN), ("<x>", 0.006), ("<hw-diam>", 6.0)], 0.006));
+    Equal(-1, DowelFitPlanner.DiameterVariable([("<hw-depth>", 0.012)], 0.006));
+}
+
+static SheetSegment S(double x1, double y1, double x2, double y2) => new(x1, y1, x2, y2);
+
+/// <summary>
+/// 测试用零件（图纸坐标，米）：外框 0..0.2 × 0..0.1，右上角切一个台阶（x 0.15..0.2、y 0.07..0.1 去掉），
+/// 上边开一个通到外面的槽（x 0.05..0.07、深到 y 0.08），中间一个封闭方型腔（0.09..0.11 × 0.03..0.05），左下一条斜边。
+/// </summary>
+static List<SheetSegment> Part()
+    =>
+    [
+        S(0, 0, 0, 0.1),           // 0 左边（基准）
+        S(0, 0.1, 0.05, 0.1),      // 1 上边左段
+        S(0.05, 0.1, 0.05, 0.08),  // 2 槽左壁
+        S(0.05, 0.08, 0.07, 0.08), // 3 槽底
+        S(0.07, 0.08, 0.07, 0.1),  // 4 槽右壁
+        S(0.07, 0.1, 0.15, 0.1),   // 5 上边中段（最长，上侧基准）
+        S(0.15, 0.1, 0.15, 0.07),  // 6 台阶竖边
+        S(0.15, 0.07, 0.2, 0.07),  // 7 台阶横边
+        S(0.2, 0.07, 0.2, 0),      // 8 右边
+        S(0.2, 0, 0, 0),           // 9 下边
+        S(0.09, 0.03, 0.11, 0.03), // 10 型腔
+        S(0.11, 0.03, 0.11, 0.05), // 11
+        S(0.11, 0.05, 0.09, 0.05), // 12
+        S(0.09, 0.05, 0.09, 0.03), // 13
+        S(0.02, 0.02, 0.04, 0.04), // 14 斜边（不标）
+    ];
+
+static void TestOutlineOuterLines()
+{
+    var outer = OutlinePlanner.OuterLines(Part(), []);
+    Equal("0,1,2,3,4,5,6,7,8,9", string.Join(",", outer));
+    True(!OutlinePlanner.Outside(new SheetPoint(0.1, 0.04), Part()), "型腔里出不去");
+    True(OutlinePlanner.Outside(new SheetPoint(0.06, 0.09), Part()), "开口槽里朝上出得去");
+    True(OutlinePlanner.RayHits(new SheetPoint(0, 0), 1, 0, S(0.1, -0.1, 0.1, 0.1)), "正前方的竖线挡住");
+    True(!OutlinePlanner.RayHits(new SheetPoint(0, 0), -1, 0, S(0.1, -0.1, 0.1, 0.1)), "背后的不挡");
+    True(!OutlinePlanner.RayHits(new SheetPoint(0, 0), 1, 0, S(0.1, 0, 0.2, 0)), "平行的不算");
+    // 曲线边也挡：右边换成圆角近似的折线，台阶照样认。
+    var rounded = Part();
+    rounded[8] = S(0.2, 0.07, 0.2, 0.01);
+    var corner = new List<SheetSegment> { S(0.2, 0.01, 0.197, 0.003), S(0.197, 0.003, 0.19, 0) };
+    rounded[9] = S(0.19, 0, 0, 0);
+    Equal("0,1,2,3,4,5,6,7,8,9", string.Join(",", OutlinePlanner.OuterLines(rounded, corner)));
+}
+
+static void TestOutlineStations()
+{
+    var lines = Part();
+    var outer = OutlinePlanner.OuterLines(lines, []);
+    var invariant = System.Globalization.CultureInfo.InvariantCulture;
+    // 比例 1:2：图纸 0.05 → 模型 0.1。
+    var stations = OutlinePlanner.Stations(lines, outer, 0, 0.1, 0.5);
+    var h = stations.Where(s => s.Axis == PositionAxis.Horizontal).ToList();
+    var v = stations.Where(s => s.Axis == PositionAxis.Vertical).ToList();
+    // 水平：槽两壁 0.05/0.07、台阶 0.15、右边 0.2（总长）；左边是基准不算。
+    Equal("0.1,0.14,0.3,0.4", string.Join(",", h.Select(s => Math.Round(s.Value, 6).ToString(invariant))));
+    // 竖直：槽底 0.08、台阶 0.07、下边 0（总宽）；上边是基准不算。
+    Equal("0.04,0.06,0.2", string.Join(",", v.Select(s => Math.Round(s.Value, 6).ToString(invariant))));
+    Equal(9, v.Last().LineIndex);
+
+    var dims = OutlinePlanner.Dimensions(stations, 0, 0.1, 0.02, 0.014);
+    Equal(7, dims.Count);
+    // 水平一站一层，近的在里：第一层 y = 上 + 0.02，往外每层 6 mm。
+    Near(0.1 + 0.02, dims[0].TextAt.Y);
+    Near(0.1 + 0.02 + 3 * HolePositionPlanner.TierStep, dims[3].TextAt.Y);
+    Near(0.2 / 2, dims[3].TextAt.X);
+    Near(-0.014, dims[4].TextAt.X);
+
+    Near(HolePositionPlanner.FirstTier, OutlinePlanner.FirstTier([]));
+    Near(HolePositionPlanner.FirstTier, OutlinePlanner.FirstTier([-0.05]));
+    Near(0.02 + HolePositionPlanner.TierStep, OutlinePlanner.FirstTier([0.008, 0.02, -0.1]));
+
+    // 组里已有 0.3（孔恰好在台阶那条线上）就不再加。
+    Equal("0.1,0.14,0.4", string.Join(",", OutlinePlanner.MissingFromGroup(h, [0.0, 0.3 + 1e-7]).Select(s => s.Value.ToString("0.##", invariant))));
+}
+
+static void TestOutlineObsolete()
+{
+    var lines = Part();
+    var outer = OutlinePlanner.OuterLines(lines, []).Select(i => lines[i]).ToList();
+    DimensionAnchor E(int index) => DimensionAnchor.Line(lines[index], true);
+    ViewDimension[] existing =
+    [
+        new(0, 2, false, 0.4, [E(0), E(8)]),            // 左边 → 右边：外轮廓线性尺寸，删
+        new(1, 2, false, 0.1, [E(0), C(0.05, 0.05)]),   // 左边 → 孔：孔位尺寸，不动
+        new(2, 2, false, 0.18, [E(0), E(13)]),          // 左边 → 型腔壁：不是外轮廓，不动
+        new(3, 0, true, double.NaN, [C(0.05, 0.05)]),   // 孔标注
+        new(4, 1, false, 0, [E(9)]),                    // 只有外轮廓成员的一组坐标尺寸：0 点
+        new(5, 1, false, 0.06, [E(7), E(9)]),           //   + 台阶
+        new(6, 1, false, 0, [E(1)]),                    // 孔的那组：0 点
+        new(7, 1, false, 0.1, [C(0.05, 0.05), E(1)]),   //   + 孔
+        new(8, 1, false, 0.04, [E(3), E(1)]),           //   + 槽底
+    ];
+    Equal("0", string.Join(",", OutlinePlanner.Obsolete(existing, outer)));
+    // 普通模式也删外轮廓坐标尺寸；孔那组的 0 点留着。
+    Equal("0,5,8,4", string.Join(",", OutlinePlanner.Obsolete(existing, outer, includeOrdinates: true)));
+}
+
+static void TestDimensionCheck()
+{
+    var lines = Part();
+    // 比例 1。两个同种孔 A(0.03,0.06)、B(0.03,0.03) 同一列；两个销孔 D(0.12,0.07)、E(0.13,0.07) 同一行。
+    HoleEdge[] edges =
+    [
+        new(0, 0.03, 0.06, 0.003, "/Cut"),
+        new(1, 0.03, 0.03, 0.003, "/Cut"),
+        new(2, 0.12, 0.07, 0.002, "/销孔", Dowel: true),
+        new(3, 0.13, 0.07, 0.002, "/销孔", Dowel: true),
+    ];
+    var left = DimensionAnchor.Line(lines[0], true);
+    var top = DimensionAnchor.Line(lines[1], true);
+    ViewDimension[] existing =
+    [
+        new(0, 0, true, double.NaN, [C(0.03, 0.06)]),                         // 孔标注（普通孔）
+        new(1, 0, true, double.NaN, [C(0.12, 0.07)]),                         // 孔标注（销孔，带 H7）
+        new(2, 2, false, 0.03, [left, C(0.03, 0.06)]),                        // 左边 → A 水平（B 同一列也算）
+        new(3, 2, false, 0.04, [top, C(0.03, 0.06)]),                         // 上边 → A 竖直
+        new(4, 2, false, 0.03, [C(0.03, 0.06), C(0.03, 0.03)]),               // A → B 竖直
+        new(5, 2, false, 0.12, [left, C(0.12, 0.07)]),                        // 左边 → D 水平
+        new(6, 2, false, 0.01, [C(0.12, 0.07), C(0.13, 0.07)]),               // D → E 水平（没有公差）
+        new(7, 2, false, 0.2, [left, DimensionAnchor.Line(lines[8], true)]),  // 总长
+    ];
+    var check = DimensionCheckPlanner.Check(edges, lines, [], existing, new HashSet<int> { 1 }, 1.0);
+    var texts = check.Issues.Select(issue => issue.Text).ToList();
+    var all = string.Join(" | ", texts);
+    Equal(4, check.HoleCount);
+    // D、E 缺竖直位置；水平都定位了（E 由 D→E 那个尺寸定位）。
+    True(texts.Count(t => t.Contains("缺竖直位置尺寸", StringComparison.Ordinal)) == 2, all);
+    True(!texts.Any(t => t.Contains("缺水平", StringComparison.Ordinal)), all);
+    True(texts.Any(t => t.Contains("没有 ±0.02", StringComparison.Ordinal)), "D→E 没公差：" + all);
+    True(!texts.Any(t => t.Contains("没有孔标注", StringComparison.Ordinal)), "两种孔都有孔标注：" + all);
+    True(!texts.Any(t => t.Contains("没有 H7", StringComparison.Ordinal)), "销孔孔标注已带 H7：" + all);
+    // 外轮廓 7 站，只标了总长 → 6 站本视图没有。
+    Equal(7, check.StationCount);
+    Equal(6, check.Outline.Count);
+    True(DimensionCheckPlanner.DescribeStation(check.Outline[0]).Contains("左起 50", StringComparison.Ordinal), DimensionCheckPlanner.DescribeStation(check.Outline[0]));
+
+    // 阵列标法跨度里的孔算定位：前缀「4 x 10 =」，跨 0.02→0.06，中间 0.04 的孔不缺。
+    ViewDimension[] pattern = [new(0, 2, false, 0.04, [C(0.02, 0.05), C(0.06, 0.05)], Prefix: "4 x 10 =")];
+    True(DimensionCheckPlanner.Located(pattern, PositionAxis.Horizontal, 0.04, 1.0), "阵列跨度里");
+    True(!DimensionCheckPlanner.Located(pattern, PositionAxis.Vertical, 0.05, 1.0), "阵列尺寸不管竖直");
+    // 不带 H7 的销孔孔标注、没有孔标注的种都报出来。
+    var bare = DimensionCheckPlanner.Check(edges, lines, [], existing.Skip(1).ToList(), new HashSet<int>(), 1.0);
+    True(bare.Issues.Any(issue => issue.Text.Contains("没有 H7", StringComparison.Ordinal)), "没有 H7");
+    True(bare.Issues.Any(issue => issue.Text.Contains("没有孔标注", StringComparison.Ordinal) && issue.EdgeIndex == 0), "普通孔那种没有孔标注");
 }
 
 static void TestDistinctHoles()

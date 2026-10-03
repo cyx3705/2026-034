@@ -84,6 +84,9 @@ internal static class QuickCommands
         CenterMark.Command,
         HolePosition.Command,
         HoleCallout.Command,
+        DowelFit.Command,
+        Outline.Command,
+        DimensionCheck.Command,
     ];
 
     /// <summary>命令类 → 页面上的类名。新类不登记也能用，只是显示成英文类名。</summary>
@@ -91,6 +94,7 @@ internal static class QuickCommands
         new Dictionary<string, string>(StringComparer.Ordinal)
         {
             ["hole"] = "孔",
+            ["check"] = "检查",
         };
 
     public static string ClassTitle(string commandClass)

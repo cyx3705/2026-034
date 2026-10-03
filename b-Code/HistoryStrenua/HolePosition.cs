@@ -99,8 +99,8 @@ internal static class HolePosition
             {
                 context.Cancellation.ThrowIfCancellationRequested();
                 var datumEdge = scan.LineEdges[dimension.Axis == PositionAxis.Horizontal ? l : t];
-                var (ok, centerLines) = Insert(api, scan, datumEdge, dimension);
-                if (!ok)
+                var (created, centerLines) = Insert(api, scan, datumEdge, dimension);
+                if (created is null)
                 {
                     failed++;
                     continue;
@@ -146,14 +146,14 @@ internal static class HolePosition
     /// <para>建出来的不是线性尺寸就删掉，退回选孔边再建。</para>
     /// </remarks>
     /// <returns>加上了没有，以及是不是连在中心线上。</returns>
-    private static (bool Added, bool OnCenterLines) Insert(SolidWorksApi api, ScannedView scan, object datumEdge, PositionDimension dimension)
+    internal static (object? Created, bool OnCenterLines) Insert(SolidWorksApi api, ScannedView scan, object? datumEdge, PositionDimension dimension)
     {
         var horizontal = dimension.Axis == PositionAxis.Horizontal;
         var method = horizontal ? "AddHorizontalDimension2" : "AddVerticalDimension2";
         foreach (var onCenterLines in horizontal ? new[] { true, false } : [false])
         {
             api.Call(scan.Document, "IModelDoc2", "ClearSelection2", true);
-            var selected = (dimension.FromEdgeIndex is { } from ? SelectHole(api, scan, from, false, onCenterLines) : SelectEdge(api, scan, datumEdge, false))
+            var selected = (dimension.FromEdgeIndex is { } from ? SelectHole(api, scan, from, false, onCenterLines) : datumEdge is not null && SelectEdge(api, scan, datumEdge, false))
                 && SelectHole(api, scan, dimension.ToEdgeIndex, true, onCenterLines);
             if (!selected)
                 continue;
@@ -167,10 +167,10 @@ internal static class HolePosition
 
             if (dimension.Prefix.Length > 0)
                 api.Call(created, "IDisplayDimension", "SetText", TextPrefix, dimension.Prefix);
-            return (true, onCenterLines);
+            return (created, onCenterLines);
         }
 
-        return (false, false);
+        return (null, false);
     }
 
     /// <summary>
@@ -189,47 +189,23 @@ internal static class HolePosition
     /// <returns>加上的尺寸个数（含 0 点）与是不是连在中心线上；0 表示 SolidWorks 没接受。</returns>
     private static (int Added, bool OnCenterLines) InsertOrdinate(SolidWorksApi api, ScannedView scan, OrdinateGroup group, object datumEdge)
     {
-        var horizontal = group.Axis == PositionAxis.Horizontal;
-        var extension = api.Call(scan.Document, "IModelDoc2", "get_Extension");
-        if (extension is null)
-            return (0, false);
-
         // 0 点与每一站离基准的模型距离（米），用来核对 SolidWorks 建出来的值。
         var expected = group.Values.Prepend(0.0).Order().ToList();
 
         foreach (var onCenterLines in new[] { true, false })
         {
             var before = OrdinateNames(api, scan);
-            api.Call(scan.Document, "IModelDoc2", "ClearSelection2", true);
-            if (!SelectEdge(api, scan, datumEdge, false))
+            if (CreateOrdinateZero(api, scan, datumEdge, group.Axis == PositionAxis.Horizontal, group.At) is not { } zero)
                 return (0, false);
-            var error = api.CallInt(extension, "IModelDocExtension", "AddOrdinateDimension",
-                horizontal ? HorizontalOrdinate : VerticalOrdinate, group.At.X, group.At.Y, 0.0);
-            api.Call(scan.Document, "IModelDoc2", "ClearSelection2", true);
-            api.Call(scan.Document, "IModelDoc2", "SetPickMode");
-            var created = NewOrdinates(api, scan, before);
-            if (error != 0 || created.Count != 1)
+            ExtendOrdinate(api, scan, zero, () =>
             {
-                Discard(api, scan, created);
-                continue;
-            }
-
-            var selected = api.Call(created[0], "IDisplayDimension", "GetAnnotation") is { } zeroAnnotation
-                           && api.CallBool(zeroAnnotation, "IAnnotation", "Select3", false, null);
-            for (var i = 0; i < group.EdgeIndexes.Count && selected; i++)
-                selected = SelectHole(api, scan, group.EdgeIndexes[i], true, onCenterLines);
-            if (selected)
-                api.Call(scan.Document, "IModelDoc2", "EditOrdinate");
-            api.Call(scan.Document, "IModelDoc2", "SetPickMode");
-            api.Call(scan.Document, "IModelDoc2", "ClearSelection2", true);
-            created = NewOrdinates(api, scan, before);
-
-            var values = created
-                .Select(dimension => api.Call(dimension, "IDisplayDimension", "GetDimension2", 0))
-                .Select(dimension => dimension is null ? double.NaN : Convert.ToDouble(api.Call(dimension, "IDimension", "get_SystemValue")))
-                .Order()
-                .ToList();
-            if (!HolePositionPlanner.SameValues(expected, values))
+                var selected = true;
+                for (var i = 0; i < group.EdgeIndexes.Count && selected; i++)
+                    selected = SelectHole(api, scan, group.EdgeIndexes[i], true, onCenterLines);
+                return selected;
+            });
+            var created = NewOrdinates(api, scan, before);
+            if (!HolePositionPlanner.SameValues(expected, OrdinateValues(api, created)))
             {
                 Discard(api, scan, created);
                 continue;
@@ -241,8 +217,55 @@ internal static class HolePosition
         return (0, false);
     }
 
+    /// <summary>
+    /// 选基准边、<c>AddOrdinateDimension</c> 在 <paramref name="at"/> 建一个坐标尺寸组的 0 点（只建得出 0 点，见 <see cref="InsertOrdinate"/>），
+    /// 退出加尺寸状态。建出来的不是恰好一个就删掉、返回 null。
+    /// </summary>
+    internal static object? CreateOrdinateZero(SolidWorksApi api, ScannedView scan, object datumEdge, bool horizontal, SheetPoint at)
+    {
+        if (api.Call(scan.Document, "IModelDoc2", "get_Extension") is not { } extension)
+            return null;
+        var before = OrdinateNames(api, scan);
+        api.Call(scan.Document, "IModelDoc2", "ClearSelection2", true);
+        if (!SelectEdge(api, scan, datumEdge, false))
+            return null;
+        var error = api.CallInt(extension, "IModelDocExtension", "AddOrdinateDimension",
+            horizontal ? HorizontalOrdinate : VerticalOrdinate, at.X, at.Y, 0.0);
+        api.Call(scan.Document, "IModelDoc2", "ClearSelection2", true);
+        api.Call(scan.Document, "IModelDoc2", "SetPickMode");
+        var created = NewOrdinates(api, scan, before);
+        if (error == 0 && created.Count == 1)
+            return created[0];
+        Discard(api, scan, created);
+        return null;
+    }
+
+    /// <summary>
+    /// 往已有的坐标尺寸组里加站：选中组的 0 点尺寸，<paramref name="selectMembers"/> 追加选上要加的对象，
+    /// <c>IModelDoc2.EditOrdinate</c> 一次加进去。加了哪些由调用方回读（<see cref="NewOrdinates"/>）。
+    /// </summary>
+    internal static void ExtendOrdinate(SolidWorksApi api, ScannedView scan, object zero, Func<bool> selectMembers)
+    {
+        api.Call(scan.Document, "IModelDoc2", "ClearSelection2", true);
+        var selected = api.Call(zero, "IDisplayDimension", "GetAnnotation") is { } zeroAnnotation
+                       && api.CallBool(zeroAnnotation, "IAnnotation", "Select3", false, null)
+                       && selectMembers();
+        if (selected)
+            api.Call(scan.Document, "IModelDoc2", "EditOrdinate");
+        api.Call(scan.Document, "IModelDoc2", "SetPickMode");
+        api.Call(scan.Document, "IModelDoc2", "ClearSelection2", true);
+    }
+
+    /// <summary>一批尺寸的值（模型长度，米），排好序。</summary>
+    internal static List<double> OrdinateValues(SolidWorksApi api, IEnumerable<object> displayDimensions)
+        => displayDimensions
+            .Select(dimension => api.Call(dimension, "IDisplayDimension", "GetDimension2", 0))
+            .Select(dimension => dimension is null ? double.NaN : Convert.ToDouble(api.Call(dimension, "IDimension", "get_SystemValue")))
+            .Order()
+            .ToList();
+
     /// <summary>视图里现有坐标尺寸的注解名。</summary>
-    private static HashSet<string> OrdinateNames(SolidWorksApi api, ScannedView scan)
+    internal static HashSet<string> OrdinateNames(SolidWorksApi api, ScannedView scan)
         => Ordinates(api, scan)
             .Select(dimension => api.Call(dimension, "IDisplayDimension", "GetAnnotation"))
             .Where(annotation => annotation is not null)
@@ -250,13 +273,13 @@ internal static class HolePosition
             .ToHashSet(StringComparer.Ordinal);
 
     /// <summary>视图里不在 <paramref name="before"/> 里的坐标尺寸（<c>IDisplayDimension</c>）。</summary>
-    private static List<object> NewOrdinates(SolidWorksApi api, ScannedView scan, HashSet<string> before)
+    internal static List<object> NewOrdinates(SolidWorksApi api, ScannedView scan, HashSet<string> before)
         => Ordinates(api, scan)
             .Where(dimension => api.Call(dimension, "IDisplayDimension", "GetAnnotation") is { } annotation
                                 && !before.Contains(api.CallString(annotation, "IAnnotation", "GetName")))
             .ToList();
 
-    private static IEnumerable<object> Ordinates(SolidWorksApi api, ScannedView scan)
+    internal static IEnumerable<object> Ordinates(SolidWorksApi api, ScannedView scan)
     {
         var dimension = api.Call(scan.View, "IView", "GetFirstDisplayDimension5");
         while (dimension is not null)
@@ -268,7 +291,7 @@ internal static class HolePosition
     }
 
     /// <summary>删掉一组刚建错的尺寸。</summary>
-    private static void Discard(SolidWorksApi api, ScannedView scan, IReadOnlyList<object> displayDimensions)
+    internal static void Discard(SolidWorksApi api, ScannedView scan, IReadOnlyList<object> displayDimensions)
     {
         if (displayDimensions.Count == 0)
             return;
@@ -287,7 +310,7 @@ internal static class HolePosition
     }
 
     /// <summary>删掉刚建错的尺寸（例如 SolidWorks 建成了角度尺寸）。</summary>
-    private static void Discard(SolidWorksApi api, ScannedView scan, object displayDimension)
+    internal static void Discard(SolidWorksApi api, ScannedView scan, object displayDimension)
     {
         api.Call(scan.Document, "IModelDoc2", "ClearSelection2", true);
         if (api.Call(displayDimension, "IDisplayDimension", "GetAnnotation") is { } annotation
@@ -295,14 +318,14 @@ internal static class HolePosition
             api.Call(scan.Document, "IModelDoc2", "EditDelete");
     }
 
-    private static bool SelectEdge(SolidWorksApi api, ScannedView scan, object edge, bool append)
+    internal static bool SelectEdge(SolidWorksApi api, ScannedView scan, object edge, bool append)
         => api.CallBool(scan.View, "IView", "SelectEntity", edge, append);
 
     /// <summary>
     /// 选孔：<paramref name="centerMark"/> 时在孔心点选中心符号线，并核对选中的确实是中心符号线
     /// （点空了 SolidWorks 会改选整个视图）；否则选孔边。
     /// </summary>
-    private static bool SelectHole(SolidWorksApi api, ScannedView scan, int edgeIndex, bool append, bool centerMark)
+    internal static bool SelectHole(SolidWorksApi api, ScannedView scan, int edgeIndex, bool append, bool centerMark)
     {
         if (!centerMark)
             return SelectEdge(api, scan, scan.Edges[edgeIndex], append);
@@ -413,11 +436,9 @@ internal static class HolePosition
     }
 
     /// <summary>一个视图草图直线在图纸上的两端；不是草图直线、对象已失效或视图旋转过时为 null。</summary>
-    private static SheetSegment? SketchLineOnSheet(SolidWorksApi api, ScannedView scan, object entity)
+    internal static SheetSegment? SketchLineOnSheet(SolidWorksApi api, ScannedView scan, object entity)
     {
-        var angle = api.Call(scan.View, "IView", "get_Angle") is { } value ? Convert.ToDouble(value) : 0.0;
-        var xform = api.CallDoubles(scan.View, "IView", "GetXform");
-        if (Math.Abs(angle) > 1e-9 || xform.Length < 3)
+        if (scan.Geometry.SketchXform is not { } xform)
             return null;
         try
         {

@@ -13,6 +13,9 @@
             删掉几个只能靠回读数出来。所以每遍删完都重新读一次视图，最多 <see cref="F:HistoryStrenua.AnnotationEraser.Passes"/> 遍。
             </remarks>
         </member>
+        <member name="F:HistoryStrenua.AnnotationEraser.Disconnected">
+            <summary>RPC_E_DISCONNECTED：对象在 SolidWorks 那边已经不在了。</summary>
+        </member>
         <member name="M:HistoryStrenua.AnnotationEraser.Erase(HistoryStrenua.QuickCommandContext,System.Object,System.Func{System.Collections.Generic.IReadOnlyList{System.Object}})">
             <param name="context">快捷指令上下文。</param>
             <param name="document">活动工程图。</param>
@@ -688,7 +691,8 @@
             <remarks>
             <para>认孔、分种与「孔标注」相同（<see cref="T:HistoryStrenua.HoleScan"/>）；怎么标见 <see cref="T:HistoryStrenua.HolePositionPlanner"/>：
             同种孔接着前一个孔标，不同种孔从基准标；同种孔一个方向超过 4 个且等距用阵列标法「(N-1) x 间距 =总长」。
-            页面「尺寸链」开关打开时（1.7.0）改为每个方向全部孔一条 SolidWorks 原生尺寸链（<see cref="M:HistoryStrenua.HolePosition.InsertChain(HistoryStrenua.SolidWorks.SolidWorksApi,HistoryStrenua.ScannedView,System.Object,System.Collections.Generic.IReadOnlyList{HistoryStrenua.PositionDimension})"/>）。
+            页面「尺寸链」开关打开时（1.7.0）改为每个方向一组 SolidWorks「尺寸链」（坐标尺寸，<see cref="M:HistoryStrenua.HolePosition.InsertOrdinate(HistoryStrenua.SolidWorks.SolidWorksApi,HistoryStrenua.ScannedView,HistoryStrenua.OrdinateGroup,System.Object)"/>）：
+            0 点是左侧 / 上侧基准边，其后每列（行）孔一个坐标值。
             腰型孔只标上方那一端圆弧的圆心（1.3.0，用户定）。</para>
             <para>「重新标」：先删掉连着这些孔的旧线性尺寸与视图里悬空的线性尺寸（孔标注、直径尺寸、外形尺寸不动），再全部重标。</para>
             <para>最后做标注避障（1.6.0，<see cref="M:HistoryStrenua.Clearance.ClearDimensions(HistoryStrenua.QuickCommandContext,HistoryStrenua.ScannedView,System.Collections.Generic.IReadOnlyList{HistoryStrenua.HoleEdge})"/>）：尺寸数字压在别的孔相关注解上就沿尺寸线滑开。
@@ -716,18 +720,30 @@
             </remarks>
             <returns>加上了没有，以及是不是连在中心线上。</returns>
         </member>
-        <member name="M:HistoryStrenua.HolePosition.InsertChain(HistoryStrenua.SolidWorks.SolidWorksApi,HistoryStrenua.ScannedView,System.Object,System.Collections.Generic.IReadOnlyList{HistoryStrenua.PositionDimension})">
+        <member name="M:HistoryStrenua.HolePosition.InsertOrdinate(HistoryStrenua.SolidWorks.SolidWorksApi,HistoryStrenua.ScannedView,HistoryStrenua.OrdinateGroup,System.Object)">
             <summary>
-            一个方向的一条 SolidWorks 原生尺寸链（「尺寸链」工具，<c>IModelDocExtension.InsertChainDimensions</c>）：
-            依次选基准边与各站的孔边，传 null 让它用预选（真机 SW 2025 SP5：直接传 <c>GetVisibleEntities2</c> 的边返回 null，
-            预选才行；方向由基准边定，竖边出水平链、横边出竖直链）。
+            一个方向的一组 SolidWorks「尺寸链」（坐标尺寸）：先选基准边在 <see cref="P:HistoryStrenua.OrdinateGroup.At"/> 建 0 点
+            （<c>IModelDocExtension.AddOrdinateDimension</c>），再选中这个 0 点尺寸与各站的孔，
+            <c>IModelDoc2.EditOrdinate</c> 一次把整组加进去；挤在一起的文字 SolidWorks 自己折弯错开。
             </summary>
             <remarks>
-            <para>只连孔边、不连中心符号线：预选里混进中心符号线时 SolidWorks 返回 null。量到的仍是圆心，值相同。</para>
-            <para>新建的链放在图纸外（尺寸线在 y≈0 或 x≈0）且每段文字带引线偏开（<c>OffsetText</c> = true）。逐段关掉偏开，
-            再按规划位置 <c>SetPosition2</c>——关掉之后尺寸线跟着文字走；每段各自移，不会带动同链其他段。</para>
+            <para>真机（SW 2025 SP5，WTJYQ-01-08 底板 View2）：预选 0 点与全部孔再 <c>AddOrdinateDimension</c> 只建出 0 点，
+            之后用 API 再选也不会往组里加（那是界面交互）；<c>EditOrdinate</c> 才一次全建出来，位置、折弯与用户手工的演示一致。
+            <c>AddOrdinateDimension</c> 之后要 <c>SetPickMode</c> 退出加尺寸状态。</para>
+            <para>和演示一样优先连孔上的中心符号线（SolidWorks 取过孔心的那根横线 / 竖线，附着类型 24）；
+            孔挨得很近时按孔心点选可能选到邻孔的中心符号线——有一个选不上，或建出来的值和规划对不上，
+            整组删掉退回连孔边（量到圆心，值相同；引出线画到圆心）。</para>
             </remarks>
-            <returns>链里加上的尺寸个数；0 表示 SolidWorks 没接受，调用方退回逐个标。</returns>
+            <returns>加上的尺寸个数（含 0 点）与是不是连在中心线上；0 表示 SolidWorks 没接受。</returns>
+        </member>
+        <member name="M:HistoryStrenua.HolePosition.OrdinateNames(HistoryStrenua.SolidWorks.SolidWorksApi,HistoryStrenua.ScannedView)">
+            <summary>视图里现有坐标尺寸的注解名。</summary>
+        </member>
+        <member name="M:HistoryStrenua.HolePosition.NewOrdinates(HistoryStrenua.SolidWorks.SolidWorksApi,HistoryStrenua.ScannedView,System.Collections.Generic.HashSet{System.String})">
+            <summary>视图里不在 <paramref name="before"/> 里的坐标尺寸（<c>IDisplayDimension</c>）。</summary>
+        </member>
+        <member name="M:HistoryStrenua.HolePosition.Discard(HistoryStrenua.SolidWorks.SolidWorksApi,HistoryStrenua.ScannedView,System.Collections.Generic.IReadOnlyList{System.Object})">
+            <summary>删掉一组刚建错的尺寸。</summary>
         </member>
         <member name="M:HistoryStrenua.HolePosition.Discard(HistoryStrenua.SolidWorks.SolidWorksApi,HistoryStrenua.ScannedView,System.Object)">
             <summary>删掉刚建错的尺寸（例如 SolidWorks 建成了角度尺寸）。</summary>
@@ -743,6 +759,12 @@
             视图里连着这些孔的旧线性尺寸（<c>IAnnotation</c>）：连着孔边的，或连着穿过孔心的中心线的。孔标注不算。
             </summary>
         </member>
+        <member name="M:HistoryStrenua.HolePosition.AttachedKeys(HistoryStrenua.SolidWorks.SolidWorksApi,HistoryStrenua.ScannedView,System.Object)">
+            <summary>
+            坐标尺寸每个附着对象的图纸几何写成的键（模型直边两端、圆边圆心、视图草图线两端，0.01 mm 取整），
+            用来认同组的 0 点（见 <see cref="M:HistoryStrenua.HolePositionPlanner.Obsolete(System.Collections.Generic.IReadOnlyList{HistoryStrenua.HoleEdge},System.Collections.Generic.IReadOnlyList{HistoryStrenua.ExistingDimension})"/>）。读不出的对象不出键。
+            </summary>
+        </member>
         <member name="M:HistoryStrenua.HolePosition.IsDangling(HistoryStrenua.SolidWorks.SolidWorksApi,System.Object)">
             <summary>
             尺寸悬空了没有：<c>IAnnotation.IsDangling</c>；保险起见附着对象里有空的也算
@@ -754,6 +776,9 @@
             注解连着的视图草图线（中心符号线、中心线）在图纸上的样子。草图坐标是模型尺寸、原点在视图位置，
             图纸点 = 视图位置 + 草图点 × 比例；<c>GetXform</c> 不含旋转，所以旋转过的视图不认（返回空）。
             </summary>
+        </member>
+        <member name="M:HistoryStrenua.HolePosition.SketchLineOnSheet(HistoryStrenua.SolidWorks.SolidWorksApi,HistoryStrenua.ScannedView,System.Object)">
+            <summary>一个视图草图直线在图纸上的两端；不是草图直线、对象已失效或视图旋转过时为 null。</summary>
         </member>
         <member name="T:HistoryStrenua.PositionAxis">
             <summary>孔位尺寸量的是哪个方向。</summary>
@@ -795,6 +820,41 @@
         <member name="P:HistoryStrenua.PositionDimension.Prefix">
             <summary>尺寸值前面的文字；阵列标法是「(N-1) x 间距 =」，其余为空。</summary>
         </member>
+        <member name="T:HistoryStrenua.OrdinateGroup">
+            <summary>
+            尺寸链模式下一个方向的一组 SolidWorks「尺寸链」（坐标尺寸，<c>swOrdinateDimension</c>）：
+            0 点是基准边（水平组用左侧直边、竖直组用上侧直边），其后依次是 <paramref name="EdgeIndexes"/> 的孔，在 <paramref name="At"/> 一次建成整组。
+            </summary>
+            <param name="Axis">方向：水平组在视图上方量各列的 X，竖直组在视图左侧量各行的 Y。</param>
+            <param name="EdgeIndexes">每一列（行）一个孔边下标，按离基准由近到远（不含 0 点）。</param>
+            <param name="Values">每一站离基准的距离（模型长度，米），与 <paramref name="EdgeIndexes"/> 一一对应，用来核对建出来的值。</param>
+            <param name="At">0 点那个尺寸文字的位置（图纸坐标，米）；整组文字排成一列，SolidWorks 自己折弯错开。</param>
+        </member>
+        <member name="M:HistoryStrenua.OrdinateGroup.#ctor(HistoryStrenua.PositionAxis,System.Collections.Generic.IReadOnlyList{System.Int32},System.Collections.Generic.IReadOnlyList{System.Double},HistoryStrenua.SheetPoint)">
+            <summary>
+            尺寸链模式下一个方向的一组 SolidWorks「尺寸链」（坐标尺寸，<c>swOrdinateDimension</c>）：
+            0 点是基准边（水平组用左侧直边、竖直组用上侧直边），其后依次是 <paramref name="EdgeIndexes"/> 的孔，在 <paramref name="At"/> 一次建成整组。
+            </summary>
+            <param name="Axis">方向：水平组在视图上方量各列的 X，竖直组在视图左侧量各行的 Y。</param>
+            <param name="EdgeIndexes">每一列（行）一个孔边下标，按离基准由近到远（不含 0 点）。</param>
+            <param name="Values">每一站离基准的距离（模型长度，米），与 <paramref name="EdgeIndexes"/> 一一对应，用来核对建出来的值。</param>
+            <param name="At">0 点那个尺寸文字的位置（图纸坐标，米）；整组文字排成一列，SolidWorks 自己折弯错开。</param>
+        </member>
+        <member name="P:HistoryStrenua.OrdinateGroup.Axis">
+            <summary>方向：水平组在视图上方量各列的 X，竖直组在视图左侧量各行的 Y。</summary>
+        </member>
+        <member name="P:HistoryStrenua.OrdinateGroup.EdgeIndexes">
+            <summary>每一列（行）一个孔边下标，按离基准由近到远（不含 0 点）。</summary>
+        </member>
+        <member name="P:HistoryStrenua.OrdinateGroup.Values">
+            <summary>每一站离基准的距离（模型长度，米），与 <paramref name="EdgeIndexes"/> 一一对应，用来核对建出来的值。</summary>
+        </member>
+        <member name="P:HistoryStrenua.OrdinateGroup.At">
+            <summary>0 点那个尺寸文字的位置（图纸坐标，米）；整组文字排成一列，SolidWorks 自己折弯错开。</summary>
+        </member>
+        <member name="P:HistoryStrenua.OrdinateGroup.Count">
+            <summary>这组的尺寸个数：0 点一个，加每站一个。</summary>
+        </member>
         <member name="T:HistoryStrenua.ExistingDimension">
             <summary>视图里已有的一个尺寸：它的类型（<c>swDimensionType_e</c>）与它连着的圆边圆心、中心线。</summary>
             <param name="Index">回指调用方手里那个尺寸。</param>
@@ -802,14 +862,16 @@
             <param name="Centers">它附着的圆边的圆心（图纸坐标）。</param>
             <param name="Lines">它附着的视图草图线（中心符号线的线、中心线），图纸坐标。</param>
             <param name="Dangling">悬空：至少一头的附着丢了（<c>IAnnotation.IsDangling</c>，或附着对象读出来是空的）。</param>
+            <param name="Attached">坐标尺寸每个附着对象的几何写成的键（直边两端、圆心或草图线）；同组的坐标尺寸都含组的 0 点那个键。其余尺寸为 null。</param>
         </member>
-        <member name="M:HistoryStrenua.ExistingDimension.#ctor(System.Int32,System.Int32,System.Collections.Generic.IReadOnlyList{HistoryStrenua.SheetPoint},System.Collections.Generic.IReadOnlyList{HistoryStrenua.SheetSegment},System.Boolean)">
+        <member name="M:HistoryStrenua.ExistingDimension.#ctor(System.Int32,System.Int32,System.Collections.Generic.IReadOnlyList{HistoryStrenua.SheetPoint},System.Collections.Generic.IReadOnlyList{HistoryStrenua.SheetSegment},System.Boolean,System.Collections.Generic.IReadOnlyList{System.String})">
             <summary>视图里已有的一个尺寸：它的类型（<c>swDimensionType_e</c>）与它连着的圆边圆心、中心线。</summary>
             <param name="Index">回指调用方手里那个尺寸。</param>
             <param name="Type"><c>IDisplayDimension.Type2</c>。</param>
             <param name="Centers">它附着的圆边的圆心（图纸坐标）。</param>
             <param name="Lines">它附着的视图草图线（中心符号线的线、中心线），图纸坐标。</param>
             <param name="Dangling">悬空：至少一头的附着丢了（<c>IAnnotation.IsDangling</c>，或附着对象读出来是空的）。</param>
+            <param name="Attached">坐标尺寸每个附着对象的几何写成的键（直边两端、圆心或草图线）；同组的坐标尺寸都含组的 0 点那个键。其余尺寸为 null。</param>
         </member>
         <member name="P:HistoryStrenua.ExistingDimension.Index">
             <summary>回指调用方手里那个尺寸。</summary>
@@ -826,24 +888,29 @@
         <member name="P:HistoryStrenua.ExistingDimension.Dangling">
             <summary>悬空：至少一头的附着丢了（<c>IAnnotation.IsDangling</c>，或附着对象读出来是空的）。</summary>
         </member>
+        <member name="P:HistoryStrenua.ExistingDimension.Attached">
+            <summary>坐标尺寸每个附着对象的几何写成的键（直边两端、圆心或草图线）；同组的坐标尺寸都含组的 0 点那个键。其余尺寸为 null。</summary>
+        </member>
         <member name="T:HistoryStrenua.HolePositionPlan">
             <summary>规划结果。</summary>
-            <param name="Dimensions">要加的尺寸，先水平后竖直，同方向按层由里到外。</param>
+            <param name="Dimensions">要加的线性尺寸，先水平后竖直，同方向按层由里到外；尺寸链模式下为空。</param>
             <param name="HoleCount">视图里认出的孔数（同心的算一个，一个腰型孔算一个）。</param>
             <param name="KindCount">孔的种数。</param>
             <param name="PatternCount">用了阵列标法的尺寸个数。</param>
             <param name="SlotCount">其中腰型孔的个数。</param>
+            <param name="Ordinates">尺寸链模式（1.7.0）的坐标尺寸组，先水平后竖直；其余模式为空。</param>
         </member>
-        <member name="M:HistoryStrenua.HolePositionPlan.#ctor(System.Collections.Generic.IReadOnlyList{HistoryStrenua.PositionDimension},System.Int32,System.Int32,System.Int32,System.Int32)">
+        <member name="M:HistoryStrenua.HolePositionPlan.#ctor(System.Collections.Generic.IReadOnlyList{HistoryStrenua.PositionDimension},System.Int32,System.Int32,System.Int32,System.Int32,System.Collections.Generic.IReadOnlyList{HistoryStrenua.OrdinateGroup})">
             <summary>规划结果。</summary>
-            <param name="Dimensions">要加的尺寸，先水平后竖直，同方向按层由里到外。</param>
+            <param name="Dimensions">要加的线性尺寸，先水平后竖直，同方向按层由里到外；尺寸链模式下为空。</param>
             <param name="HoleCount">视图里认出的孔数（同心的算一个，一个腰型孔算一个）。</param>
             <param name="KindCount">孔的种数。</param>
             <param name="PatternCount">用了阵列标法的尺寸个数。</param>
             <param name="SlotCount">其中腰型孔的个数。</param>
+            <param name="Ordinates">尺寸链模式（1.7.0）的坐标尺寸组，先水平后竖直；其余模式为空。</param>
         </member>
         <member name="P:HistoryStrenua.HolePositionPlan.Dimensions">
-            <summary>要加的尺寸，先水平后竖直，同方向按层由里到外。</summary>
+            <summary>要加的线性尺寸，先水平后竖直，同方向按层由里到外；尺寸链模式下为空。</summary>
         </member>
         <member name="P:HistoryStrenua.HolePositionPlan.HoleCount">
             <summary>视图里认出的孔数（同心的算一个，一个腰型孔算一个）。</summary>
@@ -857,8 +924,17 @@
         <member name="P:HistoryStrenua.HolePositionPlan.SlotCount">
             <summary>其中腰型孔的个数。</summary>
         </member>
+        <member name="P:HistoryStrenua.HolePositionPlan.Ordinates">
+            <summary>尺寸链模式（1.7.0）的坐标尺寸组，先水平后竖直；其余模式为空。</summary>
+        </member>
         <member name="P:HistoryStrenua.HolePositionPlan.Summary">
             <summary>回执里的「N 个孔（含 M 个腰型孔）共 K 种」。</summary>
+        </member>
+        <member name="P:HistoryStrenua.HolePositionPlan.OrdinateGroups">
+            <summary>坐标尺寸组（没有时为空表）。</summary>
+        </member>
+        <member name="P:HistoryStrenua.HolePositionPlan.Count">
+            <summary>要加的尺寸总数：线性尺寸，加上坐标尺寸组里每一站（含 0 点）一个。</summary>
         </member>
         <member name="T:HistoryStrenua.HolePositionPlanner">
             <summary>
@@ -896,6 +972,12 @@
         <member name="F:HistoryStrenua.HolePositionPlanner.TierStep">
             <summary>层与层之间多远（图纸上 6 mm；首版 8 mm）。</summary>
         </member>
+        <member name="F:HistoryStrenua.HolePositionPlanner.OrdinateOffset">
+            <summary>
+            尺寸链模式：坐标尺寸文字离零件左侧（上侧）直边多远（图纸上 14 mm）。取自用户的演示图——
+            文字端离左边 14 mm，SolidWorks 折弯（5 mm 平 + 5 mm 斜）后在零件边外就回到孔的那条线上。
+            </summary>
+        </member>
         <member name="F:HistoryStrenua.HolePositionPlanner.PitchTolerance">
             <summary>判等距的容差：间距之差不超过 0.01 mm（模型尺寸）。</summary>
         </member>
@@ -907,12 +989,14 @@
             <param name="left">左侧基准边的 X（图纸坐标）。</param>
             <param name="top">上侧基准边的 Y（图纸坐标）。</param>
             <param name="scale">视图比例（图纸长度 / 模型长度），用来把间距换成模型尺寸写进文字。</param>
-            <param name="chainMode">尺寸链模式（1.7.0，页面开关）：见 <see cref="M:HistoryStrenua.HolePositionPlanner.PlanChain(System.Collections.Generic.IReadOnlyList{HistoryStrenua.HoleEdge},System.Collections.Generic.IReadOnlyList{System.Collections.Generic.IReadOnlyList{HistoryStrenua.HoleEdge}},System.Double,System.Double,System.Double)"/>。</param>
+            <param name="chainMode">尺寸链模式（1.7.0，页面开关）：出坐标尺寸组而不是线性尺寸，见 <see cref="M:HistoryStrenua.HolePositionPlanner.PlanChain(System.Collections.Generic.IReadOnlyList{HistoryStrenua.HoleEdge},System.Collections.Generic.IReadOnlyList{System.Collections.Generic.IReadOnlyList{HistoryStrenua.HoleEdge}},System.Double,System.Double,System.Double)"/>。</param>
         </member>
         <member name="M:HistoryStrenua.HolePositionPlanner.PlanChain(System.Collections.Generic.IReadOnlyList{HistoryStrenua.HoleEdge},System.Collections.Generic.IReadOnlyList{System.Collections.Generic.IReadOnlyList{HistoryStrenua.HoleEdge}},System.Double,System.Double,System.Double)">
             <summary>
-            尺寸链模式（1.7.0，用户定）：每个方向只有一条链——基准 → 第一列 → 第二列 → … → 最后一列，
-            不分孔的种类，全排在第一层；等距也逐段标，不用阵列写法。同一坐标上的几个孔（不论哪种）算一站。
+            尺寸链模式（1.7.0，用户定，按用户给的演示图）：每个方向一组 SolidWorks「尺寸链」（坐标尺寸）——
+            0 点是基准边（水平组左侧直边、竖直组上侧直边，用户第四轮指出不是孔），其后每一列（行）孔一个坐标值，
+            不分孔的种类、不用阵列写法。同一坐标上的几个孔（不论哪种）算一站；正好落在基准边上的孔不另标。
+            竖直组的文字排在左侧直边左边 <see cref="F:HistoryStrenua.HolePositionPlanner.OrdinateOffset"/>，水平组排在上侧直边上方同样远。
             </summary>
         </member>
         <member name="M:HistoryStrenua.HolePositionPlanner.PatternPrefix(System.Int32,System.Double)">
@@ -935,6 +1019,10 @@
             <remarks>
             视图里<b>悬空</b>的线性尺寸也删（1.3.0，用户定）：「中心符号线」删旧符号线时，挂在上面的位置尺寸就悬空了，
             悬空尺寸连着什么已经读不出来，不删就和重标的新尺寸叠在一起。别的原因悬空的线性尺寸会被一并删掉。
+            <para>坐标尺寸（尺寸链模式标的，或手工标的尺寸链）照线性尺寸一样处理：两种模式来回切换重标时不留旧的。
+            0 点那个坐标尺寸只连着基准边、不连孔：要删的坐标尺寸连着的对象（<see cref="P:HistoryStrenua.ExistingDimension.Attached"/>），
+            别的坐标尺寸也连着它，就是同组的 0 点，跟着删。不靠附着顺序：真机上 <c>EditOrdinate</c> 加的成员是 [自己, 0 点]，
+            手工标的是 [0 点, 自己]。</para>
             </remarks>
         </member>
         <member name="M:HistoryStrenua.HolePositionPlanner.IsLinear(System.Int32)">
@@ -943,8 +1031,29 @@
             真机上 <c>AddHorizontalDimension2</c> / <c>AddVerticalDimension2</c> 建出来的读回都是 2（线性）。
             </summary>
         </member>
+        <member name="M:HistoryStrenua.HolePositionPlanner.IsOrdinate(System.Int32)">
+            <summary>是不是坐标尺寸（<c>swOrdinateDimension</c>，SolidWorks 中文界面叫「尺寸链」）。</summary>
+        </member>
+        <member name="M:HistoryStrenua.HolePositionPlanner.IsPosition(System.Int32)">
+            <summary>孔位尺寸会删、会重标的类型：线性尺寸与坐标尺寸。</summary>
+        </member>
+        <member name="M:HistoryStrenua.HolePositionPlanner.SameValues(System.Collections.Generic.IReadOnlyList{System.Double},System.Collections.Generic.IReadOnlyList{System.Double})">
+            <summary>
+            一组坐标尺寸建出来的值（排好序，模型长度）与规划的一致吗：个数相同、逐个相差不超过 <see cref="F:HistoryStrenua.HolePositionPlanner.PitchTolerance"/>。
+            连中心符号线时 SolidWorks 若拿了另一根线（竖直组拿到竖线），值就对不上。
+            </summary>
+        </member>
+        <member name="F:HistoryStrenua.HolePositionPlanner.CenterGap">
+            <summary>
+            中心符号线的线在孔心处留的空隙最多这么长（图纸上 2 mm）：线性中心符号线的连接线一段段断在孔心前，
+            真机底板上断开约 1.1 mm（1.7.0）。
+            </summary>
+        </member>
         <member name="M:HistoryStrenua.HolePositionPlanner.PassesThrough(HistoryStrenua.SheetSegment,HistoryStrenua.HoleEdge)">
-            <summary>线段是否穿过孔心（到线段的距离在 <see cref="F:HistoryStrenua.HoleCalloutPlanner.CenterTolerance"/> 内）。</summary>
+            <summary>
+            线段是否穿过孔心：孔心在线段所在直线上（距离在 <see cref="F:HistoryStrenua.HoleCalloutPlanner.CenterTolerance"/> 内），
+            且落在线段上或离线段端点不超过 <see cref="F:HistoryStrenua.HolePositionPlanner.CenterGap"/>。
+            </summary>
         </member>
         <member name="M:HistoryStrenua.HolePositionPlanner.Chain(System.Collections.Generic.IReadOnlyList{HistoryStrenua.HoleEdge},HistoryStrenua.PositionAxis,System.Double,System.Double)">
             <summary>
@@ -1437,7 +1546,7 @@
             <summary>避障：孔标注、孔位尺寸加完后把压在别的孔相关注解上的文字挪开。</summary>
         </member>
         <member name="P:HistoryStrenua.StrenuaOptions.Chain">
-            <summary>尺寸链模式：孔位尺寸每个方向全部孔一条 SolidWorks 原生尺寸链（基准→第一个→下一个…），不分种、不用阵列写法。</summary>
+            <summary>尺寸链模式：孔位尺寸每个方向一组 SolidWorks 尺寸链（坐标尺寸，0 点在零件左侧 / 上侧直边），不分种、不用阵列写法。</summary>
         </member>
         <member name="M:HistoryStrenua.StrenuaOptions.Set(HistoryStrenua.StrenuaOption,System.Boolean)">
             <summary>改一个开关并存档。</summary>

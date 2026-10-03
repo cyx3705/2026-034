@@ -1,0 +1,1505 @@
+<?xml version="1.0"?>
+<doc>
+    <assembly>
+        <name>HistoryStrenua</name>
+    </assembly>
+    <members>
+        <member name="T:HistoryStrenua.AnnotationEraser">
+            <summary>
+            「重新标」共用的前半段：删掉一批注解，删完回读，还有就再删。
+            </summary>
+            <remarks>
+            真机上第一遍删除偶有漏删（中心符号线实测），而 <c>EditDelete</c> 没有返回值，
+            删掉几个只能靠回读数出来。所以每遍删完都重新读一次视图，最多 <see cref="F:HistoryStrenua.AnnotationEraser.Passes"/> 遍。
+            </remarks>
+        </member>
+        <member name="M:HistoryStrenua.AnnotationEraser.Erase(HistoryStrenua.QuickCommandContext,System.Object,System.Func{System.Collections.Generic.IReadOnlyList{System.Object}})">
+            <param name="context">快捷指令上下文。</param>
+            <param name="document">活动工程图。</param>
+            <param name="readObsolete">现读视图，返回此刻还该删的注解（<c>IAnnotation</c>）。</param>
+            <returns>删掉的个数与最后仍在的个数。</returns>
+        </member>
+        <member name="T:HistoryStrenua.CenterMark">
+            <summary>
+            快捷指令「中心符号线」：点一个工程图视图，视图里全部的孔重新标中心符号线，
+            一律用「线性中心符号线 + 连接线」（SolidWorks 中心符号线属性里手工插入的第二种）。
+            </summary>
+            <remarks>
+            <para>认孔、分种与「孔标注」相同（<see cref="T:HistoryStrenua.HoleScan"/>、<see cref="T:HistoryStrenua.CenterMarkPlanner"/>）：一种孔一组，
+            同一组的孔由连接线串起来；只有一个孔的种用单个中心符号线。
+            腰型孔两端的圆弧各当一个孔（1.3.0），一个腰型孔在组里占两个位置。</para>
+            <para>「重新标记」：先删掉标着这些孔的旧中心符号线（单个的、成组的都删），再按本次分种重建。
+            不在孔上的中心符号线不动。删除有时要第二遍才删干净（真机实测），所以删完回读、最多删三遍。</para>
+            </remarks>
+        </member>
+        <member name="M:HistoryStrenua.CenterMark.Run(HistoryStrenua.QuickCommandContext,System.Object)">
+            <param name="context">快捷指令上下文。</param>
+            <param name="view">直接处理这个视图（全流程用）；null 时取选中的或等用户点选。</param>
+        </member>
+        <member name="M:HistoryStrenua.CenterMark.DeleteObsolete(HistoryStrenua.QuickCommandContext,HistoryStrenua.ScannedView,System.Collections.Generic.IReadOnlyList{HistoryStrenua.HoleEdge})">
+            <summary>删掉标着孔的旧中心符号线（<see cref="T:HistoryStrenua.AnnotationEraser"/>：删完回读，最多三遍）。</summary>
+        </member>
+        <member name="M:HistoryStrenua.CenterMark.InsertLinear(HistoryStrenua.SolidWorks.SolidWorksApi,HistoryStrenua.ScannedView,HistoryStrenua.CenterMarkGroup)">
+            <summary>
+            一种孔插一组线性中心符号线并打开连接线。
+            </summary>
+            <remarks>
+            腰型孔端头是圆弧：<c>InsertCenterMark3</c> 的第三个参数（槽口样式）不给 true，SolidWorks 不报错、
+            却把每个端头各建成一个单个（真机 SW 2025 SP5 实测，1.3.0 首轮因此误报成线性组）。所以腰型孔那一种给 true，
+            并且一律读回 <c>Style</c> 核对建成的是不是线性组。
+            </remarks>
+            <returns>true = 线性组；false = SolidWorks 自己拆成了单个；null = 没接受，由调用方退回逐个单个。</returns>
+        </member>
+        <member name="M:HistoryStrenua.CenterMark.ReadCenterMarks(HistoryStrenua.SolidWorks.SolidWorksApi,HistoryStrenua.HoleScan.ViewGeometry,System.Object)">
+            <summary>
+            视图里的中心符号线。孔心优先取它附着的圆边；取不到（附着丢失）再用它自己记的位置，
+            那是视图所引用模型坐标系里的点，要过视图变换才到图纸上。
+            </summary>
+        </member>
+        <member name="T:HistoryStrenua.ExistingCenterMark">
+            <summary>视图里已有的一个中心符号线（单个或一组），用它所标的孔心来描述。</summary>
+            <param name="Index">回指调用方手里那个注解。</param>
+            <param name="Centers">它标着的孔心（图纸坐标）；一组有几个就有几个。</param>
+        </member>
+        <member name="M:HistoryStrenua.ExistingCenterMark.#ctor(System.Int32,System.Collections.Generic.IReadOnlyList{HistoryStrenua.SheetPoint})">
+            <summary>视图里已有的一个中心符号线（单个或一组），用它所标的孔心来描述。</summary>
+            <param name="Index">回指调用方手里那个注解。</param>
+            <param name="Centers">它标着的孔心（图纸坐标）；一组有几个就有几个。</param>
+        </member>
+        <member name="P:HistoryStrenua.ExistingCenterMark.Index">
+            <summary>回指调用方手里那个注解。</summary>
+        </member>
+        <member name="P:HistoryStrenua.ExistingCenterMark.Centers">
+            <summary>它标着的孔心（图纸坐标）；一组有几个就有几个。</summary>
+        </member>
+        <member name="T:HistoryStrenua.CenterMarkGroup">
+            <summary>要加的一组中心符号线：一种孔一组。</summary>
+            <param name="EdgeIndices">这一种里每个孔取一条边，按图纸上从上到下、从左到右排。</param>
+            <param name="Slot">这一种是腰型孔：每个腰型孔两端各占一个位置，插入时要按槽口样式（见 <c>CenterMark.InsertLinear</c>）。</param>
+        </member>
+        <member name="M:HistoryStrenua.CenterMarkGroup.#ctor(System.Collections.Generic.IReadOnlyList{System.Int32},System.Boolean)">
+            <summary>要加的一组中心符号线：一种孔一组。</summary>
+            <param name="EdgeIndices">这一种里每个孔取一条边，按图纸上从上到下、从左到右排。</param>
+            <param name="Slot">这一种是腰型孔：每个腰型孔两端各占一个位置，插入时要按槽口样式（见 <c>CenterMark.InsertLinear</c>）。</param>
+        </member>
+        <member name="P:HistoryStrenua.CenterMarkGroup.EdgeIndices">
+            <summary>这一种里每个孔取一条边，按图纸上从上到下、从左到右排。</summary>
+        </member>
+        <member name="P:HistoryStrenua.CenterMarkGroup.Slot">
+            <summary>这一种是腰型孔：每个腰型孔两端各占一个位置，插入时要按槽口样式（见 <c>CenterMark.InsertLinear</c>）。</summary>
+        </member>
+        <member name="P:HistoryStrenua.CenterMarkGroup.Linear">
+            <summary>两个孔以上用「线性中心符号线 + 连接线」；只有一个孔就是单个中心符号线。</summary>
+        </member>
+        <member name="T:HistoryStrenua.CenterMarkPlan">
+            <summary>规划结果。</summary>
+            <param name="Groups">要加的组，一种孔一组，按每组第一个孔在图纸上的阅读顺序排。</param>
+            <param name="Obsolete">要先删掉的旧中心符号线（<see cref="P:HistoryStrenua.ExistingCenterMark.Index"/>）。</param>
+            <param name="HoleCount">视图里认出的孔数（同心的算一个，一个腰型孔算一个）。</param>
+            <param name="KindCount">孔的种数。</param>
+            <param name="SlotCount">其中腰型孔的个数。</param>
+        </member>
+        <member name="M:HistoryStrenua.CenterMarkPlan.#ctor(System.Collections.Generic.IReadOnlyList{HistoryStrenua.CenterMarkGroup},System.Collections.Generic.IReadOnlyList{System.Int32},System.Int32,System.Int32,System.Int32)">
+            <summary>规划结果。</summary>
+            <param name="Groups">要加的组，一种孔一组，按每组第一个孔在图纸上的阅读顺序排。</param>
+            <param name="Obsolete">要先删掉的旧中心符号线（<see cref="P:HistoryStrenua.ExistingCenterMark.Index"/>）。</param>
+            <param name="HoleCount">视图里认出的孔数（同心的算一个，一个腰型孔算一个）。</param>
+            <param name="KindCount">孔的种数。</param>
+            <param name="SlotCount">其中腰型孔的个数。</param>
+        </member>
+        <member name="P:HistoryStrenua.CenterMarkPlan.Groups">
+            <summary>要加的组，一种孔一组，按每组第一个孔在图纸上的阅读顺序排。</summary>
+        </member>
+        <member name="P:HistoryStrenua.CenterMarkPlan.Obsolete">
+            <summary>要先删掉的旧中心符号线（<see cref="P:HistoryStrenua.ExistingCenterMark.Index"/>）。</summary>
+        </member>
+        <member name="P:HistoryStrenua.CenterMarkPlan.HoleCount">
+            <summary>视图里认出的孔数（同心的算一个，一个腰型孔算一个）。</summary>
+        </member>
+        <member name="P:HistoryStrenua.CenterMarkPlan.KindCount">
+            <summary>孔的种数。</summary>
+        </member>
+        <member name="P:HistoryStrenua.CenterMarkPlan.SlotCount">
+            <summary>其中腰型孔的个数。</summary>
+        </member>
+        <member name="P:HistoryStrenua.CenterMarkPlan.Summary">
+            <summary>回执里的「N 个孔（含 M 个腰型孔）共 K 种」。</summary>
+        </member>
+        <member name="T:HistoryStrenua.CenterMarkPlanner">
+            <summary>
+            「中心符号线」的纯几何部分：孔怎么分组、哪些旧符号线要删。认孔与分种与孔标注完全相同
+            （<see cref="M:HistoryStrenua.HoleCalloutPlanner.Recognize(System.Collections.Generic.IReadOnlyList{HistoryStrenua.HoleEdge})"/>、<see cref="M:HistoryStrenua.HoleCalloutPlanner.GroupKinds(System.Collections.Generic.IEnumerable{HistoryStrenua.HoleEdge})"/>）。
+            </summary>
+            <remarks>
+            腰型孔两端的圆弧各当一个孔标一次（用户定，1.3.0）：线性中心符号线把同种的端头连起来，
+            一个腰型孔的两端之间就是它的中心线。
+            </remarks>
+        </member>
+        <member name="M:HistoryStrenua.CenterMarkPlanner.Plan(System.Collections.Generic.IReadOnlyList{HistoryStrenua.HoleEdge},System.Collections.Generic.IReadOnlyList{HistoryStrenua.ExistingCenterMark})">
+            <param name="edges">视图里正对图纸的孔边（含腰型孔端头的半圆）。</param>
+            <param name="existing">视图里已有的中心符号线。</param>
+        </member>
+        <member name="M:HistoryStrenua.CenterMarkPlanner.Obsolete(System.Collections.Generic.IReadOnlyList{HistoryStrenua.HoleEdge},System.Collections.Generic.IReadOnlyList{HistoryStrenua.ExistingCenterMark})">
+            <summary>
+            标着任何一个孔的旧中心符号线都要删——「重新标记」。一组里只要有一个孔心落在孔上，整组删：
+            新的一组会按本次的分种重建。不在孔上的（圆角、开口槽口的中心符号线）不动；
+            腰型孔的端头算孔（1.3.0），标在端头上的旧符号线也删。
+            </summary>
+        </member>
+        <member name="T:HistoryStrenua.ClearanceResult">
+            <summary>一次避让的结果：挪开了几个、几个找不到空位（原样留着）。</summary>
+        </member>
+        <member name="M:HistoryStrenua.ClearanceResult.#ctor(System.Int32,System.Int32)">
+            <summary>一次避让的结果：挪开了几个、几个找不到空位（原样留着）。</summary>
+        </member>
+        <member name="M:HistoryStrenua.ClearanceResult.Describe(System.String)">
+            <summary>回执里接在后面的一句；什么都没动时为空。</summary>
+        </member>
+        <member name="T:HistoryStrenua.Clearance">
+            <summary>
+            标注避障（1.6.0，用户定：不另开指令，并进「孔标注」与「孔位尺寸」）：本视图里孔标注的文字、孔位尺寸的数字
+            压在别的孔相关注解的线条或文字上，就挪开。几何判定见 <see cref="T:HistoryStrenua.ClearancePlanner"/>。
+            </summary>
+            <remarks>
+            <para>只看孔相关的注解（用户定「本视图仅孔相关」）：孔标注、连着孔的线性尺寸、标在孔上的中心符号线、
+            销钉符号、穿过孔心的中心线。外形尺寸、注释、别的视图都不看、也不动。</para>
+            <para>孔位尺寸的数字只沿尺寸线滑；孔标注换角位（右上、左下、右下，再放远），折点仍按下划线对准。
+            挪完回读核对，还压着就算找不到空位。</para>
+            </remarks>
+        </member>
+        <member name="T:HistoryStrenua.Clearance.Shape">
+            <summary>一个孔相关注解在图纸上的样子。</summary>
+        </member>
+        <member name="M:HistoryStrenua.Clearance.Shape.#ctor(System.Object,HistoryStrenua.Clearance.Role,System.Collections.Generic.IReadOnlyList{HistoryStrenua.SheetSegment},System.Collections.Generic.IReadOnlyList{HistoryStrenua.TextBox},System.Collections.Generic.IReadOnlyList{HistoryStrenua.SheetPoint})">
+            <summary>一个孔相关注解在图纸上的样子。</summary>
+        </member>
+        <member name="M:HistoryStrenua.Clearance.ClearDimensions(HistoryStrenua.QuickCommandContext,HistoryStrenua.ScannedView,System.Collections.Generic.IReadOnlyList{HistoryStrenua.HoleEdge})">
+            <summary>孔位尺寸的数字压线就沿尺寸线滑开。</summary>
+        </member>
+        <member name="M:HistoryStrenua.Clearance.ClearCallouts(HistoryStrenua.QuickCommandContext,HistoryStrenua.ScannedView,System.Collections.Generic.IReadOnlyList{HistoryStrenua.HoleEdge})">
+            <summary>孔标注的文字压线就换角位。</summary>
+        </member>
+        <member name="M:HistoryStrenua.Clearance.Clear(HistoryStrenua.QuickCommandContext,HistoryStrenua.ScannedView,System.Collections.Generic.IReadOnlyList{HistoryStrenua.HoleEdge},HistoryStrenua.Clearance.Role,System.Func{HistoryStrenua.SolidWorks.SolidWorksApi,System.Collections.Generic.List{HistoryStrenua.Clearance.Shape},System.Int32,HistoryStrenua.Obstacles,System.Int32,System.Boolean})">
+            <summary>
+            逐个检查 <paramref name="role"/> 的注解：压着就交给 <paramref name="move"/> 挪，挪完重读它、核对。
+            障碍是其余孔相关注解此刻的样子（前面挪过的按挪后的算）。
+            </summary>
+        </member>
+        <member name="M:HistoryStrenua.Clearance.ObstaclesFor(System.Collections.Generic.List{HistoryStrenua.Clearance.Shape},System.Int32)">
+            <summary>
+            第 <paramref name="index"/> 个注解要躲的：其余孔相关注解的线条与文字；孔位尺寸另加自己的尺寸界线
+            （真机过渡板：「9.50」跨度 4.75 mm 装不下 9.2 mm 的字，只躲别人的线会滑成横跨自己的界线）。
+            </summary>
+        </member>
+        <member name="M:HistoryStrenua.Clearance.ReadShapes(HistoryStrenua.SolidWorks.SolidWorksApi,HistoryStrenua.ScannedView,System.Collections.Generic.IReadOnlyList{HistoryStrenua.HoleEdge})">
+            <summary>视图里全部孔相关注解。</summary>
+        </member>
+        <member name="M:HistoryStrenua.Clearance.ReadShape(HistoryStrenua.SolidWorks.SolidWorksApi,HistoryStrenua.ScannedView,System.Collections.Generic.IReadOnlyList{HistoryStrenua.HoleEdge},System.Object)">
+            <summary>一个注解；不是孔相关的返回 null。</summary>
+        </member>
+        <member name="M:HistoryStrenua.Clearance.DisplayGeometry(HistoryStrenua.SolidWorks.SolidWorksApi,System.Object)">
+            <summary>注解显示数据里的直线与文字框（图纸坐标）。</summary>
+        </member>
+        <member name="T:HistoryStrenua.TextBox">
+            <summary>
+            图纸上的一段文字：从左下基线点 (<paramref name="X"/>, <paramref name="Y"/>) 起，沿 <paramref name="Angle"/> 方向宽
+            <paramref name="Width"/>，往左手边（文字的「上」）高 <paramref name="Height"/>。单位米、弧度。
+            </summary>
+            <remarks>
+            真机（SW 2025 SP5）：<c>IDisplayData.GetTextPositionAtIndex</c> 就是这个左下基线点（参考位 swLOWER_LEFT），
+            宽取 <c>GetTextInBoxWidthAtIndex</c>（不带框的文字也有值），竖直尺寸角度 π/2、文字往 -X 长。
+            </remarks>
+        </member>
+        <member name="M:HistoryStrenua.TextBox.#ctor(System.Double,System.Double,System.Double,System.Double,System.Double)">
+            <summary>
+            图纸上的一段文字：从左下基线点 (<paramref name="X"/>, <paramref name="Y"/>) 起，沿 <paramref name="Angle"/> 方向宽
+            <paramref name="Width"/>，往左手边（文字的「上」）高 <paramref name="Height"/>。单位米、弧度。
+            </summary>
+            <remarks>
+            真机（SW 2025 SP5）：<c>IDisplayData.GetTextPositionAtIndex</c> 就是这个左下基线点（参考位 swLOWER_LEFT），
+            宽取 <c>GetTextInBoxWidthAtIndex</c>（不带框的文字也有值），竖直尺寸角度 π/2、文字往 -X 长。
+            </remarks>
+        </member>
+        <member name="M:HistoryStrenua.TextBox.Corners">
+            <summary>四个角（基线左、基线右、顶右、顶左）。</summary>
+        </member>
+        <member name="T:HistoryStrenua.Obstacles">
+            <summary>避让时要躲开的东西：别的孔相关注解的线条与文字。</summary>
+        </member>
+        <member name="M:HistoryStrenua.Obstacles.#ctor(System.Collections.Generic.IReadOnlyList{HistoryStrenua.SheetSegment},System.Collections.Generic.IReadOnlyList{HistoryStrenua.TextBox})">
+            <summary>避让时要躲开的东西：别的孔相关注解的线条与文字。</summary>
+        </member>
+        <member name="T:HistoryStrenua.CalloutSpot">
+            <summary>孔标注挪到哪：引线折点（文字下划线的一端）与文字在折点哪一侧。</summary>
+        </member>
+        <member name="M:HistoryStrenua.CalloutSpot.#ctor(HistoryStrenua.SheetPoint,System.Boolean)">
+            <summary>孔标注挪到哪：引线折点（文字下划线的一端）与文字在折点哪一侧。</summary>
+        </member>
+        <member name="T:HistoryStrenua.ClearancePlanner">
+            <summary>
+            标注避障（1.6.0）的纯几何部分：文字压没压到别的孔相关注解的线条或文字、孔位尺寸的数字沿尺寸线滑多远、
+            孔标注换到孔的哪个角位。不碰 SolidWorks，能离线测。
+            </summary>
+            <remarks>
+            <para>「压到」= 线段穿过文字框，或两个文字框相交。文字框四周放宽 <see cref="F:HistoryStrenua.ClearancePlanner.Margin"/>，底边也放：
+            字站在别的尺寸的尺寸线上（同层相邻尺寸、伸出箭头外的那段）读起来分不清是谁的数，也算压
+            （真机过渡板「9.50」滑到「96」的尺寸线上，1.6.0 首轮因底边豁免而放过）。自己的尺寸线 / 下划线不是障碍。</para>
+            <para>孔位尺寸只沿尺寸线方向滑（不换层，层由「孔位尺寸」排好）；孔标注保持折点到孔心的规则（半径 + 12 mm），
+            依次换到右上、左下、右下，再放远一档。</para>
+            </remarks>
+        </member>
+        <member name="F:HistoryStrenua.ClearancePlanner.Margin">
+            <summary>文字框四周留白（图纸 0.3 mm）。</summary>
+        </member>
+        <member name="F:HistoryStrenua.ClearancePlanner.ShoulderGap">
+            <summary>孔标注下划线比文字多出的那一截（图纸 1.25 mm，真机读得）：折点 = 文字边缘外这么远。</summary>
+        </member>
+        <member name="F:HistoryStrenua.ClearancePlanner.SlideStep">
+            <summary>尺寸数字每次滑多远（图纸 0.5 mm；1 mm 时真机「25」跨度里 6.9 mm 的空当被跨过去了）。</summary>
+        </member>
+        <member name="F:HistoryStrenua.ClearancePlanner.SlideLimit">
+            <summary>尺寸数字最多滑多远（图纸 30 mm）。</summary>
+        </member>
+        <member name="F:HistoryStrenua.ClearancePlanner.CalloutReaches">
+            <summary>孔标注折点离孔心比半径多出的几档（图纸 12 / 18 / 24 mm），第一档就是 <see cref="F:HistoryStrenua.HoleCalloutPlanner.LeaderReach"/>。</summary>
+        </member>
+        <member name="F:HistoryStrenua.ClearancePlanner.Corners">
+            <summary>孔标注的四个角位，按偏好排：左上（默认）、右上、左下、右下。</summary>
+        </member>
+        <member name="M:HistoryStrenua.ClearancePlanner.Hits(System.Collections.Generic.IReadOnlyList{HistoryStrenua.TextBox},HistoryStrenua.Obstacles)">
+            <summary><paramref name="texts"/> 压到了几样障碍（线条、文字各算一样）。</summary>
+        </member>
+        <member name="M:HistoryStrenua.ClearancePlanner.Hits(HistoryStrenua.TextBox,HistoryStrenua.SheetSegment)">
+            <summary>线段是否穿过（放宽后的）文字框。</summary>
+        </member>
+        <member name="M:HistoryStrenua.ClearancePlanner.Hits(HistoryStrenua.TextBox,HistoryStrenua.TextBox)">
+            <summary>两个文字框是否相交（<paramref name="box"/> 放宽，<paramref name="other"/> 按原样）。</summary>
+        </member>
+        <member name="M:HistoryStrenua.ClearancePlanner.Slide(System.Collections.Generic.IReadOnlyList{HistoryStrenua.TextBox},System.Double,System.Double,HistoryStrenua.Obstacles)">
+            <summary>
+            尺寸数字沿尺寸线（单位方向 <paramref name="ux"/>, <paramref name="uy"/>）滑多远才不压线：先近后远、先正后负，
+            每步 <see cref="F:HistoryStrenua.ClearancePlanner.SlideStep"/>，最远 <see cref="F:HistoryStrenua.ClearancePlanner.SlideLimit"/>。本来就不压返回 0；滑到头都压返回 null。
+            </summary>
+        </member>
+        <member name="M:HistoryStrenua.ClearancePlanner.CalloutSpots(HistoryStrenua.HoleEdge)">
+            <summary>孔标注可去的角位，按偏好排：近的一档四个角，再远一档……</summary>
+        </member>
+        <member name="M:HistoryStrenua.ClearancePlanner.CalloutShift(System.Collections.Generic.IReadOnlyList{HistoryStrenua.TextBox},System.Double,HistoryStrenua.CalloutSpot)">
+            <summary>
+            把孔标注的文字整块挪到 <paramref name="spot"/> 要平移多少。文字随标注位置刚性平移；
+            文字在折点左边时折点是文字右缘外 <see cref="F:HistoryStrenua.ClearancePlanner.ShoulderGap"/>，在右边时是左缘外（SolidWorks 自己换引线那一侧）。
+            </summary>
+            <param name="texts">标注现在的文字。</param>
+            <param name="shoulderY">现在的下划线高度（第一行文字的基线）。</param>
+            <param name="spot">要去的角位。</param>
+        </member>
+        <member name="M:HistoryStrenua.ClearancePlanner.ChooseCallout(System.Collections.Generic.IReadOnlyList{HistoryStrenua.TextBox},System.Double,HistoryStrenua.HoleEdge,HistoryStrenua.Obstacles,System.Int32)">
+            <summary>
+            给压着线的孔标注挑角位：第一个一样都不压的；都压就挑压得最少、且比现在 <paramref name="currentHits"/> 少的；
+            再没有就 null（不挪）。
+            </summary>
+        </member>
+        <member name="M:HistoryStrenua.ClearancePlanner.CrossingLines(System.Collections.Generic.IEnumerable{HistoryStrenua.SheetSegment},System.Double)">
+            <summary>
+            与文字方向不平行的线：尺寸自己的尺寸界线。尺寸线（与文字平行，字本来就站在上面）不在内。
+            </summary>
+        </member>
+        <member name="M:HistoryStrenua.ClearancePlanner.Octagon(HistoryStrenua.SheetPoint,System.Double)">
+            <summary>圆（销钉符号）近似成八段折线，当障碍线条用。</summary>
+        </member>
+        <member name="M:HistoryStrenua.ClearancePlanner.Local(HistoryStrenua.TextBox,System.Double,System.Double)">
+            <summary>图纸点在文字框自己的坐标系里：沿文字方向、沿文字的「上」。</summary>
+        </member>
+        <member name="M:HistoryStrenua.ClearancePlanner.ClipsRectangle(System.Double,System.Double,System.Double,System.Double,System.Double,System.Double,System.Double,System.Double)">
+            <summary>线段与轴对齐矩形是否有交（Liang–Barsky 裁剪）。</summary>
+        </member>
+        <member name="T:HistoryStrenua.DowelPlan">
+            <summary>规划结果。</summary>
+            <param name="EdgeIndices">要加销钉符号的孔（每孔一条边），按图纸上从上到下、从左到右排。</param>
+            <param name="DowelCount">视图里认出的销钉孔个数。</param>
+            <param name="AlreadyMarked">已有销钉符号、本次跳过的个数。</param>
+        </member>
+        <member name="M:HistoryStrenua.DowelPlan.#ctor(System.Collections.Generic.IReadOnlyList{System.Int32},System.Int32,System.Int32)">
+            <summary>规划结果。</summary>
+            <param name="EdgeIndices">要加销钉符号的孔（每孔一条边），按图纸上从上到下、从左到右排。</param>
+            <param name="DowelCount">视图里认出的销钉孔个数。</param>
+            <param name="AlreadyMarked">已有销钉符号、本次跳过的个数。</param>
+        </member>
+        <member name="P:HistoryStrenua.DowelPlan.EdgeIndices">
+            <summary>要加销钉符号的孔（每孔一条边），按图纸上从上到下、从左到右排。</summary>
+        </member>
+        <member name="P:HistoryStrenua.DowelPlan.DowelCount">
+            <summary>视图里认出的销钉孔个数。</summary>
+        </member>
+        <member name="P:HistoryStrenua.DowelPlan.AlreadyMarked">
+            <summary>已有销钉符号、本次跳过的个数。</summary>
+        </member>
+        <member name="T:HistoryStrenua.DowelPlanner">
+            <summary>
+            「销钉符号」的纯几何部分：视图里哪些孔是销钉孔、哪些还没有销钉符号。
+            认孔、同心合并与另外三条孔类指令相同（<see cref="M:HistoryStrenua.HoleCalloutPlanner.Recognize(System.Collections.Generic.IReadOnlyList{HistoryStrenua.HoleEdge})"/>）。
+            </summary>
+            <remarks>
+            销钉孔只认异形孔向导做的（孔壁特征是销钉孔类型，见 <c>HoleScan.ViewGeometry</c>）：
+            手工切出来的孔看不出是不是给销钉用的。销钉孔是圆孔，腰型孔的端头不算。
+            销钉符号一孔一个，已有的不重复加（不删旧的，与中心符号线、孔位尺寸的「重新标」不同）。
+            </remarks>
+        </member>
+        <member name="M:HistoryStrenua.DowelPlanner.IsDowelFastener(System.Int32)">
+            <summary>异形孔向导的紧固件类型是不是某个标准的销钉孔。</summary>
+        </member>
+        <member name="M:HistoryStrenua.DowelPlanner.Plan(System.Collections.Generic.IReadOnlyList{HistoryStrenua.HoleEdge},System.Collections.Generic.IReadOnlyList{HistoryStrenua.SheetPoint})">
+            <param name="edges">视图里正对图纸的孔边。</param>
+            <param name="markedCenters">视图里已有销钉符号所在的孔心（图纸坐标）。</param>
+        </member>
+        <member name="M:HistoryStrenua.DowelPlanner.ArcCenter(System.Collections.Generic.IReadOnlyList{System.Double})">
+            <summary>
+            <c>IDowelSymbol.GetArcPoints</c>（图纸坐标 起点 xy、中点 xy、终点 xy）所在的圆心：整圆时起点与终点重合、
+            中点在 180° 处，圆心是起点与中点的中点。读不出返回 null。
+            </summary>
+        </member>
+        <member name="T:HistoryStrenua.DowelSymbol">
+            <summary>
+            快捷指令「销钉符号」（1.6.0）：点一个工程图视图，视图里异形孔向导做的销钉孔，没有销钉符号的各加一个。
+            </summary>
+            <remarks>
+            选视图与认孔见 <see cref="T:HistoryStrenua.HoleScan"/>，哪些孔要加见 <see cref="T:HistoryStrenua.DowelPlanner"/>。
+            选孔边后 <c>IDrawingDoc.InsertDowelSymbol</c>，一孔一个。已有的销钉符号附着在孔边上，按它附着的圆心认；
+            附着丢了再用它自己的圆弧点（图纸坐标）。
+            </remarks>
+        </member>
+        <member name="M:HistoryStrenua.DowelSymbol.Run(HistoryStrenua.QuickCommandContext,System.Object)">
+            <param name="context">快捷指令上下文。</param>
+            <param name="view">直接处理这个视图（全流程用）；null 时取选中的或等用户点选。</param>
+        </member>
+        <member name="M:HistoryStrenua.DowelSymbol.MarkedCenters(HistoryStrenua.SolidWorks.SolidWorksApi,HistoryStrenua.ScannedView)">
+            <summary>视图里已有销钉符号所在的孔心（图纸坐标）。</summary>
+        </member>
+        <member name="T:HistoryStrenua.HistoryStrenuaModule">
+            <summary>
+            模块装配入口：登记页面协议两条指令、每条快捷指令一条总线指令，外加列表、按 key 执行、取消与两个页面开关。
+            </summary>
+            <remarks>
+            判断一段代码该不该进这个仓，用这条：它是否作用于用户**正在用**的 SolidWorks、
+            让一次手工操作变成一下点击。批量转换、离线处理文件属于 HistoryMinerva。
+            </remarks>
+        </member>
+        <member name="M:HistoryStrenua.HistoryStrenuaModule.Attach(HistoryVulcan.Core.Modules.IModuleContext)">
+            <summary>宿主在装载时注入权威指令总线与命令注册器。</summary>
+        </member>
+        <member name="M:HistoryStrenua.HistoryStrenuaModule.Option(HistoryStrenua.StrenuaOption,System.String,System.String,System.String,HistoryStrenua.StrenuaOptions)">
+            <summary>
+            一个页面开关的指令：带 value 就改并记到本机，不带就报当前值。页面开关拨动走的就是它。
+            </summary>
+        </member>
+        <member name="M:HistoryStrenua.HistoryStrenuaModule.ListRows(HistoryStrenua.QuickCommandRunner)">
+            <summary><c>strenua.quick.list</c> 的数据：一条快捷指令一行。</summary>
+        </member>
+        <member name="T:HistoryStrenua.HoleCallout">
+            <summary>
+            快捷指令「孔标注」：点一个工程图视图，视图里看得见的孔（含腰型孔）每种加一个孔标注。
+            </summary>
+            <remarks>
+            选视图与认孔见 <see cref="T:HistoryStrenua.HoleScan"/>。每种孔（同一特征、同一孔径）只标一个：SolidWorks 的孔标注
+            自己会写上「N×」，每个都标就是同一行字重复 N 遍。某种孔里已经有一个带标注，整种跳过，连点两次不会出双份。
+            腰型孔选它一端的圆弧加孔标注，与圆孔同一个 <c>AddHoleCallout2</c>，规格由 SolidWorks 一次写全。
+            最后做标注避障（1.6.0，<see cref="M:HistoryStrenua.Clearance.ClearCallouts(HistoryStrenua.QuickCommandContext,HistoryStrenua.ScannedView,System.Collections.Generic.IReadOnlyList{HistoryStrenua.HoleEdge})"/>）：视图里孔标注的文字压在别的孔相关注解上就换角位，
+            已有的孔标注也算。1.7.0 起受页面「避障」开关控制（默认开）。
+            </remarks>
+        </member>
+        <member name="F:HistoryStrenua.HoleCallout.InitialTextOffset">
+            <summary>首次落位时文字中心放在折点左边多远（图纸上 20 mm），只是让文字先落在左边。</summary>
+        </member>
+        <member name="F:HistoryStrenua.HoleCallout.AlignPasses">
+            <summary>对准折点最多挪几次：挪动后 SolidWorks 可能换引线接的那一侧，要回读再挪。</summary>
+        </member>
+        <member name="M:HistoryStrenua.HoleCallout.Run(HistoryStrenua.QuickCommandContext,System.Object)">
+            <param name="context">快捷指令上下文。</param>
+            <param name="view">直接处理这个视图（全流程用）；null 时取选中的或等用户点选。</param>
+        </member>
+        <member name="M:HistoryStrenua.HoleCallout.AlignShoulder(HistoryStrenua.SolidWorks.SolidWorksApi,System.Object,HistoryStrenua.SheetPoint,System.Boolean)">
+            <summary>
+            平移整个孔标注，让引线折点（文字在左时是下划线右端，在右时是左端）落在 <paramref name="target"/>。
+            读不到下划线就保持原位——标注已经加上，只是位置不理想。
+            </summary>
+        </member>
+        <member name="M:HistoryStrenua.HoleCallout.Shoulder(HistoryStrenua.SolidWorks.SolidWorksApi,System.Object,System.Boolean)">
+            <summary>从显示数据里读出孔标注的下划线端点（<paramref name="textLeft"/> 取右端，否则左端）。</summary>
+        </member>
+        <member name="M:HistoryStrenua.HoleCallout.ExistingCalloutCenters(HistoryStrenua.SolidWorks.SolidWorksApi,HistoryStrenua.HoleScan.ViewGeometry,System.Object)">
+            <summary>视图里已有孔标注各自指着的孔心。</summary>
+        </member>
+        <member name="M:HistoryStrenua.HoleCallout.AttachedCircleCenters(HistoryStrenua.SolidWorks.SolidWorksApi,HistoryStrenua.HoleScan.ViewGeometry,System.Object)">
+            <summary>一个注解所附着的圆边的圆心（图纸坐标）。悬空注解的附着对象读回 null，跳过。</summary>
+        </member>
+        <member name="T:HistoryStrenua.HoleEdge">
+            <summary>视图里一条候选孔边投影到图纸上的样子。坐标与半径都是图纸空间，单位米。</summary>
+            <param name="Index">回指调用方手里那条边。</param>
+            <param name="X">圆心 X。</param>
+            <param name="Y">圆心 Y。</param>
+            <param name="Radius">图纸上的半径（已乘视图比例）。</param>
+            <param name="Kind">
+            孔的「种」：孔壁所属的组件与特征。同一种里同孔径的孔只标一次——SolidWorks 的孔标注
+            会自己在前面写上「N×」，每个都标就是把同一行字重复 N 遍。
+            </param>
+            <param name="BulgeX">腰型孔端头半圆朝哪边鼓（图纸上的单位向量 X）；整圈的圆孔为 0。</param>
+            <param name="BulgeY">同上，Y。</param>
+            <param name="Slot">
+            腰型孔编号（1.3.0 起）：配成一对的两个端头编号相同；圆孔为 -1。由 <see cref="M:HistoryStrenua.SlotPlanner.Pair(System.Collections.Generic.IReadOnlyList{HistoryStrenua.HoleEdge})"/> 填。
+            </param>
+            <param name="Dowel">孔壁是异形孔向导的销钉孔（1.6.0 起，判法见 <c>HoleScan.ViewGeometry</c>）。</param>
+        </member>
+        <member name="M:HistoryStrenua.HoleEdge.#ctor(System.Int32,System.Double,System.Double,System.Double,System.String,System.Double,System.Double,System.Int32,System.Boolean)">
+            <summary>视图里一条候选孔边投影到图纸上的样子。坐标与半径都是图纸空间，单位米。</summary>
+            <param name="Index">回指调用方手里那条边。</param>
+            <param name="X">圆心 X。</param>
+            <param name="Y">圆心 Y。</param>
+            <param name="Radius">图纸上的半径（已乘视图比例）。</param>
+            <param name="Kind">
+            孔的「种」：孔壁所属的组件与特征。同一种里同孔径的孔只标一次——SolidWorks 的孔标注
+            会自己在前面写上「N×」，每个都标就是把同一行字重复 N 遍。
+            </param>
+            <param name="BulgeX">腰型孔端头半圆朝哪边鼓（图纸上的单位向量 X）；整圈的圆孔为 0。</param>
+            <param name="BulgeY">同上，Y。</param>
+            <param name="Slot">
+            腰型孔编号（1.3.0 起）：配成一对的两个端头编号相同；圆孔为 -1。由 <see cref="M:HistoryStrenua.SlotPlanner.Pair(System.Collections.Generic.IReadOnlyList{HistoryStrenua.HoleEdge})"/> 填。
+            </param>
+            <param name="Dowel">孔壁是异形孔向导的销钉孔（1.6.0 起，判法见 <c>HoleScan.ViewGeometry</c>）。</param>
+        </member>
+        <member name="P:HistoryStrenua.HoleEdge.Index">
+            <summary>回指调用方手里那条边。</summary>
+        </member>
+        <member name="P:HistoryStrenua.HoleEdge.X">
+            <summary>圆心 X。</summary>
+        </member>
+        <member name="P:HistoryStrenua.HoleEdge.Y">
+            <summary>圆心 Y。</summary>
+        </member>
+        <member name="P:HistoryStrenua.HoleEdge.Radius">
+            <summary>图纸上的半径（已乘视图比例）。</summary>
+        </member>
+        <member name="P:HistoryStrenua.HoleEdge.Kind">
+            <summary>
+            孔的「种」：孔壁所属的组件与特征。同一种里同孔径的孔只标一次——SolidWorks 的孔标注
+            会自己在前面写上「N×」，每个都标就是把同一行字重复 N 遍。
+            </summary>
+        </member>
+        <member name="P:HistoryStrenua.HoleEdge.BulgeX">
+            <summary>腰型孔端头半圆朝哪边鼓（图纸上的单位向量 X）；整圈的圆孔为 0。</summary>
+        </member>
+        <member name="P:HistoryStrenua.HoleEdge.BulgeY">
+            <summary>同上，Y。</summary>
+        </member>
+        <member name="P:HistoryStrenua.HoleEdge.Slot">
+            <summary>
+            腰型孔编号（1.3.0 起）：配成一对的两个端头编号相同；圆孔为 -1。由 <see cref="M:HistoryStrenua.SlotPlanner.Pair(System.Collections.Generic.IReadOnlyList{HistoryStrenua.HoleEdge})"/> 填。
+            </summary>
+        </member>
+        <member name="P:HistoryStrenua.HoleEdge.Dowel">
+            <summary>孔壁是异形孔向导的销钉孔（1.6.0 起，判法见 <c>HoleScan.ViewGeometry</c>）。</summary>
+        </member>
+        <member name="P:HistoryStrenua.HoleEdge.IsSlotEnd">
+            <summary>是腰型孔端头的半圆（不是整圈的圆孔）。</summary>
+        </member>
+        <member name="T:HistoryStrenua.SheetPoint">
+            <summary>图纸上的一个点（米）。</summary>
+        </member>
+        <member name="M:HistoryStrenua.SheetPoint.#ctor(System.Double,System.Double)">
+            <summary>图纸上的一个点（米）。</summary>
+        </member>
+        <member name="T:HistoryStrenua.CalloutTarget">
+            <summary>要加的一个孔标注：用哪条边、引线折点（文字下划线的右端）落在哪。</summary>
+        </member>
+        <member name="M:HistoryStrenua.CalloutTarget.#ctor(System.Int32,HistoryStrenua.SheetPoint,HistoryStrenua.SheetPoint)">
+            <summary>要加的一个孔标注：用哪条边、引线折点（文字下划线的右端）落在哪。</summary>
+        </member>
+        <member name="T:HistoryStrenua.SheetSegment">
+            <summary>图纸上的一条线段（米）。</summary>
+        </member>
+        <member name="M:HistoryStrenua.SheetSegment.#ctor(System.Double,System.Double,System.Double,System.Double)">
+            <summary>图纸上的一条线段（米）。</summary>
+        </member>
+        <member name="T:HistoryStrenua.HoleCalloutPlan">
+            <summary>规划结果。</summary>
+            <param name="Targets">要加的标注，每种孔一个，按图纸上从上到下、从左到右排。</param>
+            <param name="HoleCount">视图里认出的孔数（同心的算一个，一个腰型孔算一个）。</param>
+            <param name="KindCount">孔的种数。</param>
+            <param name="AlreadyAnnotated">已经有孔标注、本次跳过的种数。</param>
+            <param name="SlotCount">其中腰型孔的个数。</param>
+        </member>
+        <member name="M:HistoryStrenua.HoleCalloutPlan.#ctor(System.Collections.Generic.IReadOnlyList{HistoryStrenua.CalloutTarget},System.Int32,System.Int32,System.Int32,System.Int32)">
+            <summary>规划结果。</summary>
+            <param name="Targets">要加的标注，每种孔一个，按图纸上从上到下、从左到右排。</param>
+            <param name="HoleCount">视图里认出的孔数（同心的算一个，一个腰型孔算一个）。</param>
+            <param name="KindCount">孔的种数。</param>
+            <param name="AlreadyAnnotated">已经有孔标注、本次跳过的种数。</param>
+            <param name="SlotCount">其中腰型孔的个数。</param>
+        </member>
+        <member name="P:HistoryStrenua.HoleCalloutPlan.Targets">
+            <summary>要加的标注，每种孔一个，按图纸上从上到下、从左到右排。</summary>
+        </member>
+        <member name="P:HistoryStrenua.HoleCalloutPlan.HoleCount">
+            <summary>视图里认出的孔数（同心的算一个，一个腰型孔算一个）。</summary>
+        </member>
+        <member name="P:HistoryStrenua.HoleCalloutPlan.KindCount">
+            <summary>孔的种数。</summary>
+        </member>
+        <member name="P:HistoryStrenua.HoleCalloutPlan.AlreadyAnnotated">
+            <summary>已经有孔标注、本次跳过的种数。</summary>
+        </member>
+        <member name="P:HistoryStrenua.HoleCalloutPlan.SlotCount">
+            <summary>其中腰型孔的个数。</summary>
+        </member>
+        <member name="P:HistoryStrenua.HoleCalloutPlan.Summary">
+            <summary>回执里的「N 个孔（含 M 个腰型孔）共 K 种」。</summary>
+        </member>
+        <member name="T:HistoryStrenua.HoleCalloutPlanner">
+            <summary>
+            孔标注的纯几何部分：哪些圆边算孔、同心的怎么合并、已经标过的怎么跳过、标注放在哪。
+            不碰 SolidWorks，所以能离线测。
+            </summary>
+        </member>
+        <member name="F:HistoryStrenua.HoleCalloutPlanner.CenterTolerance">
+            <summary>
+            两个圆心在图纸上相距不到 0.02 mm 就算同一个孔。
+            同一个孔在视图里常有好几条同心圆边：通孔的上下两个口、沉头孔的沉头与底孔、倒角的内外沿。
+            </summary>
+        </member>
+        <member name="F:HistoryStrenua.HoleCalloutPlanner.LeaderReach">
+            <summary>引线折点离孔心的距离比孔半径多出的部分（图纸上 12 mm）。</summary>
+        </member>
+        <member name="F:HistoryStrenua.HoleCalloutPlanner.AlignTolerance">
+            <summary>引线折点对准时允许的偏差（图纸上 0.1 mm）。</summary>
+        </member>
+        <member name="F:HistoryStrenua.HoleCalloutPlanner.FacingCosine">
+            <summary>
+            孔的轴线在视图空间里与图纸法向的夹角余弦至少这么大，才算「正对着看」。
+            侧着看的孔投影成两条直线，那不是孔标注该标的地方。
+            </summary>
+        </member>
+        <member name="F:HistoryStrenua.HoleCalloutPlanner.RadiusTolerance">
+            <summary>圆柱面半径与圆边半径的相对容差。</summary>
+        </member>
+        <member name="M:HistoryStrenua.HoleCalloutPlanner.FacesViewer(System.Double,System.Double,System.Double)">
+            <summary>
+            孔的轴线（已变换到视图空间）是否正对图纸。长度不必归一。
+            </summary>
+        </member>
+        <member name="M:HistoryStrenua.HoleCalloutPlanner.IsHoleWall(System.Double,System.Double,System.Boolean,System.Double)">
+            <summary>
+            圆边旁边这张圆柱面是不是**孔**的内壁：面法向（朝材料外）指向轴线。
+            </summary>
+            <param name="circleRadius">圆边半径。</param>
+            <param name="cylinderRadius">圆柱面半径。半径要对上——倒角、圆角旁边那张圆柱面不是这个圆的。</param>
+            <param name="faceInSurfaceSense"><c>IFace2.FaceInSurfaceSense</c>。</param>
+            <param name="surfaceNormalDotRadial">
+            圆柱面上一点的**曲面**法向与「轴线→该点」径向的点积（<c>ISurface.EvaluateAtPoint</c> 前三位）。
+            </param>
+            <remarks>
+            <para>
+            <b><c>FaceInSurfaceSense</c> 为 true 表示面法向与曲面法向相反</b>，与 API 文档的字面相反。
+            2026-09-29 在 SolidWorks 2025 SP5 上标定：零件最高平面（外法向必为 +Z）曲面法向 +Z、该值 false；
+            最低平面曲面法向同为 +Z、该值 true。1.0.0 按字面理解写反，真实工程图上一个孔都认不出。
+            </para>
+            <para>
+            也不假定圆柱曲面法向一定背离轴线（实测是背离的），而是现场取点求值后再换算，
+            两个约定只依赖一个，且那一个有标定证据。
+            </para>
+            </remarks>
+        </member>
+        <member name="M:HistoryStrenua.HoleCalloutPlanner.Perpendicular(System.Double,System.Double,System.Double)">
+            <summary>与 <paramref name="x"/>,<paramref name="y"/>,<paramref name="z"/> 垂直的单位向量，用来在圆上取点。</summary>
+        </member>
+        <member name="M:HistoryStrenua.HoleCalloutPlanner.Plan(System.Collections.Generic.IReadOnlyList{HistoryStrenua.HoleEdge},System.Collections.Generic.IReadOnlyList{HistoryStrenua.SheetPoint})">
+            <summary>
+            把候选边合并成孔、把孔归成种，每种挑一个孔标注，已经标过的种跳过，定下标注放在哪。
+            </summary>
+            <param name="edges">视图里正对图纸的孔边（含腰型孔端头的半圆）。</param>
+            <param name="annotatedCenters">这个视图里已有孔标注所指的孔心。</param>
+            <remarks>
+            腰型孔两端都留在种里：已有标注挂在哪一端都算标过；新标注标在这一种最靠左上的那一端上
+            （SolidWorks 的孔标注从腰型孔任一端的圆弧进去都是整个腰型孔的规格）。
+            </remarks>
+        </member>
+        <member name="M:HistoryStrenua.HoleCalloutPlanner.Recognize(System.Collections.Generic.IReadOnlyList{HistoryStrenua.HoleEdge})">
+            <summary>
+            候选边 → 孔：同心合并（<see cref="M:HistoryStrenua.HoleCalloutPlanner.MergeConcentric(System.Collections.Generic.IReadOnlyList{HistoryStrenua.HoleEdge})"/>），再把腰型孔两端配成对（<see cref="M:HistoryStrenua.SlotPlanner.Pair(System.Collections.Generic.IReadOnlyList{HistoryStrenua.HoleEdge})"/>）。
+            腰型孔的两个端头各是一个元素，编号相同；配不上的半圆丢掉。三条孔类指令都从这里取孔。
+            </summary>
+        </member>
+        <member name="M:HistoryStrenua.HoleCalloutPlanner.Representatives(System.Collections.Generic.IReadOnlyList{HistoryStrenua.HoleEdge})">
+            <summary>
+            每个腰型孔只留一端：最上面的那一端（一样高取左边的）。孔位尺寸只标这一端的圆心。圆孔原样保留。
+            </summary>
+        </member>
+        <member name="M:HistoryStrenua.HoleCalloutPlanner.Count(System.Collections.Generic.IReadOnlyList{HistoryStrenua.HoleEdge})">
+            <summary>孔数（一个腰型孔算一个）与其中的腰型孔数。</summary>
+        </member>
+        <member name="M:HistoryStrenua.HoleCalloutPlanner.Summary(System.Int32,System.Int32,System.Int32)">
+            <summary>回执里的「12 个孔共 3 种」「14 个孔（含 2 个腰型孔）共 4 种」。</summary>
+        </member>
+        <member name="M:HistoryStrenua.HoleCalloutPlanner.MergeConcentric(System.Collections.Generic.IReadOnlyList{HistoryStrenua.HoleEdge})">
+            <summary>
+            同心的归成一个孔，取最小的那条：通孔取孔径本身，沉头/锥孔取底孔。
+            异形孔向导的孔标注从哪条边进去都读得到完整规格；手工切出来的孔只有取底孔才标的是孔径。
+            </summary>
+        </member>
+        <member name="M:HistoryStrenua.HoleCalloutPlanner.GroupKinds(System.Collections.Generic.IEnumerable{HistoryStrenua.HoleEdge})">
+            <summary>
+            一种 = 同一特征、同一孔径（腰型孔另加同一长度，<see cref="M:HistoryStrenua.SlotPlanner.Pair(System.Collections.Generic.IReadOnlyList{HistoryStrenua.HoleEdge})"/> 已写进种名）。
+            孔径按图纸上 0.001 mm 取整，免得浮点尾数把一种拆成几种。
+            每种里的孔按图纸上从上到下、从左到右排。
+            </summary>
+        </member>
+        <member name="M:HistoryStrenua.HoleCalloutPlanner.ReadingOrder(System.Collections.Generic.IEnumerable{HistoryStrenua.HoleEdge})">
+            <summary>图纸上从上到下、从左到右。同一行（Y 差在容差内）按 X 排。</summary>
+        </member>
+        <member name="M:HistoryStrenua.HoleCalloutPlanner.SameCenter(HistoryStrenua.SheetPoint,HistoryStrenua.SheetPoint)">
+            <summary>两个图纸点是否算同一个孔心（<see cref="F:HistoryStrenua.HoleCalloutPlanner.CenterTolerance"/>）。</summary>
+        </member>
+        <member name="M:HistoryStrenua.HoleCalloutPlanner.Placement(HistoryStrenua.HoleEdge)">
+            <summary>
+            引线折点——文字下划线的右端——放在孔的左上方 45°，离孔心「半径 + <see cref="F:HistoryStrenua.HoleCalloutPlanner.LeaderReach"/>」。
+            文字从折点往左排，引线从折点斜向右下指到孔：用户在移动底板上手工摆出来的样子（1.1.0 起）。
+            </summary>
+        </member>
+        <member name="M:HistoryStrenua.HoleCalloutPlanner.ShoulderEnd(System.Collections.Generic.IEnumerable{HistoryStrenua.SheetSegment},System.Boolean)">
+            <summary>
+            孔标注的引线折点：显示数据里最长的那条水平线（文字下划线）的右端（文字在折点右边时取左端，1.6.0）。
+            没有水平线返回 null。
+            </summary>
+        </member>
+        <member name="T:HistoryStrenua.HoleFlow">
+            <summary>
+            快捷指令「孔标注全流程」（1.6.0）：当前图纸页上的全部视图逐个做一遍
+            销钉符号 → 中心符号线 → 孔位尺寸 → 孔标注（后两步按页面开关避障、按尺寸链模式标），全部视图做完指令才结束。
+            </summary>
+            <remarks>
+            <para>顺序是用户定的：先销钉符号，再中心符号线（孔位尺寸的水平尺寸要连它），再孔位尺寸，孔标注最后加，
+            这样孔标注避障时尺寸都已在位。避障不单独成步，并在孔位尺寸与孔标注里（用户定）。</para>
+            <para>不用点选视图；范围只是当前图纸页（用户定，不切换图纸页）。某个视图的某一步失败（如找不到基准边）
+            不中断，接着做后面的步骤与视图，最后回执失败并列出哪几步没成；取消则立即停。</para>
+            </remarks>
+        </member>
+        <member name="T:HistoryStrenua.HolePosition">
+            <summary>
+            快捷指令「孔位尺寸」：点一个工程图视图，视图里全部的孔以左侧、上侧为基准标位置尺寸。
+            </summary>
+            <remarks>
+            <para>认孔、分种与「孔标注」相同（<see cref="T:HistoryStrenua.HoleScan"/>）；怎么标见 <see cref="T:HistoryStrenua.HolePositionPlanner"/>：
+            同种孔接着前一个孔标，不同种孔从基准标；同种孔一个方向超过 4 个且等距用阵列标法「(N-1) x 间距 =总长」。
+            页面「尺寸链」开关打开时（1.7.0）改为每个方向全部孔一条 SolidWorks 原生尺寸链（<see cref="M:HistoryStrenua.HolePosition.InsertChain(HistoryStrenua.SolidWorks.SolidWorksApi,HistoryStrenua.ScannedView,System.Object,System.Collections.Generic.IReadOnlyList{HistoryStrenua.PositionDimension})"/>）。
+            腰型孔只标上方那一端圆弧的圆心（1.3.0，用户定）。</para>
+            <para>「重新标」：先删掉连着这些孔的旧线性尺寸与视图里悬空的线性尺寸（孔标注、直径尺寸、外形尺寸不动），再全部重标。</para>
+            <para>最后做标注避障（1.6.0，<see cref="M:HistoryStrenua.Clearance.ClearDimensions(HistoryStrenua.QuickCommandContext,HistoryStrenua.ScannedView,System.Collections.Generic.IReadOnlyList{HistoryStrenua.HoleEdge})"/>）：尺寸数字压在别的孔相关注解上就沿尺寸线滑开。
+            1.7.0 起受页面「避障」开关控制（默认开）。</para>
+            </remarks>
+        </member>
+        <member name="M:HistoryStrenua.HolePosition.Run(HistoryStrenua.QuickCommandContext,System.Object)">
+            <param name="context">快捷指令上下文。</param>
+            <param name="view">直接处理这个视图（全流程用）；null 时取选中的或等用户点选。</param>
+        </member>
+        <member name="M:HistoryStrenua.HolePosition.Insert(HistoryStrenua.SolidWorks.SolidWorksApi,HistoryStrenua.ScannedView,System.Object,HistoryStrenua.PositionDimension)">
+            <summary>
+            选起点（基准边或前一个孔）与终点孔，按方向加水平 / 竖直尺寸；阵列标法再写前缀。
+            </summary>
+            <remarks>
+            <para>
+            水平尺寸的孔那一头优先选孔上的中心符号线：SolidWorks 把尺寸连到符号线的竖线上，和手工「按中心线标」一样；
+            有一头选不到中心符号线（孔上没有），整条尺寸退回选孔边（量到圆心，值相同）。
+            </para>
+            <para>
+            竖直尺寸只选孔边。真机（SW 2025 SP5）实测：选中中心符号线加竖直尺寸，SolidWorks 不论点选偏移、选择先后，
+            一律拿符号的竖线，与水平基准边一起建成角度尺寸。API 也拿不到中心符号线的横线单独去选。
+            </para>
+            <para>建出来的不是线性尺寸就删掉，退回选孔边再建。</para>
+            </remarks>
+            <returns>加上了没有，以及是不是连在中心线上。</returns>
+        </member>
+        <member name="M:HistoryStrenua.HolePosition.InsertChain(HistoryStrenua.SolidWorks.SolidWorksApi,HistoryStrenua.ScannedView,System.Object,System.Collections.Generic.IReadOnlyList{HistoryStrenua.PositionDimension})">
+            <summary>
+            一个方向的一条 SolidWorks 原生尺寸链（「尺寸链」工具，<c>IModelDocExtension.InsertChainDimensions</c>）：
+            依次选基准边与各站的孔边，传 null 让它用预选（真机 SW 2025 SP5：直接传 <c>GetVisibleEntities2</c> 的边返回 null，
+            预选才行；方向由基准边定，竖边出水平链、横边出竖直链）。
+            </summary>
+            <remarks>
+            <para>只连孔边、不连中心符号线：预选里混进中心符号线时 SolidWorks 返回 null。量到的仍是圆心，值相同。</para>
+            <para>新建的链放在图纸外（尺寸线在 y≈0 或 x≈0）且每段文字带引线偏开（<c>OffsetText</c> = true）。逐段关掉偏开，
+            再按规划位置 <c>SetPosition2</c>——关掉之后尺寸线跟着文字走；每段各自移，不会带动同链其他段。</para>
+            </remarks>
+            <returns>链里加上的尺寸个数；0 表示 SolidWorks 没接受，调用方退回逐个标。</returns>
+        </member>
+        <member name="M:HistoryStrenua.HolePosition.Discard(HistoryStrenua.SolidWorks.SolidWorksApi,HistoryStrenua.ScannedView,System.Object)">
+            <summary>删掉刚建错的尺寸（例如 SolidWorks 建成了角度尺寸）。</summary>
+        </member>
+        <member name="M:HistoryStrenua.HolePosition.SelectHole(HistoryStrenua.SolidWorks.SolidWorksApi,HistoryStrenua.ScannedView,System.Int32,System.Boolean,System.Boolean)">
+            <summary>
+            选孔：<paramref name="centerMark"/> 时在孔心点选中心符号线，并核对选中的确实是中心符号线
+            （点空了 SolidWorks 会改选整个视图）；否则选孔边。
+            </summary>
+        </member>
+        <member name="M:HistoryStrenua.HolePosition.ReadObsolete(HistoryStrenua.SolidWorks.SolidWorksApi,HistoryStrenua.ScannedView,System.Collections.Generic.IReadOnlyList{HistoryStrenua.HoleEdge})">
+            <summary>
+            视图里连着这些孔的旧线性尺寸（<c>IAnnotation</c>）：连着孔边的，或连着穿过孔心的中心线的。孔标注不算。
+            </summary>
+        </member>
+        <member name="M:HistoryStrenua.HolePosition.IsDangling(HistoryStrenua.SolidWorks.SolidWorksApi,System.Object)">
+            <summary>
+            尺寸悬空了没有：<c>IAnnotation.IsDangling</c>；保险起见附着对象里有空的也算
+            （真机上「中心符号线」删掉旧符号线后，挂在上面的尺寸附着类型读回 0、对象为空）。
+            </summary>
+        </member>
+        <member name="M:HistoryStrenua.HolePosition.AttachedLines(HistoryStrenua.SolidWorks.SolidWorksApi,HistoryStrenua.ScannedView,System.Object)">
+            <summary>
+            注解连着的视图草图线（中心符号线、中心线）在图纸上的样子。草图坐标是模型尺寸、原点在视图位置，
+            图纸点 = 视图位置 + 草图点 × 比例；<c>GetXform</c> 不含旋转，所以旋转过的视图不认（返回空）。
+            </summary>
+        </member>
+        <member name="T:HistoryStrenua.PositionAxis">
+            <summary>孔位尺寸量的是哪个方向。</summary>
+        </member>
+        <member name="F:HistoryStrenua.PositionAxis.Horizontal">
+            <summary>水平尺寸：量孔离左侧基准的 X 位置，放在视图上方。</summary>
+        </member>
+        <member name="F:HistoryStrenua.PositionAxis.Vertical">
+            <summary>竖直尺寸：量孔离上侧基准的 Y 位置，放在视图左侧。</summary>
+        </member>
+        <member name="T:HistoryStrenua.PositionDimension">
+            <summary>要加的一个孔位尺寸。</summary>
+            <param name="Axis">方向。</param>
+            <param name="FromEdgeIndex">起点孔边的下标；null 表示从基准边量。</param>
+            <param name="ToEdgeIndex">终点孔边的下标。</param>
+            <param name="TextAt">尺寸文字放在图纸上的位置（米）。</param>
+            <param name="Prefix">尺寸值前面的文字；阵列标法是「(N-1) x 间距 =」，其余为空。</param>
+        </member>
+        <member name="M:HistoryStrenua.PositionDimension.#ctor(HistoryStrenua.PositionAxis,System.Nullable{System.Int32},System.Int32,HistoryStrenua.SheetPoint,System.String)">
+            <summary>要加的一个孔位尺寸。</summary>
+            <param name="Axis">方向。</param>
+            <param name="FromEdgeIndex">起点孔边的下标；null 表示从基准边量。</param>
+            <param name="ToEdgeIndex">终点孔边的下标。</param>
+            <param name="TextAt">尺寸文字放在图纸上的位置（米）。</param>
+            <param name="Prefix">尺寸值前面的文字；阵列标法是「(N-1) x 间距 =」，其余为空。</param>
+        </member>
+        <member name="P:HistoryStrenua.PositionDimension.Axis">
+            <summary>方向。</summary>
+        </member>
+        <member name="P:HistoryStrenua.PositionDimension.FromEdgeIndex">
+            <summary>起点孔边的下标；null 表示从基准边量。</summary>
+        </member>
+        <member name="P:HistoryStrenua.PositionDimension.ToEdgeIndex">
+            <summary>终点孔边的下标。</summary>
+        </member>
+        <member name="P:HistoryStrenua.PositionDimension.TextAt">
+            <summary>尺寸文字放在图纸上的位置（米）。</summary>
+        </member>
+        <member name="P:HistoryStrenua.PositionDimension.Prefix">
+            <summary>尺寸值前面的文字；阵列标法是「(N-1) x 间距 =」，其余为空。</summary>
+        </member>
+        <member name="T:HistoryStrenua.ExistingDimension">
+            <summary>视图里已有的一个尺寸：它的类型（<c>swDimensionType_e</c>）与它连着的圆边圆心、中心线。</summary>
+            <param name="Index">回指调用方手里那个尺寸。</param>
+            <param name="Type"><c>IDisplayDimension.Type2</c>。</param>
+            <param name="Centers">它附着的圆边的圆心（图纸坐标）。</param>
+            <param name="Lines">它附着的视图草图线（中心符号线的线、中心线），图纸坐标。</param>
+            <param name="Dangling">悬空：至少一头的附着丢了（<c>IAnnotation.IsDangling</c>，或附着对象读出来是空的）。</param>
+        </member>
+        <member name="M:HistoryStrenua.ExistingDimension.#ctor(System.Int32,System.Int32,System.Collections.Generic.IReadOnlyList{HistoryStrenua.SheetPoint},System.Collections.Generic.IReadOnlyList{HistoryStrenua.SheetSegment},System.Boolean)">
+            <summary>视图里已有的一个尺寸：它的类型（<c>swDimensionType_e</c>）与它连着的圆边圆心、中心线。</summary>
+            <param name="Index">回指调用方手里那个尺寸。</param>
+            <param name="Type"><c>IDisplayDimension.Type2</c>。</param>
+            <param name="Centers">它附着的圆边的圆心（图纸坐标）。</param>
+            <param name="Lines">它附着的视图草图线（中心符号线的线、中心线），图纸坐标。</param>
+            <param name="Dangling">悬空：至少一头的附着丢了（<c>IAnnotation.IsDangling</c>，或附着对象读出来是空的）。</param>
+        </member>
+        <member name="P:HistoryStrenua.ExistingDimension.Index">
+            <summary>回指调用方手里那个尺寸。</summary>
+        </member>
+        <member name="P:HistoryStrenua.ExistingDimension.Type">
+            <summary><c>IDisplayDimension.Type2</c>。</summary>
+        </member>
+        <member name="P:HistoryStrenua.ExistingDimension.Centers">
+            <summary>它附着的圆边的圆心（图纸坐标）。</summary>
+        </member>
+        <member name="P:HistoryStrenua.ExistingDimension.Lines">
+            <summary>它附着的视图草图线（中心符号线的线、中心线），图纸坐标。</summary>
+        </member>
+        <member name="P:HistoryStrenua.ExistingDimension.Dangling">
+            <summary>悬空：至少一头的附着丢了（<c>IAnnotation.IsDangling</c>，或附着对象读出来是空的）。</summary>
+        </member>
+        <member name="T:HistoryStrenua.HolePositionPlan">
+            <summary>规划结果。</summary>
+            <param name="Dimensions">要加的尺寸，先水平后竖直，同方向按层由里到外。</param>
+            <param name="HoleCount">视图里认出的孔数（同心的算一个，一个腰型孔算一个）。</param>
+            <param name="KindCount">孔的种数。</param>
+            <param name="PatternCount">用了阵列标法的尺寸个数。</param>
+            <param name="SlotCount">其中腰型孔的个数。</param>
+        </member>
+        <member name="M:HistoryStrenua.HolePositionPlan.#ctor(System.Collections.Generic.IReadOnlyList{HistoryStrenua.PositionDimension},System.Int32,System.Int32,System.Int32,System.Int32)">
+            <summary>规划结果。</summary>
+            <param name="Dimensions">要加的尺寸，先水平后竖直，同方向按层由里到外。</param>
+            <param name="HoleCount">视图里认出的孔数（同心的算一个，一个腰型孔算一个）。</param>
+            <param name="KindCount">孔的种数。</param>
+            <param name="PatternCount">用了阵列标法的尺寸个数。</param>
+            <param name="SlotCount">其中腰型孔的个数。</param>
+        </member>
+        <member name="P:HistoryStrenua.HolePositionPlan.Dimensions">
+            <summary>要加的尺寸，先水平后竖直，同方向按层由里到外。</summary>
+        </member>
+        <member name="P:HistoryStrenua.HolePositionPlan.HoleCount">
+            <summary>视图里认出的孔数（同心的算一个，一个腰型孔算一个）。</summary>
+        </member>
+        <member name="P:HistoryStrenua.HolePositionPlan.KindCount">
+            <summary>孔的种数。</summary>
+        </member>
+        <member name="P:HistoryStrenua.HolePositionPlan.PatternCount">
+            <summary>用了阵列标法的尺寸个数。</summary>
+        </member>
+        <member name="P:HistoryStrenua.HolePositionPlan.SlotCount">
+            <summary>其中腰型孔的个数。</summary>
+        </member>
+        <member name="P:HistoryStrenua.HolePositionPlan.Summary">
+            <summary>回执里的「N 个孔（含 M 个腰型孔）共 K 种」。</summary>
+        </member>
+        <member name="T:HistoryStrenua.HolePositionPlanner">
+            <summary>
+            「孔位尺寸」的纯几何部分：基准边、每种孔怎么标、尺寸放在哪、哪些旧尺寸要删。
+            认孔与分种与孔标注完全相同（<see cref="M:HistoryStrenua.HoleCalloutPlanner.Recognize(System.Collections.Generic.IReadOnlyList{HistoryStrenua.HoleEdge})"/>、<see cref="M:HistoryStrenua.HoleCalloutPlanner.GroupKinds(System.Collections.Generic.IEnumerable{HistoryStrenua.HoleEdge})"/>）。
+            </summary>
+            <remarks>
+            <para>基准是视图里零件最左的竖直直边与最上的水平直边。</para>
+            <para>
+            每个方向、每种孔单独标：这一种里的孔按坐标归成列（水平方向）或行（竖直方向），
+            第一列从基准标，其余每列从前一列标（链式）——同种孔可以接着前一个孔标，不同种孔一律从基准起。
+            同种孔在这个方向上超过 <see cref="F:HistoryStrenua.HolePositionPlanner.PatternThreshold"/> 列且等距时用阵列标法：第一列从基准标，
+            再从第一列一个尺寸标到最后一列，文字写成「(N-1) x 间距 =总长」。
+            </para>
+            <para>
+            按中心线标、不按孔标：同一段「中心线 → 中心线」（含基准到中心线）全视图只标一次，
+            几种孔并排在同一对中心线上时不出重复尺寸。尺寸仍连在孔边上，SolidWorks 量到圆心，值就是中心线间距。
+            </para>
+            <para>
+            尺寸一种孔占一层，水平的在视图上方、竖直的在视图左侧；跨度短的层在里面，免得尺寸界线互相穿过。
+            阵列标法那一种占两层：阵列尺寸在里、从基准到第一个孔的那个在外（用户给的样图就是这样）。
+            </para>
+            <para>
+            腰型孔（1.3.0）只取上方那一端圆弧的圆心当孔位（一样高取左边那端，<see cref="M:HistoryStrenua.HoleCalloutPlanner.Representatives(System.Collections.Generic.IReadOnlyList{HistoryStrenua.HoleEdge})"/>），
+            其余规格由孔标注一次写全，不另标长度。
+            </para>
+            </remarks>
+        </member>
+        <member name="F:HistoryStrenua.HolePositionPlanner.PatternThreshold">
+            <summary>同种孔在一个方向上超过这么多列（且等距）才用阵列标法。</summary>
+        </member>
+        <member name="F:HistoryStrenua.HolePositionPlanner.FirstTier">
+            <summary>第一层尺寸离基准边多远（图纸上 8 mm；1.2.0 首版 10 mm，用户嫌远）。</summary>
+        </member>
+        <member name="F:HistoryStrenua.HolePositionPlanner.TierStep">
+            <summary>层与层之间多远（图纸上 6 mm；首版 8 mm）。</summary>
+        </member>
+        <member name="F:HistoryStrenua.HolePositionPlanner.PitchTolerance">
+            <summary>判等距的容差：间距之差不超过 0.01 mm（模型尺寸）。</summary>
+        </member>
+        <member name="F:HistoryStrenua.HolePositionPlanner.AxisTolerance">
+            <summary>直边算竖直 / 水平的斜率容差。</summary>
+        </member>
+        <member name="M:HistoryStrenua.HolePositionPlanner.Plan(System.Collections.Generic.IReadOnlyList{HistoryStrenua.HoleEdge},System.Double,System.Double,System.Double,System.Boolean)">
+            <param name="edges">视图里正对图纸的孔边（含腰型孔端头的半圆）。</param>
+            <param name="left">左侧基准边的 X（图纸坐标）。</param>
+            <param name="top">上侧基准边的 Y（图纸坐标）。</param>
+            <param name="scale">视图比例（图纸长度 / 模型长度），用来把间距换成模型尺寸写进文字。</param>
+            <param name="chainMode">尺寸链模式（1.7.0，页面开关）：见 <see cref="M:HistoryStrenua.HolePositionPlanner.PlanChain(System.Collections.Generic.IReadOnlyList{HistoryStrenua.HoleEdge},System.Collections.Generic.IReadOnlyList{System.Collections.Generic.IReadOnlyList{HistoryStrenua.HoleEdge}},System.Double,System.Double,System.Double)"/>。</param>
+        </member>
+        <member name="M:HistoryStrenua.HolePositionPlanner.PlanChain(System.Collections.Generic.IReadOnlyList{HistoryStrenua.HoleEdge},System.Collections.Generic.IReadOnlyList{System.Collections.Generic.IReadOnlyList{HistoryStrenua.HoleEdge}},System.Double,System.Double,System.Double)">
+            <summary>
+            尺寸链模式（1.7.0，用户定）：每个方向只有一条链——基准 → 第一列 → 第二列 → … → 最后一列，
+            不分孔的种类，全排在第一层；等距也逐段标，不用阵列写法。同一坐标上的几个孔（不论哪种）算一站。
+            </summary>
+        </member>
+        <member name="M:HistoryStrenua.HolePositionPlanner.PatternPrefix(System.Int32,System.Double)">
+            <summary>阵列标法的文字前缀：「10 x 60 =」，后面紧跟 SolidWorks 自己的尺寸值（总长）。</summary>
+            <param name="gaps">间距个数（孔数 - 1）。</param>
+            <param name="pitch">间距，模型长度（米）。</param>
+        </member>
+        <member name="M:HistoryStrenua.HolePositionPlanner.Datums(System.Collections.Generic.IReadOnlyList{HistoryStrenua.SheetSegment})">
+            <summary>
+            基准边：竖直直边里最靠左的一条、水平直边里最靠上的一条；同一位置有几条取最长的。
+            </summary>
+            <returns>两条基准边在 <paramref name="lines"/> 里的下标，找不到为 null。</returns>
+        </member>
+        <member name="M:HistoryStrenua.HolePositionPlanner.Obsolete(System.Collections.Generic.IReadOnlyList{HistoryStrenua.HoleEdge},System.Collections.Generic.IReadOnlyList{HistoryStrenua.ExistingDimension})">
+            <summary>
+            连着孔的旧孔位尺寸都要删——「重新标」。连着孔 = 连着孔边，或连着穿过孔心的中心线（手工按中心线标的、
+            本指令连在中心符号线上的）。只动线性尺寸（水平、竖直、斜的）；孔标注、直径尺寸不是这里的类型，不动；
+            不连着孔的尺寸（外形尺寸）也不动。
+            </summary>
+            <remarks>
+            视图里<b>悬空</b>的线性尺寸也删（1.3.0，用户定）：「中心符号线」删旧符号线时，挂在上面的位置尺寸就悬空了，
+            悬空尺寸连着什么已经读不出来，不删就和重标的新尺寸叠在一起。别的原因悬空的线性尺寸会被一并删掉。
+            </remarks>
+        </member>
+        <member name="M:HistoryStrenua.HolePositionPlanner.IsLinear(System.Int32)">
+            <summary>
+            是不是线性尺寸（<c>swDimensionType_e</c> 的线性、水平线性、竖直线性）。
+            真机上 <c>AddHorizontalDimension2</c> / <c>AddVerticalDimension2</c> 建出来的读回都是 2（线性）。
+            </summary>
+        </member>
+        <member name="M:HistoryStrenua.HolePositionPlanner.PassesThrough(HistoryStrenua.SheetSegment,HistoryStrenua.HoleEdge)">
+            <summary>线段是否穿过孔心（到线段的距离在 <see cref="F:HistoryStrenua.HoleCalloutPlanner.CenterTolerance"/> 内）。</summary>
+        </member>
+        <member name="M:HistoryStrenua.HolePositionPlanner.Chain(System.Collections.Generic.IReadOnlyList{HistoryStrenua.HoleEdge},HistoryStrenua.PositionAxis,System.Double,System.Double)">
+            <summary>
+            一种孔在一个方向上的「站」：同一坐标的孔算一站，按离基准由近到远排。
+            每站挑离尺寸最近的那个孔（水平尺寸在上方，挑最上面的；竖直尺寸在左侧，挑最左的），尺寸界线短。
+            </summary>
+        </member>
+        <member name="M:HistoryStrenua.HolePositionPlanner.Dimension(HistoryStrenua.PositionAxis,System.Nullable{System.Int32},HistoryStrenua.HoleEdge,System.Double,System.Double,HistoryStrenua.HolePositionPlanner.Datum,System.Int32,System.String)">
+            <summary>水平尺寸放在上侧基准之上、竖直尺寸放在左侧基准之左，第 <paramref name="tier"/> 层；文字居中。</summary>
+        </member>
+        <member name="T:HistoryStrenua.ScannedView">
+            <summary>一次识别的结果：用户点的那个视图，以及视图里的候选孔边。</summary>
+            <param name="Document">活动工程图（<c>IModelDoc2</c> / <c>IDrawingDoc</c>）。</param>
+            <param name="View">视图（<c>IView</c>）。</param>
+            <param name="ViewName">视图名。</param>
+            <param name="Geometry">把模型边、模型点变到图纸上的工具。</param>
+            <param name="Edges">候选孔边本身，<see cref="P:HistoryStrenua.HoleEdge.Index"/> 是这里的下标。</param>
+            <param name="Candidates">候选孔边在图纸上的样子（同心的尚未合并）。</param>
+            <param name="LineEdges">视图里的直边本身（只在要求收集直边时有）。</param>
+            <param name="Lines">直边在图纸上的样子，与 <paramref name="LineEdges"/> 一一对应。</param>
+        </member>
+        <member name="M:HistoryStrenua.ScannedView.#ctor(System.Object,System.Object,System.String,HistoryStrenua.HoleScan.ViewGeometry,System.Collections.Generic.IReadOnlyList{System.Object},System.Collections.Generic.IReadOnlyList{HistoryStrenua.HoleEdge},System.Collections.Generic.IReadOnlyList{System.Object},System.Collections.Generic.IReadOnlyList{HistoryStrenua.SheetSegment})">
+            <summary>一次识别的结果：用户点的那个视图，以及视图里的候选孔边。</summary>
+            <param name="Document">活动工程图（<c>IModelDoc2</c> / <c>IDrawingDoc</c>）。</param>
+            <param name="View">视图（<c>IView</c>）。</param>
+            <param name="ViewName">视图名。</param>
+            <param name="Geometry">把模型边、模型点变到图纸上的工具。</param>
+            <param name="Edges">候选孔边本身，<see cref="P:HistoryStrenua.HoleEdge.Index"/> 是这里的下标。</param>
+            <param name="Candidates">候选孔边在图纸上的样子（同心的尚未合并）。</param>
+            <param name="LineEdges">视图里的直边本身（只在要求收集直边时有）。</param>
+            <param name="Lines">直边在图纸上的样子，与 <paramref name="LineEdges"/> 一一对应。</param>
+        </member>
+        <member name="P:HistoryStrenua.ScannedView.Document">
+            <summary>活动工程图（<c>IModelDoc2</c> / <c>IDrawingDoc</c>）。</summary>
+        </member>
+        <member name="P:HistoryStrenua.ScannedView.View">
+            <summary>视图（<c>IView</c>）。</summary>
+        </member>
+        <member name="P:HistoryStrenua.ScannedView.ViewName">
+            <summary>视图名。</summary>
+        </member>
+        <member name="P:HistoryStrenua.ScannedView.Geometry">
+            <summary>把模型边、模型点变到图纸上的工具。</summary>
+        </member>
+        <member name="P:HistoryStrenua.ScannedView.Edges">
+            <summary>候选孔边本身，<see cref="P:HistoryStrenua.HoleEdge.Index"/> 是这里的下标。</summary>
+        </member>
+        <member name="P:HistoryStrenua.ScannedView.Candidates">
+            <summary>候选孔边在图纸上的样子（同心的尚未合并）。</summary>
+        </member>
+        <member name="P:HistoryStrenua.ScannedView.LineEdges">
+            <summary>视图里的直边本身（只在要求收集直边时有）。</summary>
+        </member>
+        <member name="P:HistoryStrenua.ScannedView.Lines">
+            <summary>直边在图纸上的样子，与 <paramref name="LineEdges"/> 一一对应。</summary>
+        </member>
+        <member name="T:HistoryStrenua.HoleScan">
+            <summary>
+            孔类快捷指令共用的前半段：确认活动文档是工程图、取用户点的视图、认出视图里全部的孔。
+            </summary>
+            <remarks>
+            <para>
+            选视图两种顺序都行：执行前已经在 SolidWorks 里选中了视图（或视图里的任何东西），直接用它；
+            没选就等用户去点，最多 <see cref="F:HistoryStrenua.HoleScan.SelectionTimeout"/>。
+            </para>
+            <para>
+            「全部类型的孔」指：异形孔向导的各种孔（柱形沉头、锥形沉头、螺纹孔、直孔……）和手工切出来的圆孔。
+            判据是几何而不是特征——完整一圈的圆边、旁边贴着一张内凹的同半径圆柱面、轴线正对图纸。
+            所以导入件、镜像件、阵列出来的孔一样认得。
+            </para>
+            <para>
+            腰型孔（1.3.0 起）：两端恰好半圈的圆弧、同样贴着内凹的同半径圆柱面，各当一个候选，再由
+            <see cref="T:HistoryStrenua.SlotPlanner"/> 两两配对；配不上的半圆（开口槽口的端头）仍不算孔。
+            </para>
+            </remarks>
+        </member>
+        <member name="M:HistoryStrenua.HoleScan.Scan(HistoryStrenua.QuickCommandContext,System.String,System.Boolean,System.Object)">
+            <param name="context">快捷指令上下文。</param>
+            <param name="title">指令名，写进进度与失败消息，如「孔标注」。</param>
+            <param name="withLines">同时收集视图里的直边（孔位尺寸找基准用）。</param>
+            <param name="view">直接处理这个视图，不看选择、不等点选（「孔标注全流程」逐个视图调用时给）。</param>
+        </member>
+        <member name="M:HistoryStrenua.HoleScan.ActiveDrawing(HistoryStrenua.QuickCommandContext)">
+            <summary>活动文档，必须是工程图。</summary>
+        </member>
+        <member name="M:HistoryStrenua.HoleScan.SheetViews(HistoryStrenua.SolidWorks.SolidWorksApi,System.Object)">
+            <summary>
+            当前图纸页上的全部视图（不含图纸本身），按 SolidWorks 的视图顺序。
+            <c>IDrawingDoc.GetFirstView</c> 返回的是当前图纸页，往后 <c>GetNextView</c> 只走这一页的视图。
+            </summary>
+        </member>
+        <member name="M:HistoryStrenua.HoleScan.WaitForView(HistoryStrenua.QuickCommandContext,System.Object,System.String)">
+            <summary>
+            当前选择里有视图就用它；没有就等用户去点。点在视图里的任何东西（边、尺寸）都算点了这个视图，
+            只点在图纸空白处不算。
+            </summary>
+        </member>
+        <member name="M:HistoryStrenua.HoleScan.VisibleComponents(HistoryStrenua.SolidWorks.SolidWorksApi,System.Object,System.Object)">
+            <summary>零件视图只有一个「无组件」；装配视图逐个可见组件取边。</summary>
+        </member>
+        <member name="T:HistoryStrenua.HoleScan.ViewGeometry">
+            <summary>
+            把模型边变到图纸上。几何一律在零件自己的坐标系里返回：
+            装配视图里先乘组件变换到装配空间，再乘视图的模型→图纸变换。
+            </summary>
+        </member>
+        <member name="M:HistoryStrenua.HoleScan.ViewGeometry.#ctor(HistoryStrenua.SolidWorks.SolidWorksApi,System.Object,System.Object)">
+            <summary>
+            把模型边变到图纸上。几何一律在零件自己的坐标系里返回：
+            装配视图里先乘组件变换到装配空间，再乘视图的模型→图纸变换。
+            </summary>
+        </member>
+        <member name="M:HistoryStrenua.HoleScan.ViewGeometry.TryReadHole(System.Object)">
+            <summary>
+            是孔边就返回它在图纸上的圆心与半径（<c>Index</c> 由调用方补）。整圈的圆边是圆孔；
+            恰好半圈的圆弧是腰型孔的端头，另记下它朝哪边鼓，配对见 <see cref="T:HistoryStrenua.SlotPlanner"/>。
+            </summary>
+        </member>
+        <member name="M:HistoryStrenua.HoleScan.ViewGeometry.SlotBulge(System.Object,System.Double[],System.Object)">
+            <summary>
+            恰好半圈的圆弧朝哪边鼓（零件坐标里的单位向量）；不是恰好半圈返回 null。
+            判法见 <see cref="M:HistoryStrenua.SlotPlanner.Bulge(System.ValueTuple{System.Double,System.Double,System.Double},System.Double[],System.Double[],System.Double)"/>：在「圆心 + 半径 × 弦法向」处问圆弧上最近的点。
+            </summary>
+        </member>
+        <member name="M:HistoryStrenua.HoleScan.ViewGeometry.Kind(System.Object,System.Object)">
+            <summary>
+            孔的「种」：组件 + 孔壁所属特征。同一个异形孔向导特征、同一次拉伸切除、同一个阵列里的孔是一种，
+            SolidWorks 的孔标注会把它们数成「N×」。取不到特征时退回只按组件分（再由孔径细分）。
+            同时回答这是不是销钉孔（<see cref="M:HistoryStrenua.HoleScan.ViewGeometry.IsDowelFeature(System.Object)"/>）。
+            </summary>
+        </member>
+        <member name="M:HistoryStrenua.HoleScan.ViewGeometry.IsDowelFeature(System.Object)">
+            <summary>
+            异形孔向导做的销钉孔：特征类型 <c>HoleWzd</c>，定义里的紧固件类型（<c>FastenerType2</c>）是各标准的
+            「DowelHole」（<c>swWzdHoleStandardFastenerTypes_e</c> 703–712）。<c>Type</c> 是孔的细类（如柱形沉头通孔 14），不用它判。
+            </summary>
+        </member>
+        <member name="M:HistoryStrenua.HoleScan.ViewGeometry.TryReadCircleCenter(System.Object)">
+            <summary>
+            圆边的圆心在图纸上的位置；不是圆边返回 null。注解附着的对象可能已经失效（悬空尺寸连着的边被删），
+            这时 SolidWorks 给的对象不再是边，调用报类型不符——也当不是圆边。
+            </summary>
+        </member>
+        <member name="M:HistoryStrenua.HoleScan.ViewGeometry.TryReadLine(System.Object)">
+            <summary>直边在图纸上的两个端点；不是直边（或没有端点）返回 null。</summary>
+        </member>
+        <member name="P:HistoryStrenua.HoleScan.ViewGeometry.Scale">
+            <summary>视图比例（图纸长度 / 模型长度）。</summary>
+        </member>
+        <member name="M:HistoryStrenua.HoleScan.ViewGeometry.ModelPointToSheet(System.Double,System.Double,System.Double)">
+            <summary>视图所引用模型（顶层）坐标系里的一个点，变到图纸上。</summary>
+        </member>
+        <member name="M:HistoryStrenua.HoleScan.ViewGeometry.Circle(System.Object)">
+            <summary><c>CircleParams</c>：圆心 xyz、轴向 xyz、半径。不是圆返回 null。</summary>
+        </member>
+        <member name="M:HistoryStrenua.HoleScan.ViewGeometry.HoleWall(System.Object,System.Double[])">
+            <summary>
+            圆边旁边的孔壁（<c>IFace2</c>），没有就是 null。在圆上取一点（它也在圆柱面上），求那里的曲面法向，
+            与径向比方向，再按 <c>FaceInSurfaceSense</c> 换算成面法向——判据见
+            <see cref="M:HistoryStrenua.HoleCalloutPlanner.IsHoleWall(System.Double,System.Double,System.Boolean,System.Double)"/>。
+            </summary>
+        </member>
+        <member name="T:HistoryStrenua.ModuleInfo">
+            <summary>
+            模块身份。宿主按**全名**鸭子类型识别 <c>BaseVariable.ModuleInfoBase</c> 的公开非抽象子类，
+            不靠引用相等，所以这个类必须存在且可被反射构造。
+            </summary>
+        </member>
+        <member name="P:HistoryStrenua.ModuleInfo.ModuleName">
+            <summary>
+            必须显式覆盖：缺省值是程序集名，而它同时是**指令域**。
+            程序集名与域一旦分家，域就会跟着程序集名跑。
+            </summary>
+        </member>
+        <member name="P:HistoryStrenua.ModuleInfo.CommandPrefix">
+            <summary>指令域前缀。</summary>
+        </member>
+        <member name="P:HistoryStrenua.ModuleInfo.Version">
+            <summary>
+            版本取自程序集而非字面量：宿主装载时比对 manifest 与本类的版本，
+            两者不一致会**静默跳过整个模块**，只在日志留一行 module.discovery 警告。
+            </summary>
+        </member>
+        <member name="P:HistoryStrenua.ModuleInfo.MainClassType">
+            <summary>指令一律经 <c>IModuleContext.RegisterCommands</c> 注册，不走反射投影。</summary>
+        </member>
+        <member name="T:HistoryStrenua.QuickCommand">
+            <summary>
+            PowerSW 的一条快捷指令：总线上的一条指令、页面上它那一类控制面板里的一个按钮。
+            </summary>
+            <remarks>
+            <para>
+            加一条快捷指令 = 写一个 <see cref="P:HistoryStrenua.QuickCommand.Run"/>，再在 <see cref="P:HistoryStrenua.QuickCommands.All"/> 里登记一行。
+            动作声明、指令注册、按钮、类选项都从这份登记表生成，不需要再改页面描述。
+            </para>
+            <para>
+            当前不带参数。将来要带参数时，给这里加参数表，由页面生成器渲染成输入控件，
+            并经动作占位符传进指令——已有的无参指令不受影响。
+            </para>
+            </remarks>
+            <param name="Key">稳定标识，也是动作 id 的后缀与 <c>strenua.quick.run key=</c> 的值。</param>
+            <param name="CommandName">总线指令名，形如 <c>strenua.&lt;类&gt;.&lt;方法&gt;</c>。</param>
+            <param name="Title">页面按钮上的字。</param>
+            <param name="Summary">一句话说明（120 字内）：写进指令自描述的 Summary。</param>
+            <param name="Usage">怎么用的完整说明：写进按钮动作的说明（悬停可见）。</param>
+            <param name="Run">在已附着 SolidWorks 的 STA 线程上执行。</param>
+        </member>
+        <member name="M:HistoryStrenua.QuickCommand.#ctor(System.String,System.String,System.String,System.String,System.String,System.Func{HistoryStrenua.QuickCommandContext,HistoryStrenua.QuickOutcome})">
+            <summary>
+            PowerSW 的一条快捷指令：总线上的一条指令、页面上它那一类控制面板里的一个按钮。
+            </summary>
+            <remarks>
+            <para>
+            加一条快捷指令 = 写一个 <see cref="P:HistoryStrenua.QuickCommand.Run"/>，再在 <see cref="P:HistoryStrenua.QuickCommands.All"/> 里登记一行。
+            动作声明、指令注册、按钮、类选项都从这份登记表生成，不需要再改页面描述。
+            </para>
+            <para>
+            当前不带参数。将来要带参数时，给这里加参数表，由页面生成器渲染成输入控件，
+            并经动作占位符传进指令——已有的无参指令不受影响。
+            </para>
+            </remarks>
+            <param name="Key">稳定标识，也是动作 id 的后缀与 <c>strenua.quick.run key=</c> 的值。</param>
+            <param name="CommandName">总线指令名，形如 <c>strenua.&lt;类&gt;.&lt;方法&gt;</c>。</param>
+            <param name="Title">页面按钮上的字。</param>
+            <param name="Summary">一句话说明（120 字内）：写进指令自描述的 Summary。</param>
+            <param name="Usage">怎么用的完整说明：写进按钮动作的说明（悬停可见）。</param>
+            <param name="Run">在已附着 SolidWorks 的 STA 线程上执行。</param>
+        </member>
+        <member name="P:HistoryStrenua.QuickCommand.Key">
+            <summary>稳定标识，也是动作 id 的后缀与 <c>strenua.quick.run key=</c> 的值。</summary>
+        </member>
+        <member name="P:HistoryStrenua.QuickCommand.CommandName">
+            <summary>总线指令名，形如 <c>strenua.&lt;类&gt;.&lt;方法&gt;</c>。</summary>
+        </member>
+        <member name="P:HistoryStrenua.QuickCommand.Title">
+            <summary>页面按钮上的字。</summary>
+        </member>
+        <member name="P:HistoryStrenua.QuickCommand.Summary">
+            <summary>一句话说明（120 字内）：写进指令自描述的 Summary。</summary>
+        </member>
+        <member name="P:HistoryStrenua.QuickCommand.Usage">
+            <summary>怎么用的完整说明：写进按钮动作的说明（悬停可见）。</summary>
+        </member>
+        <member name="P:HistoryStrenua.QuickCommand.Run">
+            <summary>在已附着 SolidWorks 的 STA 线程上执行。</summary>
+        </member>
+        <member name="P:HistoryStrenua.QuickCommand.ActionId">
+            <summary>页面动作 id。</summary>
+        </member>
+        <member name="P:HistoryStrenua.QuickCommand.CommandClass">
+            <summary>指令名的第二段，作为命令类。</summary>
+        </member>
+        <member name="P:HistoryStrenua.QuickCommand.ClassTitle">
+            <summary>页面「类」选项框里显示的类名，也是那一类控制面板的 case。</summary>
+        </member>
+        <member name="T:HistoryStrenua.QuickOutcome">
+            <summary>一次执行的结论。<see cref="P:HistoryStrenua.QuickOutcome.Success"/> 为 false 时总线回执失败。</summary>
+        </member>
+        <member name="M:HistoryStrenua.QuickOutcome.#ctor(System.Boolean,System.String)">
+            <summary>一次执行的结论。<see cref="P:HistoryStrenua.QuickOutcome.Success"/> 为 false 时总线回执失败。</summary>
+        </member>
+        <member name="T:HistoryStrenua.QuickCommandContext">
+            <summary>快捷指令执行时手里的东西。</summary>
+        </member>
+        <member name="M:HistoryStrenua.QuickCommandContext.#ctor(HistoryStrenua.SolidWorks.SolidWorksSession,HistoryStrenua.StrenuaOptions,System.Action{System.String},System.Action{System.String},System.Threading.CancellationToken)">
+            <summary>快捷指令执行时手里的东西。</summary>
+        </member>
+        <member name="P:HistoryStrenua.QuickCommandContext.Options">
+            <summary>页面开关（避障、尺寸链模式）的当前值。</summary>
+        </member>
+        <member name="M:HistoryStrenua.QuickCommandContext.Report(System.String)">
+            <summary>一行进度，进宿主控制台。</summary>
+        </member>
+        <member name="M:HistoryStrenua.QuickCommandContext.SetState(System.String)">
+            <summary>改这条指令的状态（<c>strenua.quick.list</c> 里看得到），如「等待点选视图」。</summary>
+        </member>
+        <member name="T:HistoryStrenua.QuickCommandException">
+            <summary>用户能自己纠正的前置条件不满足（SolidWorks 没开、当前不是工程图……）。消息原样给人看。</summary>
+        </member>
+        <member name="M:HistoryStrenua.QuickCommandException.#ctor(System.String)">
+            <summary>用户能自己纠正的前置条件不满足（SolidWorks 没开、当前不是工程图……）。消息原样给人看。</summary>
+        </member>
+        <member name="T:HistoryStrenua.QuickCommands">
+            <summary>快捷指令登记表。顺序就是页面上按钮的顺序。</summary>
+        </member>
+        <member name="F:HistoryStrenua.QuickCommands.ClassTitles">
+            <summary>命令类 → 页面上的类名。新类不登记也能用，只是显示成英文类名。</summary>
+        </member>
+        <member name="T:HistoryStrenua.QuickCommandRunner">
+            <summary>
+            执行快捷指令：一次只跑一条、可取消，并记下每条指令的状态给 <c>strenua.quick.list</c>。
+            </summary>
+            <remarks>
+            一次只跑一条，是因为所有快捷指令都作用在用户同一个 SolidWorks 的同一个选择集上——
+            两条同时跑，一条的 ClearSelection 会把另一条正在等的视图选择清掉。
+            </remarks>
+        </member>
+        <member name="M:HistoryStrenua.QuickCommandRunner.#ctor(HistoryStrenua.StrenuaOptions)">
+            <summary>
+            执行快捷指令：一次只跑一条、可取消，并记下每条指令的状态给 <c>strenua.quick.list</c>。
+            </summary>
+            <remarks>
+            一次只跑一条，是因为所有快捷指令都作用在用户同一个 SolidWorks 的同一个选择集上——
+            两条同时跑，一条的 ClearSelection 会把另一条正在等的视图选择清掉。
+            </remarks>
+        </member>
+        <member name="P:HistoryStrenua.QuickCommandRunner.Options">
+            <summary>页面开关（避障、尺寸链模式）。</summary>
+        </member>
+        <member name="T:HistoryStrenua.QuickCommandRunner.QuickCommandStatus">
+            <summary>一条指令的状态。</summary>
+        </member>
+        <member name="M:HistoryStrenua.QuickCommandRunner.QuickCommandStatus.#ctor(System.String,System.String,System.Nullable{System.DateTime})">
+            <summary>一条指令的状态。</summary>
+        </member>
+        <member name="M:HistoryStrenua.QuickCommandRunner.Cancel">
+            <summary>取消正在跑的那条。没有在跑的也回成功——点「取消」不该让宿主抢控制台。</summary>
+        </member>
+        <member name="T:HistoryStrenua.SlotPlanner">
+            <summary>
+            腰型孔（两端半圆、中间直边的长圆孔）的纯几何部分：端头半圆怎么认、两个端头怎么配成一个腰型孔。
+            不碰 SolidWorks，所以能离线测。
+            </summary>
+            <remarks>
+            <para>
+            视图里的腰型孔是两条半圆边（各贴一张内凹的半圆柱面）加两条直边。端头半圆按孔的判据认（内凹、同半径、正对图纸），
+            只是不要求整圈、改要求<b>恰好半圈</b>，并记下它朝哪边鼓（<see cref="P:HistoryStrenua.HoleEdge.BulgeX"/>）。
+            </para>
+            <para>
+            两个端头配成一对的条件：同一种（组件 + 特征）、同半径、互相背对着鼓——A 朝远离 B 的方向鼓、B 朝远离 A 的方向鼓，
+            且都沿两圆心连线。一排首尾相接的腰型孔里，相邻两个孔相对的端头是互相朝着鼓的，不会配错。
+            配不上的半圆（开口槽口的端头、圆弧槽）丢掉，与 1.2 以前一样不算孔。
+            </para>
+            </remarks>
+        </member>
+        <member name="F:HistoryStrenua.SlotPlanner.SemicircleTolerance">
+            <summary>弦中点离圆心不超过半径的这个比例，才算恰好半圈。</summary>
+        </member>
+        <member name="F:HistoryStrenua.SlotPlanner.AlignCosine">
+            <summary>端头鼓出方向与两圆心连线的夹角余弦至少这么大，才算沿连线背对着鼓。</summary>
+        </member>
+        <member name="M:HistoryStrenua.SlotPlanner.IsSemicircle(System.Double[],System.Double[],System.Double[])">
+            <summary>
+            圆弧是不是恰好半圈：两个端点的中点落在圆心上。
+            </summary>
+            <param name="circle"><c>CircleParams</c>：圆心 xyz、轴向 xyz、半径。</param>
+            <param name="start">起点 xyz。</param>
+            <param name="end">终点 xyz。</param>
+        </member>
+        <member name="M:HistoryStrenua.SlotPlanner.ChordNormal(System.Double[],System.Double[],System.Double[])">
+            <summary>
+            半圆可能鼓出的方向之一：轴线 × 弦，单位向量。真正鼓向这边还是反过来，要看圆弧上有没有
+            「圆心 + 半径 × 这个方向」那个点（<see cref="M:HistoryStrenua.SlotPlanner.Bulge(System.ValueTuple{System.Double,System.Double,System.Double},System.Double[],System.Double[],System.Double)"/>）。
+            </summary>
+        </member>
+        <member name="M:HistoryStrenua.SlotPlanner.Bulge(System.ValueTuple{System.Double,System.Double,System.Double},System.Double[],System.Double[],System.Double)">
+            <summary>
+            在圆弧上找离「圆心 + 半径 × <paramref name="normal"/>」最近的点（<c>IEdge.GetClosestPointOn</c>）：
+            那个点就在弧上（离得近）说明弧往 <paramref name="normal"/> 这边鼓，否则最近点落在端点上（约 √2 倍半径远），是反方向。
+            </summary>
+            <param name="normal"><see cref="M:HistoryStrenua.SlotPlanner.ChordNormal(System.Double[],System.Double[],System.Double[])"/>。</param>
+            <param name="probe">圆心 + 半径 × <paramref name="normal"/>。</param>
+            <param name="closest">圆弧上离 <paramref name="probe"/> 最近的点。</param>
+            <param name="radius">半径。</param>
+        </member>
+        <member name="M:HistoryStrenua.SlotPlanner.Pair(System.Collections.Generic.IReadOnlyList{HistoryStrenua.HoleEdge})">
+            <summary>
+            把合并过同心的孔里那些腰型孔端头配成对：配上的两端共用一个 <see cref="P:HistoryStrenua.HoleEdge.Slot"/> 编号，
+            种名后面加上「/腰 + 两端距离」（同一特征里长短不同的腰型孔是两种，也不和同特征的圆孔混成一种）；
+            配不上的端头丢掉。圆孔原样保留，先后次序不变。
+            </summary>
+        </member>
+        <member name="M:HistoryStrenua.SlotPlanner.Facing(HistoryStrenua.HoleEdge,HistoryStrenua.HoleEdge)">
+            <summary>两个端头能不能配成一个腰型孔；能就返回两圆心的距离（图纸）。</summary>
+        </member>
+        <member name="T:HistoryStrenua.SolidWorks.SolidWorksApi">
+            <summary>
+            按接口名 + 方法名调用 SolidWorks API，并记下拿到手的每一个 COM 对象，收工时统一释放。
+            </summary>
+            <remarks>
+            <para>
+            <b>为什么走反射而不是编译期引用 Interop</b>：官方 Interop 只在装了 SolidWorks 的机器上有，
+            编译期引用它，没装 SolidWorks 的机器连模块都构建不了。运行时从安装目录加载
+            （与 HistoryMinerva Worker 的做法一致）。
+            </para>
+            <para>
+            <b>为什么装进默认装载上下文</b>：宿主把模块装进可卸载的 <c>AssemblyLoadContext</c>，
+            而可卸载程序集里的类型不能参与 COM 互操作。Interop 放进默认上下文，本模块自己一个
+            <c>[ComImport]</c> 类型都不定义——模块照样能热卸载，Interop 留在进程里无害。
+            </para>
+            <para>
+            <b>为什么自己重试</b>：没有 OLE 消息过滤器（它要求在本程序集里实现一个 COM 接口，
+            见上一条），SolidWorks 忙（弹着模态框、正在重建）时调用会立即被拒。这里对
+            「被拒 / 稍后重试」两种 HRESULT 限时重试，别的错误原样抛出。
+            </para>
+            <para>本类只能在创建它的那条 STA 线程上使用。</para>
+            </remarks>
+        </member>
+        <member name="F:HistoryStrenua.SolidWorks.SolidWorksApi.CallRejected">
+            <summary>RPC_E_CALL_REJECTED：服务端拒绝了这次调用（通常正忙）。</summary>
+        </member>
+        <member name="F:HistoryStrenua.SolidWorks.SolidWorksApi.RetryLater">
+            <summary>RPC_E_SERVERCALL_RETRYLATER：服务端要求稍后重试。</summary>
+        </member>
+        <member name="M:HistoryStrenua.SolidWorks.SolidWorksApi.Load(System.Guid,System.Threading.CancellationToken)">
+            <summary>加载本机 SolidWorks 的官方 Interop。</summary>
+        </member>
+        <member name="M:HistoryStrenua.SolidWorks.SolidWorksApi.Call(System.Object,System.String,System.String,System.Object[])">
+            <summary>
+            调用 <c>I<paramref name="interfaceName"/></c> 上的方法（属性写 <c>get_X</c>）。
+            返回值里的 COM 对象（含数组元素）都记账，<see cref="M:HistoryStrenua.SolidWorks.SolidWorksApi.Dispose"/> 时释放。
+            </summary>
+        </member>
+        <member name="M:HistoryStrenua.SolidWorks.SolidWorksApi.CallArray(System.Object,System.String,System.String,System.Object[])">
+            <summary>返回 <c>VARIANT</c> 数组的调用。SolidWorks 用空值表示「一个都没有」，这里统一成空数组。</summary>
+        </member>
+        <member name="M:HistoryStrenua.SolidWorks.SolidWorksApi.Dispose">
+            <summary>释放本次会话里经手的全部 COM 对象。不会关闭 SolidWorks，只放下我们的引用。</summary>
+        </member>
+        <member name="M:HistoryStrenua.SolidWorks.SolidWorksApi.Own``1(``0)">
+            <summary>把外部拿到的 COM 对象（如运行对象表里的 Application）也纳入记账。</summary>
+        </member>
+        <member name="M:HistoryStrenua.SolidWorks.SolidWorksApi.LoadInterop(System.Guid)">
+            <summary>
+            默认上下文里已经有就复用；否则从 COM 注册的 sldworks.exe 所在目录加载 <c>api\redist</c> 下那份。
+            安装目录取自注册表，不猜路径。
+            </summary>
+        </member>
+        <member name="T:HistoryStrenua.SolidWorks.SolidWorksSession">
+            <summary>
+            附着到用户**正在用**的那个 SolidWorks。
+            </summary>
+            <remarks>
+            PowerSW 与 HistoryMinerva 的转换管线用 SolidWorks 的方式正好相反：转换要么自己起一个专属进程，
+            要么附着后把界面藏起来、关掉用户交互、做完还可能退出。这里一样都不许做——
+            不启动（没开就报「没在运行」）、不改 <c>Visible</c> / <c>UserControl</c>、不 <c>ExitApp</c>，
+            收工只放下自己手里的引用。
+            </remarks>
+        </member>
+        <member name="F:HistoryStrenua.SolidWorks.SolidWorksSession.NotRunning">
+            <summary>MK_E_UNAVAILABLE：运行对象表里没有这个类（SolidWorks 没在运行）。</summary>
+        </member>
+        <member name="P:HistoryStrenua.SolidWorks.SolidWorksSession.Application">
+            <summary><c>ISldWorks</c>。</summary>
+        </member>
+        <member name="M:HistoryStrenua.SolidWorks.SolidWorksSession.AttachRunning(System.Threading.CancellationToken)">
+            <summary>必须在 STA 线程上调用，之后整个会话都留在这条线程上。</summary>
+        </member>
+        <member name="M:HistoryStrenua.SolidWorks.SolidWorksSession.ActiveDocument">
+            <summary>当前活动文档（<c>IModelDoc2</c>），没有打开任何文档时为 null。</summary>
+        </member>
+        <member name="M:HistoryStrenua.SolidWorks.SolidWorksSession.RunAsync``1(System.Func{HistoryStrenua.SolidWorks.SolidWorksSession,``0},System.Threading.CancellationToken)">
+            <summary>
+            在一条新的 STA 线程上附着 SolidWorks 并执行 <paramref name="work"/>。
+            SolidWorks 的 COM 对象属于单线程套间，拿到它们的线程也必须是用它们的线程。
+            </summary>
+        </member>
+        <member name="T:HistoryStrenua.StrenuaIdentity">
+            <summary>模块名、指令域与页面身份的唯一权威源。</summary>
+        </member>
+        <member name="F:HistoryStrenua.StrenuaIdentity.Name">
+            <summary>模块名：部署槽、manifest 与 <see cref="P:HistoryStrenua.ModuleInfo.ModuleName"/>。</summary>
+        </member>
+        <member name="F:HistoryStrenua.StrenuaIdentity.Domain">
+            <summary>指令域。</summary>
+        </member>
+        <member name="F:HistoryStrenua.StrenuaIdentity.PageOwner">
+            <summary>
+            页面 owner 与场景 id。Aurora 按指令域反推（<c>"History" + 首字母大写的域</c>），
+            与模块名无关；对不上整页被静默拒收，只留一条 Warn。
+            本模块恰好两者相同，但依据是域，不是模块名。
+            </summary>
+        </member>
+        <member name="F:HistoryStrenua.StrenuaIdentity.PageTitle">
+            <summary>用户看到的页面标题。模块叫 Strenua，面向用户的功能名是 PowerSW。</summary>
+        </member>
+        <member name="T:HistoryStrenua.StrenuaOptions">
+            <summary>
+            PowerSW 页面上的两个开关（1.7.0，用户定）：避障（默认开）、尺寸链模式（默认关）。
+            记在模块数据目录的 <see cref="F:HistoryStrenua.StrenuaOptions.FileName"/> 里，重启后保持上次。
+            </summary>
+            <remarks>
+            读不到、读坏了都回默认值，不让一个设置文件拦住指令；写不进去只影响下次启动的初值，本轮照样生效。
+            </remarks>
+        </member>
+        <member name="M:HistoryStrenua.StrenuaOptions.#ctor(System.String)">
+            <param name="path">存档文件；null 表示只在内存里（离线测试用）。</param>
+        </member>
+        <member name="P:HistoryStrenua.StrenuaOptions.Clearance">
+            <summary>避障：孔标注、孔位尺寸加完后把压在别的孔相关注解上的文字挪开。</summary>
+        </member>
+        <member name="P:HistoryStrenua.StrenuaOptions.Chain">
+            <summary>尺寸链模式：孔位尺寸每个方向全部孔一条 SolidWorks 原生尺寸链（基准→第一个→下一个…），不分种、不用阵列写法。</summary>
+        </member>
+        <member name="M:HistoryStrenua.StrenuaOptions.Set(HistoryStrenua.StrenuaOption,System.Boolean)">
+            <summary>改一个开关并存档。</summary>
+            <returns>存档失败时的原因；成功为 null。</returns>
+        </member>
+        <member name="T:HistoryStrenua.StrenuaOptions.Saved">
+            <summary>缺的项按默认值：将来加开关时旧存档照样读。</summary>
+        </member>
+        <member name="M:HistoryStrenua.StrenuaOptions.Saved.#ctor(System.Boolean,System.Boolean)">
+            <summary>缺的项按默认值：将来加开关时旧存档照样读。</summary>
+        </member>
+        <member name="T:HistoryStrenua.StrenuaOption">
+            <summary>页面开关。</summary>
+        </member>
+        <member name="T:HistoryStrenua.StrenuaPage">
+            <summary>
+            Aurora 页面协议 V1：一页 PowerSW。上面一条工具条，下面是按「类」切换的控制面板。
+            </summary>
+            <remarks>
+            <para>
+            1.7.0 起没有指令表（用户定）：表格和宿主的命令集页面完全重叠、信息又杂，删掉；每条快捷指令直接是控制面板上的一个按钮，
+            执行过程与结果照旧进控制台。
+            </para>
+            <para>
+            工具条从左到右：浮动、占位、类、取消。「浮动」是普通按钮，动作指向 Aurora 的 <c>aurora.ui.float</c>（1.30.1 起）。
+            占位是一段占满余宽的说明文字，浮成小窗后按住它就能拖动整窗（按钮、选择框会吃掉按下，拖不动）。
+            「类」选择框把值发上 <see cref="F:HistoryStrenua.StrenuaPage.ClassChannel"/>，下面的切换容器跟着它换成那一类的控制面板——将来加别的类，
+            加一块面板即可，工具条不变。
+            </para>
+            <para>
+            「孔」面板第一行是孔类指令的按钮，第二行是两个开关：避障（默认开）、尺寸链（默认关）。开关拨动即生效并记到本机
+            （<see cref="T:HistoryStrenua.StrenuaOptions"/>），页面描述里的初值取当前值。
+            </para>
+            <para>按钮、类选项、动作声明全部从 <see cref="P:HistoryStrenua.QuickCommands.All"/> 生成——加指令不改这里。</para>
+            </remarks>
+        </member>
+        <member name="F:HistoryStrenua.StrenuaPage.FloatActionId">
+            <summary>工具条「浮动」按钮的动作：调 Aurora 把本页浮出 / 还原。</summary>
+        </member>
+        <member name="F:HistoryStrenua.StrenuaPage.FloatCommand">
+            <summary>Aurora 的页面浮动指令（切换）。</summary>
+        </member>
+        <member name="F:HistoryStrenua.StrenuaPage.DragHint">
+            <summary>工具条中间的占位文字：占满余宽，浮出后按住它拖动整窗。</summary>
+        </member>
+        <member name="F:HistoryStrenua.StrenuaPage.ClearanceActionId">
+            <summary>开关的动作 id 与指令名相同。</summary>
+        </member>
+        <member name="M:HistoryStrenua.StrenuaPage.ClassPanelId(System.String)">
+            <summary>一类控制面板的 id。</summary>
+        </member>
+        <member name="M:HistoryStrenua.StrenuaPage.ClassOptions(System.Collections.Generic.IReadOnlyList{HistoryStrenua.QuickCommand})">
+            <summary>类选项框的候选：按登记顺序去重。</summary>
+        </member>
+        <member name="M:HistoryStrenua.StrenuaPage.Classes(System.Collections.Generic.IReadOnlyList{HistoryStrenua.QuickCommand})">
+            <summary>按命令类分组，保持登记顺序。</summary>
+        </member>
+        <member name="M:HistoryStrenua.StrenuaPage.Toolbar(System.Collections.Generic.IReadOnlyList{HistoryStrenua.QuickCommand})">
+            <summary>工具条：浮动 | 占位（占余宽，浮出后拖这里） | 类 | 取消。</summary>
+        </member>
+        <member name="M:HistoryStrenua.StrenuaPage.ClassPanel(System.String,System.Collections.Generic.IReadOnlyList{HistoryStrenua.QuickCommand},HistoryStrenua.StrenuaOptions)">
+            <summary>一类的控制面板：一行按钮；孔类再加一行开关。</summary>
+        </member>
+    </members>
+</doc>

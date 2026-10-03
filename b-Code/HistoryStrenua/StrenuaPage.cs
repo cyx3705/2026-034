@@ -124,7 +124,7 @@ internal static class StrenuaPage
                 title = "尺寸链",
                 command = ChainActionId,
                 args = new { value = "{value}" },
-                summary = "开着时孔位尺寸改用 SolidWorks 原生尺寸链：每个方向全部孔一条链（基准→第一个→下一个…），不分种、不用阵列写法（默认关）",
+                summary = "开着时孔位尺寸改用 SolidWorks 尺寸链（坐标尺寸）：每个方向一组，0 点在零件左侧 / 上侧直边，不分种、不用阵列写法（默认关）",
             })
             .Append(new
             {

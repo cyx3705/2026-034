@@ -22,9 +22,6 @@ internal static class HoleCallout
         Usage: "在工程图里点一个视图（先点后按、先按后点都行，60 秒内），该视图里每种孔（含腰型孔）标一次（数量由 SolidWorks 的 N× 带出）；已有标注的种跳过。「避障」开关开着时最后避障：孔标注文字压在别的孔的尺寸、中心符号线等线条上就换到孔的另一个角。",
         Run: context => Run(context, null));
 
-    // swSelectType_e
-    private const int SelectEdge = 1;
-
     /// <summary>首次落位时文字中心放在折点左边多远（图纸上 20 mm），只是让文字先落在左边。</summary>
     private const double InitialTextOffset = 0.02;
 
@@ -151,13 +148,11 @@ internal static class HoleCallout
     /// <summary>一个注解所附着的圆边的圆心（图纸坐标）。悬空注解的附着对象读回 null，跳过。</summary>
     internal static IEnumerable<SheetPoint> AttachedCircleCenters(SolidWorksApi api, HoleScan.ViewGeometry geometry, object annotation)
     {
-        var types = api.CallArray(annotation, "IAnnotation", "GetAttachedEntityTypes")
-            .Select(Convert.ToInt32)
-            .ToArray();
-        var entities = api.CallArray(annotation, "IAnnotation", "GetAttachedEntities3");
-        for (var i = 0; i < entities.Length && i < types.Length; i++)
+        // 不按附着类型码筛（1.7.0）：真机上坐标尺寸刚建好时类型码读回 [1,1]，过后再读成空数组，对象却仍是孔边，
+        // 按类型码筛就认不出它连着孔，重标时删不掉。每个附着对象都试着当圆边读，不是圆边（或已失效）的读回 null。
+        foreach (var entity in api.CallArray(annotation, "IAnnotation", "GetAttachedEntities3"))
         {
-            if (types[i] == SelectEdge && entities[i] is { } entity && geometry.TryReadCircleCenter(entity) is { } center)
+            if (entity is not null && geometry.TryReadCircleCenter(entity) is { } center)
                 yield return center;
         }
     }

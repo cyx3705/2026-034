@@ -9,7 +9,8 @@ namespace HistoryStrenua;
 /// <remarks>
 /// <para>认孔、分种与「孔标注」相同（<see cref="HoleScan"/>）；怎么标见 <see cref="HolePositionPlanner"/>：
 /// 同种孔接着前一个孔标，不同种孔从基准标；同种孔一个方向超过 4 个且等距用阵列标法「(N-1) x 间距 =总长」。
-/// 页面「尺寸链」开关打开时（1.7.0）改为每个方向全部孔一条 SolidWorks 原生尺寸链（<see cref="InsertChain"/>）。
+/// 页面「尺寸链」开关打开时（1.7.0）改为每个方向一组 SolidWorks「尺寸链」（坐标尺寸，<see cref="InsertOrdinate"/>）：
+/// 0 点是左侧 / 上侧基准边，其后每列（行）孔一个坐标值。
 /// 腰型孔只标上方那一端圆弧的圆心（1.3.0，用户定）。</para>
 /// <para>「重新标」：先删掉连着这些孔的旧线性尺寸与视图里悬空的线性尺寸（孔标注、直径尺寸、外形尺寸不动），再全部重标。</para>
 /// <para>最后做标注避障（1.6.0，<see cref="Clearance.ClearDimensions"/>）：尺寸数字压在别的孔相关注解上就沿尺寸线滑开。
@@ -22,12 +23,14 @@ internal static class HolePosition
         CommandName: StrenuaIdentity.Domain + ".hole.position",
         Title: "孔位尺寸",
         Summary: "点一个工程图视图，删掉孔的旧位置尺寸后以零件左侧、上侧直边为基准重标全部孔位尺寸。",
-        Usage: "在工程图里点一个视图（先点后按、先按后点都行，60 秒内），该视图里全部的孔删掉旧位置尺寸（含悬空的线性尺寸）后，以零件左侧、上侧直边为基准重标：同种孔接着前一个标，不同种从基准标；同种一个方向超过 4 个且等距时标「(N-1) x 间距 =总长」（页面「尺寸链」开关打开时改用 SolidWorks 原生尺寸链，每个方向全部孔一条链）；腰型孔标在上方那个圆上；「避障」开关开着时，数字压在别的孔的尺寸、中心符号线等线条上就沿尺寸线滑开。",
+        Usage: "在工程图里点一个视图（先点后按、先按后点都行，60 秒内），该视图里全部的孔删掉旧位置尺寸（含悬空的线性尺寸）后，以零件左侧、上侧直边为基准重标：同种孔接着前一个标，不同种从基准标；同种一个方向超过 4 个且等距时标「(N-1) x 间距 =总长」（页面「尺寸链」开关打开时改用 SolidWorks 尺寸链：每个方向一组坐标尺寸，0 点在零件左侧 / 上侧直边，文字排在零件外一列）；腰型孔标在上方那个圆上；「避障」开关开着时，数字压在别的孔的尺寸、中心符号线等线条上就沿尺寸线滑开。",
         Run: context => Run(context, null));
 
-    // swDimensionTextParts_e / swSelectType_e
+    // swDimensionTextParts_e / swSelectType_e / swAddOrdinateDims_e
     private const int TextPrefix = 1;
     private const int SelectCenterMark = 100;
+    private const int VerticalOrdinate = 2;
+    private const int HorizontalOrdinate = 3;
 
     /// <param name="context">快捷指令上下文。</param>
     /// <param name="view">直接处理这个视图（全流程用）；null 时取选中的或等用户点选。</param>
@@ -52,7 +55,7 @@ internal static class HolePosition
         var chain = context.Options.Chain;
         var plan = HolePositionPlanner.Plan(scan.Candidates, scan.Lines[l].X1, scan.Lines[t].Y1, scan.Geometry.Scale, chain);
         context.Report($"孔位尺寸：视图「{viewName}」认出 {plan.Summary}，"
-            + $"删掉孔上的旧位置尺寸后标 {plan.Dimensions.Count} 个"
+            + $"删掉孔上的旧位置尺寸后标 {plan.Count} 个"
             + (chain ? "（尺寸链模式）。" : $"（阵列 {plan.PatternCount} 个）。"));
         _ = api.Call(document, "IDrawingDoc", "ActivateView", viewName);
 
@@ -73,32 +76,26 @@ internal static class HolePosition
             }
 
             context.SetState("加尺寸");
-            var pending = plan.Dimensions;
-            if (chain)
+            // 尺寸链模式（DEC-018）：每个方向一组 SolidWorks「尺寸链」（坐标尺寸）。
+            foreach (var group in plan.OrdinateGroups)
             {
-                // 尺寸链模式用 SolidWorks 原生尺寸链（DEC-018）；某个方向 SolidWorks 不接受时，那个方向退回逐个标。
-                var leftOver = new List<PositionDimension>();
-                foreach (var axis in new[] { PositionAxis.Horizontal, PositionAxis.Vertical })
+                context.Cancellation.ThrowIfCancellationRequested();
+                var datumEdge = scan.LineEdges[group.Axis == PositionAxis.Horizontal ? l : t];
+                var (count, centerLines) = InsertOrdinate(api, scan, group, datumEdge);
+                if (count == 0)
                 {
-                    context.Cancellation.ThrowIfCancellationRequested();
-                    var links = plan.Dimensions.Where(dimension => dimension.Axis == axis).ToList();
-                    if (links.Count == 0)
-                        continue;
-                    var chained = InsertChain(api, scan, scan.LineEdges[axis == PositionAxis.Horizontal ? l : t], links);
-                    if (chained == 0)
-                        leftOver.AddRange(links);
-                    else
-                    {
-                        added += chained;
-                        failed += links.Count - chained;
-                        nativeChains++;
-                    }
+                    failed += group.Count;
+                    continue;
                 }
 
-                pending = leftOver;
+                added += count;
+                failed += group.Count - count;
+                nativeChains++;
+                if (centerLines)
+                    onCenterLines += count;
             }
 
-            foreach (var dimension in pending)
+            foreach (var dimension in plan.Dimensions)
             {
                 context.Cancellation.ThrowIfCancellationRequested();
                 var datumEdge = scan.LineEdges[dimension.Axis == PositionAxis.Horizontal ? l : t];
@@ -127,11 +124,11 @@ internal static class HolePosition
         }
 
         var message = $"视图「{viewName}」：{plan.Summary}，删掉旧位置尺寸 {removed} 个，"
-            + $"新加 {added} 个（{(chain ? $"尺寸链模式，原生尺寸链 {nativeChains} 条" : $"阵列标法 {plan.PatternCount} 个")}；连在中心线上 {onCenterLines} 个，其余孔上没有中心符号线、连在孔边上）"
+            + $"新加 {added} 个（{(chain ? $"尺寸链模式，尺寸链 {nativeChains} 组" : $"阵列标法 {plan.PatternCount} 个")}；连在中心线上 {onCenterLines} 个，其余连在孔边上）"
             + (failed > 0 ? $"，{failed} 个 SolidWorks 没有接受" : string.Empty)
             + clearance.Describe("尺寸数字")
             + "。";
-        return added == 0 && plan.Dimensions.Count > 0 ? QuickOutcome.Fail(message) : QuickOutcome.Ok(message);
+        return added == 0 && plan.Count > 0 ? QuickOutcome.Fail(message) : QuickOutcome.Ok(message);
     }
 
     /// <summary>
@@ -177,43 +174,116 @@ internal static class HolePosition
     }
 
     /// <summary>
-    /// 一个方向的一条 SolidWorks 原生尺寸链（「尺寸链」工具，<c>IModelDocExtension.InsertChainDimensions</c>）：
-    /// 依次选基准边与各站的孔边，传 null 让它用预选（真机 SW 2025 SP5：直接传 <c>GetVisibleEntities2</c> 的边返回 null，
-    /// 预选才行；方向由基准边定，竖边出水平链、横边出竖直链）。
+    /// 一个方向的一组 SolidWorks「尺寸链」（坐标尺寸）：先选基准边在 <see cref="OrdinateGroup.At"/> 建 0 点
+    /// （<c>IModelDocExtension.AddOrdinateDimension</c>），再选中这个 0 点尺寸与各站的孔，
+    /// <c>IModelDoc2.EditOrdinate</c> 一次把整组加进去；挤在一起的文字 SolidWorks 自己折弯错开。
     /// </summary>
     /// <remarks>
-    /// <para>只连孔边、不连中心符号线：预选里混进中心符号线时 SolidWorks 返回 null。量到的仍是圆心，值相同。</para>
-    /// <para>新建的链放在图纸外（尺寸线在 y≈0 或 x≈0）且每段文字带引线偏开（<c>OffsetText</c> = true）。逐段关掉偏开，
-    /// 再按规划位置 <c>SetPosition2</c>——关掉之后尺寸线跟着文字走；每段各自移，不会带动同链其他段。</para>
+    /// <para>真机（SW 2025 SP5，WTJYQ-01-08 底板 View2）：预选 0 点与全部孔再 <c>AddOrdinateDimension</c> 只建出 0 点，
+    /// 之后用 API 再选也不会往组里加（那是界面交互）；<c>EditOrdinate</c> 才一次全建出来，位置、折弯与用户手工的演示一致。
+    /// <c>AddOrdinateDimension</c> 之后要 <c>SetPickMode</c> 退出加尺寸状态。</para>
+    /// <para>和演示一样优先连孔上的中心符号线（SolidWorks 取过孔心的那根横线 / 竖线，附着类型 24）；
+    /// 孔挨得很近时按孔心点选可能选到邻孔的中心符号线——有一个选不上，或建出来的值和规划对不上，
+    /// 整组删掉退回连孔边（量到圆心，值相同；引出线画到圆心）。</para>
     /// </remarks>
-    /// <returns>链里加上的尺寸个数；0 表示 SolidWorks 没接受，调用方退回逐个标。</returns>
-    private static int InsertChain(SolidWorksApi api, ScannedView scan, object datumEdge, IReadOnlyList<PositionDimension> links)
+    /// <returns>加上的尺寸个数（含 0 点）与是不是连在中心线上；0 表示 SolidWorks 没接受。</returns>
+    private static (int Added, bool OnCenterLines) InsertOrdinate(SolidWorksApi api, ScannedView scan, OrdinateGroup group, object datumEdge)
     {
-        api.Call(scan.Document, "IModelDoc2", "ClearSelection2", true);
-        if (!SelectEdge(api, scan, datumEdge, false))
-            return 0;
-        foreach (var link in links)
-        {
-            if (!SelectEdge(api, scan, scan.Edges[link.ToEdgeIndex], true))
-                return 0;
-        }
+        var horizontal = group.Axis == PositionAxis.Horizontal;
+        var extension = api.Call(scan.Document, "IModelDoc2", "get_Extension");
+        if (extension is null)
+            return (0, false);
 
-        if (api.Call(scan.Document, "IModelDoc2", "get_Extension") is not { } extension)
-            return 0;
-        var created = api.CallArray(extension, "IModelDocExtension", "InsertChainDimensions", (object?)null);
-        api.Call(scan.Document, "IModelDoc2", "ClearSelection2", true);
-        var placed = 0;
-        for (var i = 0; i < created.Length && i < links.Count; i++)
+        // 0 点与每一站离基准的模型距离（米），用来核对 SolidWorks 建出来的值。
+        var expected = group.Values.Prepend(0.0).Order().ToList();
+
+        foreach (var onCenterLines in new[] { true, false })
         {
-            if (created[i] is not { } displayDimension)
+            var before = OrdinateNames(api, scan);
+            api.Call(scan.Document, "IModelDoc2", "ClearSelection2", true);
+            if (!SelectEdge(api, scan, datumEdge, false))
+                return (0, false);
+            var error = api.CallInt(extension, "IModelDocExtension", "AddOrdinateDimension",
+                horizontal ? HorizontalOrdinate : VerticalOrdinate, group.At.X, group.At.Y, 0.0);
+            api.Call(scan.Document, "IModelDoc2", "ClearSelection2", true);
+            api.Call(scan.Document, "IModelDoc2", "SetPickMode");
+            var created = NewOrdinates(api, scan, before);
+            if (error != 0 || created.Count != 1)
+            {
+                Discard(api, scan, created);
                 continue;
-            api.Call(displayDimension, "IDisplayDimension", "set_OffsetText", false);
-            if (api.Call(displayDimension, "IDisplayDimension", "GetAnnotation") is { } annotation)
-                api.Call(annotation, "IAnnotation", "SetPosition2", links[i].TextAt.X, links[i].TextAt.Y, 0.0);
-            placed++;
+            }
+
+            var selected = api.Call(created[0], "IDisplayDimension", "GetAnnotation") is { } zeroAnnotation
+                           && api.CallBool(zeroAnnotation, "IAnnotation", "Select3", false, null);
+            for (var i = 0; i < group.EdgeIndexes.Count && selected; i++)
+                selected = SelectHole(api, scan, group.EdgeIndexes[i], true, onCenterLines);
+            if (selected)
+                api.Call(scan.Document, "IModelDoc2", "EditOrdinate");
+            api.Call(scan.Document, "IModelDoc2", "SetPickMode");
+            api.Call(scan.Document, "IModelDoc2", "ClearSelection2", true);
+            created = NewOrdinates(api, scan, before);
+
+            var values = created
+                .Select(dimension => api.Call(dimension, "IDisplayDimension", "GetDimension2", 0))
+                .Select(dimension => dimension is null ? double.NaN : Convert.ToDouble(api.Call(dimension, "IDimension", "get_SystemValue")))
+                .Order()
+                .ToList();
+            if (!HolePositionPlanner.SameValues(expected, values))
+            {
+                Discard(api, scan, created);
+                continue;
+            }
+
+            return (created.Count, onCenterLines);
         }
 
-        return placed;
+        return (0, false);
+    }
+
+    /// <summary>视图里现有坐标尺寸的注解名。</summary>
+    private static HashSet<string> OrdinateNames(SolidWorksApi api, ScannedView scan)
+        => Ordinates(api, scan)
+            .Select(dimension => api.Call(dimension, "IDisplayDimension", "GetAnnotation"))
+            .Where(annotation => annotation is not null)
+            .Select(annotation => api.CallString(annotation!, "IAnnotation", "GetName"))
+            .ToHashSet(StringComparer.Ordinal);
+
+    /// <summary>视图里不在 <paramref name="before"/> 里的坐标尺寸（<c>IDisplayDimension</c>）。</summary>
+    private static List<object> NewOrdinates(SolidWorksApi api, ScannedView scan, HashSet<string> before)
+        => Ordinates(api, scan)
+            .Where(dimension => api.Call(dimension, "IDisplayDimension", "GetAnnotation") is { } annotation
+                                && !before.Contains(api.CallString(annotation, "IAnnotation", "GetName")))
+            .ToList();
+
+    private static IEnumerable<object> Ordinates(SolidWorksApi api, ScannedView scan)
+    {
+        var dimension = api.Call(scan.View, "IView", "GetFirstDisplayDimension5");
+        while (dimension is not null)
+        {
+            if (HolePositionPlanner.IsOrdinate(api.CallInt(dimension, "IDisplayDimension", "get_Type2")))
+                yield return dimension;
+            dimension = api.Call(dimension, "IDisplayDimension", "GetNext5");
+        }
+    }
+
+    /// <summary>删掉一组刚建错的尺寸。</summary>
+    private static void Discard(SolidWorksApi api, ScannedView scan, IReadOnlyList<object> displayDimensions)
+    {
+        if (displayDimensions.Count == 0)
+            return;
+        api.Call(scan.Document, "IModelDoc2", "ClearSelection2", true);
+        var selected = 0;
+        foreach (var displayDimension in displayDimensions)
+        {
+            if (api.Call(displayDimension, "IDisplayDimension", "GetAnnotation") is { } annotation
+                && api.CallBool(annotation, "IAnnotation", "Select3", true, null))
+                selected++;
+        }
+
+        if (selected > 0)
+            api.Call(scan.Document, "IModelDoc2", "EditDelete");
+        api.Call(scan.Document, "IModelDoc2", "ClearSelection2", true);
     }
 
     /// <summary>删掉刚建错的尺寸（例如 SolidWorks 建成了角度尺寸）。</summary>
@@ -265,7 +335,9 @@ internal static class HolePosition
             {
                 var type = api.CallInt(dimension, "IDisplayDimension", "get_Type2");
                 var centers = HoleCallout.AttachedCircleCenters(api, scan.Geometry, annotation).ToList();
-                existing.Add(new ExistingDimension(annotations.Count, type, centers, AttachedLines(api, scan, annotation), IsDangling(api, annotation)));
+                var attached = HolePositionPlanner.IsOrdinate(type) ? AttachedKeys(api, scan, annotation) : null;
+                existing.Add(new ExistingDimension(
+                    annotations.Count, type, centers, AttachedLines(api, scan, annotation), IsDangling(api, annotation), attached));
                 annotations.Add(annotation);
             }
 
@@ -273,6 +345,46 @@ internal static class HolePosition
         }
 
         return HolePositionPlanner.Obsolete(holes, existing).Select(index => annotations[index]).ToList();
+    }
+
+    /// <summary>
+    /// 坐标尺寸每个附着对象的图纸几何写成的键（模型直边两端、圆边圆心、视图草图线两端，0.01 mm 取整），
+    /// 用来认同组的 0 点（见 <see cref="HolePositionPlanner.Obsolete"/>）。读不出的对象不出键。
+    /// </summary>
+    private static List<string> AttachedKeys(SolidWorksApi api, ScannedView scan, object annotation)
+    {
+        static string Mm(double value) => Math.Round(value * 1e5).ToString(System.Globalization.CultureInfo.InvariantCulture);
+        static string Segment(char kind, SheetSegment s) => $"{kind}{Mm(s.X1)},{Mm(s.Y1)},{Mm(s.X2)},{Mm(s.Y2)}";
+
+        var keys = new List<string>();
+        foreach (var entity in api.CallArray(annotation, "IAnnotation", "GetAttachedEntities3"))
+        {
+            if (entity is null)
+                continue;
+            if (scan.Geometry.TryReadCircleCenter(entity) is { } center)
+            {
+                keys.Add($"C{Mm(center.X)},{Mm(center.Y)}");
+                continue;
+            }
+
+            try
+            {
+                if (scan.Geometry.TryReadLine(entity) is { } line)
+                {
+                    keys.Add(Segment('L', line));
+                    continue;
+                }
+            }
+            catch (Exception ex) when (ex is COMException or InvalidCastException or System.Reflection.TargetException)
+            {
+                // 不是模型边（视图草图线之类）：往下试。
+            }
+
+            if (SketchLineOnSheet(api, scan, entity) is { } sketch)
+                keys.Add(Segment('S', sketch));
+        }
+
+        return keys;
     }
 
     /// <summary>
@@ -290,34 +402,36 @@ internal static class HolePosition
     /// </summary>
     internal static List<SheetSegment> AttachedLines(SolidWorksApi api, ScannedView scan, object annotation)
     {
-        var lines = new List<SheetSegment>();
+        // 不按附着类型码筛：真机（1.6.0 过渡板）上有尺寸的附着类型报 1（边），对象却是视图草图线段
+        // （穿过孔心的中心线），按 24 筛就认不出它连着孔，重标时删不掉、新旧叠成两个。所以每个附着对象都试着当草图直线读。
+        // 悬空（连着的中心符号线被删了）时对象读回 null。
+        return api.CallArray(annotation, "IAnnotation", "GetAttachedEntities3")
+            .Where(entity => entity is not null)
+            .Select(entity => SketchLineOnSheet(api, scan, entity))
+            .OfType<SheetSegment>()
+            .ToList();
+    }
+
+    /// <summary>一个视图草图直线在图纸上的两端；不是草图直线、对象已失效或视图旋转过时为 null。</summary>
+    private static SheetSegment? SketchLineOnSheet(SolidWorksApi api, ScannedView scan, object entity)
+    {
         var angle = api.Call(scan.View, "IView", "get_Angle") is { } value ? Convert.ToDouble(value) : 0.0;
         var xform = api.CallDoubles(scan.View, "IView", "GetXform");
         if (Math.Abs(angle) > 1e-9 || xform.Length < 3)
-            return lines;
-
-        // 不按附着类型码筛：真机（1.6.0 过渡板）上有尺寸的附着类型报 1（边），对象却是视图草图线段
-        // （穿过孔心的中心线），按 24 筛就认不出它连着孔，重标时删不掉、新旧叠成两个。所以每个附着对象都试着当草图直线读。
-        foreach (var entity in api.CallArray(annotation, "IAnnotation", "GetAttachedEntities3"))
+            return null;
+        try
         {
-            // 悬空（连着的中心符号线被删了）时对象读回 null。
-            if (entity is null)
-                continue;
-            try
-            {
-                if (api.Call(entity, "ISketchLine", "GetStartPoint2") is not { } start
-                    || api.Call(entity, "ISketchLine", "GetEndPoint2") is not { } end)
-                    continue;
-                double X(object point) => xform[0] + Convert.ToDouble(api.Call(point, "ISketchPoint", "get_X")) * xform[2];
-                double Y(object point) => xform[1] + Convert.ToDouble(api.Call(point, "ISketchPoint", "get_Y")) * xform[2];
-                lines.Add(new SheetSegment(X(start), Y(start), X(end), Y(end)));
-            }
-            catch (Exception ex) when (ex is COMException or InvalidCastException or System.Reflection.TargetException)
-            {
-                // 是模型边、不是直线（圆弧形的中心线之类），或对象已失效：不认。
-            }
+            if (api.Call(entity, "ISketchLine", "GetStartPoint2") is not { } start
+                || api.Call(entity, "ISketchLine", "GetEndPoint2") is not { } end)
+                return null;
+            double X(object point) => xform[0] + Convert.ToDouble(api.Call(point, "ISketchPoint", "get_X")) * xform[2];
+            double Y(object point) => xform[1] + Convert.ToDouble(api.Call(point, "ISketchPoint", "get_Y")) * xform[2];
+            return new SheetSegment(X(start), Y(start), X(end), Y(end));
         }
-
-        return lines;
+        catch (Exception ex) when (ex is COMException or InvalidCastException or System.Reflection.TargetException)
+        {
+            // 是模型边、不是直线（圆弧形的中心线之类），或对象已失效：不认。
+            return null;
+        }
     }
 }

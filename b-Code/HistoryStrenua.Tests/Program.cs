@@ -26,7 +26,7 @@ var tests = new (string Name, Action Run)[]
     ("hole position: datums are the leftmost and topmost straight edges", TestPositionDatums),
     ("hole position: only linear dimensions on holes are redone", TestPositionObsolete),
     ("hole position: pattern prefix text", TestPatternPrefix),
-    ("hole position: chain mode is one chain per direction", TestPositionChain),
+    ("hole position: chain mode is one ordinate group per direction", TestPositionChain),
     ("slots: two facing half circles pair up", TestSlotPairing),
     ("slots: semicircle and bulge direction", TestSlotGeometry),
     ("slots: one callout per kind, on the upper end", TestSlotCallout),
@@ -440,34 +440,54 @@ static void TestPositionPattern()
 
 static void TestPositionChain()
 {
-    // 等距 11 孔：尺寸链模式不用阵列写法，水平基准 + 10 段，全在第一层。
+    // 等距 11 孔：尺寸链模式出坐标尺寸组、不出线性尺寸，不用阵列写法。0 点是基准边（用户定，不是孔），
+    // 水平组 11 站、值 10/70/…/610 mm；竖直方向只有一行（离上边 30 mm）。
     var (holes, left, top, scale) = Strip(i => 10 + 60 * i);
     var plan = HolePositionPlanner.Plan(holes, left, top, scale, chainMode: true);
     Equal(0, plan.PatternCount);
-    var horizontal = plan.Dimensions.Where(d => d.Axis == PositionAxis.Horizontal).ToList();
-    Equal(11, horizontal.Count);
-    Equal<int?>(null, horizontal[0].FromEdgeIndex);
-    for (var i = 1; i < horizontal.Count; i++)
-        Equal<int?>(i - 1, horizontal[i].FromEdgeIndex);
-    True(plan.Dimensions.All(d => d.Prefix.Length == 0), "尺寸链模式不写阵列前缀");
-    True(horizontal.All(d => Math.Abs(d.TextAt.Y - (top + HolePositionPlanner.FirstTier)) < 1e-12), "一条链全在第一层");
+    Equal(0, plan.Dimensions.Count);
+    Equal(2, plan.OrdinateGroups.Count);
+    var horizontal = plan.OrdinateGroups[0];
+    Equal(PositionAxis.Horizontal, horizontal.Axis);
+    Equal(string.Join(",", Enumerable.Range(0, 11)), string.Join(",", horizontal.EdgeIndexes));
+    for (var i = 0; i < 11; i++)
+        Near((10 + 60 * i) / 1000.0, horizontal.Values[i]);
+    // 0 点文字在左侧直边正上方 14 mm。
+    Near(top + HolePositionPlanner.OrdinateOffset, horizontal.At.Y);
+    Near(left, horizontal.At.X);
+    var vertical = plan.OrdinateGroups[1];
+    Equal(1, vertical.EdgeIndexes.Count);
+    Near(0.030, vertical.Values[0]);
+    Near(left - HolePositionPlanner.OrdinateOffset, vertical.At.X);
+    Near(top, vertical.At.Y);
+    // 每组加一个 0 点。
+    Equal(12 + 2, plan.Count);
 
-    // 移动底板：三种孔混在一条链里。水平列 x=.08/.10/.13/.15 → 4 段；竖直行 y=.20/.18/.13/.115/.06 → 5 段。
-    var mixed = HolePositionPlanner.Plan(MovingPlate(), 0.05, 0.25, 1, chainMode: true);
+    // 移动底板：三种孔混在一组里。水平列 x=.08/.10/.13/.15 → 4 站；竖直行 y=.20/.18/.13/.115/.06 → 5 站。
+    var plate = MovingPlate();
+    var mixed = HolePositionPlanner.Plan(plate, 0.05, 0.25, 1, chainMode: true);
     Equal(3, mixed.KindCount);
-    var h = mixed.Dimensions.Where(d => d.Axis == PositionAxis.Horizontal).ToList();
-    var v = mixed.Dimensions.Where(d => d.Axis == PositionAxis.Vertical).ToList();
-    Equal(4, h.Count);
-    Equal(5, v.Count);
-    Equal(1, h.Count(d => d.FromEdgeIndex is null));
-    Equal(1, v.Count(d => d.FromEdgeIndex is null));
-    Equal(1, h.Select(d => Math.Round(d.TextAt.Y, 9)).Distinct().Count());
-    Equal(1, v.Select(d => Math.Round(d.TextAt.X, 9)).Distinct().Count());
-    // 链里每一段都接着上一段的终点孔。
-    for (var i = 1; i < h.Count; i++)
-        Equal<int?>(h[i - 1].ToEdgeIndex, h[i].FromEdgeIndex);
-    for (var i = 1; i < v.Count; i++)
-        Equal<int?>(v[i - 1].ToEdgeIndex, v[i].FromEdgeIndex);
+    var h = mixed.OrdinateGroups.Single(g => g.Axis == PositionAxis.Horizontal);
+    var v = mixed.OrdinateGroups.Single(g => g.Axis == PositionAxis.Vertical);
+    Equal(4, h.EdgeIndexes.Count);
+    Equal(5, v.EdgeIndexes.Count);
+    // 竖直组：0 点是上侧直边 y=.25，第一站是最上面那行 .20（值 50 mm），由上往下；文字在左侧直边左边 14 mm、与上边齐。
+    Near(0.20, plate[v.EdgeIndexes[0]].Y);
+    Near(0.05, v.Values[0]);
+    for (var i = 1; i < v.EdgeIndexes.Count; i++)
+        True(plate[v.EdgeIndexes[i]].Y < plate[v.EdgeIndexes[i - 1]].Y, "竖直组应由上往下");
+    Near(0.05 - HolePositionPlanner.OrdinateOffset, v.At.X);
+    Near(0.25, v.At.Y);
+    // 水平组：由左往右（第一站 x=.08，离左边 30 mm），每列取最上面的孔（离文字近）。
+    Near(0.08, plate[h.EdgeIndexes[0]].X);
+    Near(0.03, h.Values[0]);
+    foreach (var index in h.EdgeIndexes)
+        True(!plate.Any(p => Math.Abs(p.X - plate[index].X) < 1e-9 && p.Y > plate[index].Y + 1e-9), "水平组应连这一列最上面的孔");
+
+    // 核对 SolidWorks 建出来的值。
+    True(HolePositionPlanner.SameValues([0, 0.02, 0.05], [0, 0.020004, 0.05]), "0.004 mm 以内算相同");
+    True(!HolePositionPlanner.SameValues([0, 0.02, 0.05], [0, 0.021, 0.05]), "差 1 mm 不算相同");
+    True(!HolePositionPlanner.SameValues([0, 0.02], [0, 0.02, 0.05]), "个数不同不算相同");
 }
 
 static void TestPositionUneven()
@@ -586,9 +606,25 @@ static void TestPositionObsolete()
         new(8, 2, [], [], Dangling: true),
         // 悬空的直径尺寸：不是线性尺寸，不动
         new(9, 6, [], [], Dangling: true),
+        // 尺寸链（坐标尺寸）连着穿过 M6 孔心 (0.10,0.20) 的水平中心符号线：删（两种模式来回切也不留旧的）
+        new(10, 1, [], [new SheetSegment(0.095, 0.20, 0.105, 0.20)]),
+        // 尺寸链连着孔边：删
+        new(11, 1, [new SheetPoint(0.13, 0.115)]),
+        // 尺寸链两头都不是孔：不动
+        new(12, 1, [], [new SheetSegment(0.30, 0.10, 0.30, 0.20)]),
+        // 尺寸链的 0 点（只连基准边、不连孔）；同组成员 14 连着孔与这条边（真机附着顺序是 [孔, 0 点]）：跟着删
+        new(13, 1, [], Attached: ["L-left"]),
+        new(14, 1, [new SheetPoint(0.13, 0.06)], Attached: ["C-hole", "L-left"]),
+        // 另一组的 0 点，组里没有要删的：不动
+        new(15, 1, [], Attached: ["L-other"]),
     ];
-    Equal("0,1,5,6,8", string.Join(",", HolePositionPlanner.Obsolete(holes, existing)));
+    Equal("0,1,5,6,8,10,11,13,14", string.Join(",", HolePositionPlanner.Obsolete(holes, existing)));
     True(!HolePositionPlanner.PassesThrough(new SheetSegment(0.13, 0.07, 0.13, 0.08), holes[0]), "线段延长线过孔心不算");
+    // 真机底板（图纸 mm）：线性中心符号线的连接线 x=89.91、y 184.17–206.95，孔心 (89.91, 208.06) 在线头外 1.11 mm。
+    var gapHole = new HoleEdge(99, 0.08991, 0.20806, 0.000275, "/M3");
+    True(HolePositionPlanner.PassesThrough(new SheetSegment(0.08991, 0.18417, 0.08991, 0.20695), gapHole), "中心符号线在孔心前断开的空隙要算穿过");
+    True(!HolePositionPlanner.PassesThrough(new SheetSegment(0.08991, 0.18417, 0.08991, 0.20495), gapHole), "断开 3 mm 就不算了");
+    True(!HolePositionPlanner.PassesThrough(new SheetSegment(0.08891, 0.18417, 0.08891, 0.20895), gapHole), "偏开 1 mm 的平行线不算");
 }
 
 static void TestPatternPrefix()

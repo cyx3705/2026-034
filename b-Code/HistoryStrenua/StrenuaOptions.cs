@@ -41,7 +41,7 @@ internal sealed class StrenuaOptions
         get { lock (_gate) return _clearance; }
     }
 
-    /// <summary>尺寸链模式：孔位尺寸每个方向全部孔一条 SolidWorks 原生尺寸链（基准→第一个→下一个…），不分种、不用阵列写法。</summary>
+    /// <summary>尺寸链模式：孔位尺寸每个方向一组 SolidWorks 尺寸链（坐标尺寸，0 点在零件左侧 / 上侧直边），不分种、不用阵列写法。</summary>
     public bool Chain
     {
         get { lock (_gate) return _chain; }

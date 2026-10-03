@@ -1,3 +1,5 @@
+using System.Runtime.InteropServices;
+
 namespace HistoryStrenua;
 
 /// <summary>
@@ -10,6 +12,9 @@ namespace HistoryStrenua;
 internal static class AnnotationEraser
 {
     public const int Passes = 3;
+
+    /// <summary>RPC_E_DISCONNECTED：对象在 SolidWorks 那边已经不在了。</summary>
+    private const int Disconnected = unchecked((int)0x80010108);
 
     /// <param name="context">快捷指令上下文。</param>
     /// <param name="document">活动工程图。</param>
@@ -26,8 +31,16 @@ internal static class AnnotationEraser
             {
                 context.Cancellation.ThrowIfCancellationRequested();
                 api.Call(document, "IModelDoc2", "ClearSelection2", true);
-                if (api.CallBool(annotation, "IAnnotation", "Select3", false, null))
-                    api.Call(document, "IModelDoc2", "EditDelete");
+                try
+                {
+                    if (api.CallBool(annotation, "IAnnotation", "Select3", false, null))
+                        api.Call(document, "IModelDoc2", "EditDelete");
+                }
+                catch (COMException ex) when (ex.HResult == Disconnected)
+                {
+                    // 已经跟着别的一起没了：删坐标尺寸组里的一个，SolidWorks 会连带删掉 / 重建同组其余的（1.7.0 真机）。
+                    // 删没删干净由下面回读决定。
+                }
             }
 
             obsolete = readObsolete();

@@ -45,6 +45,9 @@ var tests = new (string Name, Action Run)[]
     ("outline: outer edges by ray casting", TestOutlineOuterLines),
     ("outline: stations, tiers and ordinate gaps", TestOutlineStations),
     ("outline: obsolete outline dimensions", TestOutlineObsolete),
+    ("outline: view frames, planes and axonometric views", TestViewFrames),
+    ("outline: stations already fixed by other views", TestOutlineCoverage),
+    ("outline: chain-mode members fixed by other views", TestCoveredOrdinates),
     ("check: callouts, positions, dowels and outline", TestDimensionCheck),
     ("distinct holes stay distinct", TestDistinctHoles),
     ("targets read top-down, left-right", TestTargetOrder),
@@ -1120,6 +1123,116 @@ static void TestOutlineObsolete()
     Equal("0", string.Join(",", OutlinePlanner.Obsolete(existing, outer)));
     // 普通模式也删外轮廓坐标尺寸；孔那组的 0 点留着。
     Equal("0,5,8,4", string.Join(",", OutlinePlanner.Obsolete(existing, outer, includeOrdinates: true)));
+}
+
+// 1.8.1 跨视图去重的样件：长方体 X 0..0.2、Y（高）0..0.1、Z（深）0..0.05，比例 1。
+// 主视图：图纸 X = 模型 X、图纸 Y = 模型 Y，模型原点在图纸 (0.1, 0.1)。
+static ViewFrame FrontFrame() => new(new(1, 0, 0), new(0, 1, 0), new(0, 0, 1), new SheetPoint(0.1, 0.1), 1.0);
+
+// 右视图：图纸 X = 模型 -Z、图纸 Y = 模型 Y，模型原点在图纸 (0.5, 0.1)——深度从右往左长。
+static ViewFrame RightFrame() => new(new(0, 0, -1), new(0, 1, 0), new(1, 0, 0), new SheetPoint(0.5, 0.1), 1.0);
+
+// 俯视图：图纸 X = 模型 X、图纸 Y = 模型 -Z，模型原点在图纸 (0.1, 0.5)。
+static ViewFrame TopFrame() => new(new(1, 0, 0), new(0, 0, -1), new(0, 1, 0), new SheetPoint(0.1, 0.5), 1.0);
+
+static DimensionAnchor HEdge(double y) => DimensionAnchor.Line(S(0, y, 1, y), true);
+
+static void TestViewFrames()
+{
+    var front = FrontFrame();
+    var right = RightFrame();
+    // 主视图上边（图纸 Y 0.2）与右视图上边是同一个面（Y = 0.1）。
+    True(front.Plane(PositionAxis.Vertical, 0.2).Same(right.Plane(PositionAxis.Vertical, 0.2)), "主视、右视的上边同面");
+    True(!front.Plane(PositionAxis.Vertical, 0.2).Same(front.Plane(PositionAxis.Vertical, 0.1)), "上下边不同面");
+    // 方向相反的视图：右视图图纸 X = -Z，X 0.45 是 Z = 0.05；俯视图图纸 Y = -Z，Y 0.45 也是 Z = 0.05。
+    var plane = right.Plane(PositionAxis.Horizontal, 0.45);
+    Near(1, plane.Direction.Z);
+    Near(0.05, plane.Offset);
+    True(plane.Same(TopFrame().Plane(PositionAxis.Vertical, 0.45)), "右视、俯视的同一深度面");
+    True(!plane.Same(front.Plane(PositionAxis.Horizontal, 0.15)), "方向不同不算同面");
+
+    True(!front.Axonometric && !right.Axonometric && !TopFrame().Axonometric, "三视图不是轴测图");
+    var k = 1 / Math.Sqrt(3);
+    var iso = new ViewFrame(new(0.707, 0, -0.707), new(-0.408, 0.816, -0.408), new(k, k, k), new SheetPoint(0.5, 0.5), 1.0);
+    True(iso.Axonometric, "等轴测是轴测图");
+    var trimetric = new ViewFrame(new(1, 0, 0), new(0, 1, 0), new ModelDirection(0.3, 0.5, 0.81).Normalized(), new SheetPoint(0, 0), 1.0);
+    True(trimetric.Axonometric, "三等角是轴测图");
+    var auxiliary = new ViewFrame(new(0, 1, 0), new(-0.707, 0, 0.707), new(0.707, 0, 0.707), new SheetPoint(0, 0), 1.0);
+    True(!auxiliary.Axonometric, "辅助视图（视线垂直于 Y）不是轴测图");
+}
+
+static void TestOutlineCoverage()
+{
+    var front = FrontFrame();
+    var right = RightFrame();
+    var top = TopFrame();
+    var coverage = new OutlineCoverage();
+    // 主视图标了总高（上边 → 下边）和台阶（上边 → Y 0.06 的边，图纸 0.16）；还有一个连孔的、一个连孔标注的，不收。
+    coverage.AddView(front,
+    [
+        new(0, 2, false, 0.1, [HEdge(0.2), HEdge(0.1)]),
+        new(1, 2, false, 0.04, [HEdge(0.2), HEdge(0.16)]),
+        new(2, 2, false, 0.03, [HEdge(0.2), C(0.15, 0.17)]),
+        new(3, 0, true, double.NaN, [C(0.15, 0.17)]),
+        new(4, 2, false, 0.07, [HEdge(0.2), HEdge(0.16)]),   // 值对不上：不是沿竖直量的，不收
+    ]);
+    Equal(2, coverage.Dimensions);
+    // 右视图：上侧基准图纸 Y 0.2；高度、台阶都已定（主视图标过）——用户的例子。
+    True(coverage.Determined(right, PositionAxis.Vertical, 0.2, 0.1), "高度主视图标过");
+    True(coverage.Determined(right, PositionAxis.Vertical, 0.2, 0.16), "台阶主视图标过");
+    True(!coverage.Determined(right, PositionAxis.Vertical, 0.2, 0.13), "别的高度没标");
+    // 深度主视图看不到，右视图要标。
+    True(!coverage.Determined(right, PositionAxis.Horizontal, 0.45, 0.5), "深度没标");
+
+    OutlineStation Station(PositionAxis axis, double coordinate, double value) => new(axis, 0, coordinate, value);
+    var (remaining, covered) = coverage.Split(right,
+        [Station(PositionAxis.Horizontal, 0.5, 0.05), Station(PositionAxis.Vertical, 0.16, 0.04), Station(PositionAxis.Vertical, 0.1, 0.1)],
+        left: 0.45, top: 0.2);
+    Equal(1, remaining.Count);
+    Equal(PositionAxis.Horizontal, remaining[0].Axis);
+    Equal(2, covered.Count);
+
+    // 俯视图标了深度（图纸竖直方向，Z = 0 在 Y 0.5、Z = 0.05 在 Y 0.45）：右视图的深度也就定了，方向相反也认。
+    coverage.AddView(top, [new(0, 2, false, 0.05, [HEdge(0.5), HEdge(0.45)])]);
+    True(coverage.Determined(right, PositionAxis.Horizontal, 0.45, 0.5), "深度俯视图标过");
+
+    // 串起来也算：别的视图标的是「下边 → 台阶」与「上边 → 下边」，本视图从上边量台阶，位置已定。
+    var chained = new OutlineCoverage();
+    chained.AddView(front, [new(0, 2, false, 0.1, [HEdge(0.2), HEdge(0.1)]), new(1, 2, false, 0.06, [HEdge(0.1), HEdge(0.16)])]);
+    True(chained.Determined(right, PositionAxis.Vertical, 0.2, 0.16), "经下边串起来");
+    // 坐标尺寸也收：两头 [自己, 0 点]。
+    var ordinates = new OutlineCoverage();
+    ordinates.AddView(front, [new(0, 1, false, 0, [HEdge(0.2)]), new(1, 1, false, 0.1, [HEdge(0.1), HEdge(0.2)])]);
+    True(ordinates.Determined(right, PositionAxis.Vertical, 0.2, 0.1), "坐标尺寸标的高度");
+    // 同一个面不用标。
+    True(new OutlineCoverage().Determined(right, PositionAxis.Vertical, 0.2, 0.2), "同一个面");
+}
+
+static void TestCoveredOrdinates()
+{
+    var right = RightFrame();
+    var coverage = new OutlineCoverage();
+    coverage.AddView(FrontFrame(), [new(0, 2, false, 0.1, [HEdge(0.2), HEdge(0.1)])]);
+    Func<PositionAxis, double, double, bool> determined = (axis, from, to) => coverage.Determined(right, axis, from, to);
+    // 右视图：上边 Y 0.2、下边 Y 0.1、左边 X 0.45、右边 X 0.5、台阶边 Y 0.16。
+    SheetSegment[] outer = [S(0.45, 0.2, 0.5, 0.2), S(0.45, 0.1, 0.5, 0.1), S(0.45, 0.1, 0.45, 0.2), S(0.5, 0.1, 0.5, 0.2), S(0.45, 0.16, 0.48, 0.16)];
+    DimensionAnchor E(int index) => DimensionAnchor.Line(outer[index], true);
+    ViewDimension[] existing =
+    [
+        new(0, 1, false, 0, [E(0)]),                    // 竖直组 0 点（上边），成员只有总高 → 一起删
+        new(1, 1, false, 0.1, [E(1), E(0)]),            //   总高：主视图标过，删
+        new(2, 1, false, 0, [E(2)]),                    // 水平组 0 点（左边）
+        new(3, 1, false, 0.05, [E(3), E(2)]),           //   深度：没标过，留
+        new(4, 2, false, 0.1, [E(0), E(1)]),            // 线性总高（归 Obsolete 管，这里不出）
+    ];
+    Equal("0,1", string.Join(",", OutlinePlanner.CoveredOrdinates(existing, outer, 1.0, determined)));
+
+    // 组里还有没标过的成员（台阶），0 点留着。
+    ViewDimension[] mixed = [.. existing.Take(2), new(5, 1, false, 0.04, [E(4), E(0)])];
+    Equal("1", string.Join(",", OutlinePlanner.CoveredOrdinates(mixed, outer, 1.0, determined)));
+    // 孔的那组（成员连孔）不动。
+    ViewDimension[] holes = [existing[0], new(1, 1, false, 0.03, [C(0.47, 0.17), E(0)])];
+    Equal(string.Empty, string.Join(",", OutlinePlanner.CoveredOrdinates(holes, outer, 1.0, determined)));
 }
 
 static void TestDimensionCheck()

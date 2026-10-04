@@ -10,6 +10,9 @@ namespace HistoryStrenua;
 /// <para>普通模式（「尺寸链」关）：先删旧的外轮廓尺寸（两头都是外轮廓直边的线性尺寸），再每站一个从基准量起的线性尺寸，
 /// 排在现有尺寸最外层之外。尺寸链模式：每个方向把还没有的站加进孔的那组坐标尺寸（0 点是基准边的那组）；还没有组就照孔位尺寸的样子
 /// 新建一组（0 点在基准边、文字离直边 14 mm）。孔位尺寸重标会连 0 点删掉整组（含这里加的站），所以全流程把本步放在孔位尺寸之后。</para>
+/// <para>1.8.1 跨视图不重复（用户定：高度在视图 a 标了就别在视图 b 再标）：这一页别的视图（同一模型、不是轴测图）里已有的尺寸
+/// 已经定了的站不标，本视图里这样的旧外轮廓尺寸重标时删掉（判法见 <see cref="OutlineCoverage"/>）。全流程按视图顺序做，
+/// 所以排在前面的视图先标、后面的只补前面没有的。</para>
 /// </remarks>
 internal static class Outline
 {
@@ -18,7 +21,7 @@ internal static class Outline
         CommandName: StrenuaIdentity.Domain + ".hole.outline",
         Title: "外轮廓",
         Summary: "点一个工程图视图，以零件左侧、上侧直边为基准标出外轮廓每个台阶的位置（含总长总宽），照「尺寸链」开关出线性或坐标尺寸。",
-        Usage: "在工程图里点一个视图（先点后按、先按后点都行，60 秒内）。外轮廓上每条竖直边、水平边各算一站（开口槽、台阶都算，封闭型腔与孔不算，斜边圆弧不标），以零件最左、最上的直边为基准：「尺寸链」关时删掉旧外轮廓尺寸后每站一个尺寸，排在已有尺寸外面；「尺寸链」开时把还没有的站加进孔的那组坐标尺寸（没有就新建一组）。",
+        Usage: "在工程图里点一个视图（先点后按、先按后点都行，60 秒内）。外轮廓上每条竖直边、水平边各算一站（开口槽、台阶都算，封闭型腔与孔不算，斜边圆弧不标），以零件最左、最上的直边为基准：「尺寸链」关时删掉旧外轮廓尺寸后每站一个尺寸，排在已有尺寸外面；「尺寸链」开时把还没有的站加进孔的那组坐标尺寸（没有就新建一组）。这一页别的视图已经标过的（如高度）不再重复标。",
         Run: context => Run(context, null));
 
     /// <param name="context">快捷指令上下文。</param>
@@ -39,13 +42,20 @@ internal static class Outline
         var (left, top, scale) = (scan.Lines[l].X1, scan.Lines[t].Y1, scan.Geometry.Scale);
         var outer = OutlinePlanner.OuterLines(scan.Lines, scan.CurveSegments);
         var outerSegments = outer.Select(index => scan.Lines[index]).ToList();
-        var stations = OutlinePlanner.Stations(scan.Lines, outer, left, top, scale);
-        if (stations.Count == 0)
+        var allStations = OutlinePlanner.Stations(scan.Lines, outer, left, top, scale);
+        if (allStations.Count == 0)
             return QuickOutcome.Ok($"视图「{viewName}」的外轮廓除基准外没有竖直 / 水平边，没有加尺寸。");
 
+        // 1.8.1：别的视图（同一模型、不是轴测图）已经定了的站不再标；这一页别的视图读一遍尺寸。
+        context.SetState("读别的视图");
+        var frame = scan.Geometry.Frame;
+        var coverage = OtherViews(context, scan);
+        var (stations, skipped) = coverage.Split(frame, allStations, left, top);
+
         var chain = context.Options.Chain;
-        var horizontalCount = stations.Count(station => station.Axis == PositionAxis.Horizontal);
-        context.Report($"外轮廓：视图「{viewName}」外轮廓 {outer.Count} 条直边，水平 {horizontalCount} 站、竖直 {stations.Count - horizontalCount} 站"
+        var horizontalCount = allStations.Count(station => station.Axis == PositionAxis.Horizontal);
+        context.Report($"外轮廓：视图「{viewName}」外轮廓 {outer.Count} 条直边，水平 {horizontalCount} 站、竖直 {allStations.Count - horizontalCount} 站"
+            + (skipped.Count > 0 ? $"，其中 {skipped.Count} 站别的视图已标" : string.Empty)
             + (chain ? "（尺寸链模式）。" : "。"));
         _ = api.Call(document, "IDrawingDoc", "ActivateView", viewName);
 
@@ -60,9 +70,16 @@ internal static class Outline
             (removed, var leftover) = AnnotationEraser.Erase(context, document, () =>
             {
                 var dimensions = DimensionScan.Read(api, scan);
-                return OutlinePlanner.Obsolete(dimensions.Select(item => item.Geometry).ToList(), outerSegments, includeOrdinates: !chain)
-                    .Select(index => dimensions[index].Annotation)
-                    .ToList();
+                var geometry = dimensions.Select(item => item.Geometry).ToList();
+                var obsolete = OutlinePlanner.Obsolete(geometry, outerSegments, includeOrdinates: !chain);
+                if (chain)
+                {
+                    // 尺寸链模式不删组，只把组里别的视图已经定了的站（连同删光了成员的 0 点）拿掉。
+                    obsolete.AddRange(OutlinePlanner.CoveredOrdinates(geometry, outerSegments, scale,
+                        (axis, from, to) => coverage.Determined(frame, axis, from, to)));
+                }
+
+                return obsolete.Distinct().Select(index => dimensions[index].Annotation).ToList();
             });
             if (leftover > 0)
             {
@@ -109,7 +126,8 @@ internal static class Outline
             api.Call(document, "IModelDoc2", "GraphicsRedraw2");
         }
 
-        var message = $"视图「{viewName}」：外轮廓 {stations.Count} 站，"
+        var message = $"视图「{viewName}」：外轮廓 {allStations.Count} 站，"
+            + (skipped.Count > 0 ? $"{skipped.Count} 站别的视图已标跳过，" : string.Empty)
             + (chain
                 ? $"尺寸链模式新加 {added} 个坐标尺寸" + (present > 0 ? $"，{present} 站组里已有同值跳过" : string.Empty)
                 : $"新加 {added} 个")
@@ -161,6 +179,33 @@ internal static class Outline
         if (created)
             HolePosition.Discard(api, scan, zero);
         return (0, stations.Count - missing.Count, missing.Count);
+    }
+
+    /// <summary>
+    /// 当前图纸页别的视图里已有尺寸定了哪些面（1.8.1）：只看同一模型（文件 + 配置）、不是轴测图的视图，
+    /// 每个视图只问朝向、读尺寸，不读边。
+    /// </summary>
+    internal static OutlineCoverage OtherViews(QuickCommandContext context, ScannedView scan)
+    {
+        var api = context.Api;
+        var coverage = new OutlineCoverage();
+        var model = HoleScan.ModelKey(api, scan.View);
+        foreach (var view in HoleScan.SheetViews(api, scan.Document))
+        {
+            context.Cancellation.ThrowIfCancellationRequested();
+            var name = api.CallString(view, "IView", "get_Name");
+            if (name == scan.ViewName
+                || api.Call(view, "IView", "get_ReferencedDocument") is null
+                || HoleScan.ModelKey(api, view) != model)
+                continue;
+            var geometry = new HoleScan.ViewGeometry(api, context.Session.Application, view);
+            if (geometry.Frame.Axonometric)
+                continue;
+            var other = new ScannedView(scan.Document, view, name, geometry, [], [], [], []);
+            coverage.AddView(geometry.Frame, DimensionScan.Read(api, other).Select(item => item.Geometry).ToList());
+        }
+
+        return coverage;
     }
 
     /// <summary>选基准边与站的那条边，按方向加水平 / 竖直尺寸；建出来的不是线性尺寸就删掉。</summary>

@@ -7,7 +7,8 @@ namespace HistoryStrenua;
 /// </summary>
 /// <remarks>
 /// <para>查什么、怎么算标过见 <see cref="DimensionCheckPlanner"/>。只读：不加、不删、不挪任何注解，只改选择。</para>
-/// <para>范围同「孔标注全流程」：当前图纸页、不用点视图。外轮廓站本视图没标、而这一页别的视图里有同值的外轮廓尺寸（两头都是模型直边）也算标过。</para>
+/// <para>范围同「孔标注全流程」：当前图纸页、不用点视图，轴测图不查（1.8.1）。外轮廓站本视图没标、而这一页同一模型的别的视图里
+/// 已有尺寸把它定了（见 <see cref="OutlineCoverage"/>，1.8.1 起按模型面判，替换 1.8.0 的「同值」）也算标过。</para>
 /// <para>查出缺漏也回执成功（检查本身做完了），消息里写明几处。</para>
 /// </remarks>
 internal static class DimensionCheck
@@ -16,8 +17,8 @@ internal static class DimensionCheck
         Key: "check-dimension",
         CommandName: StrenuaIdentity.Domain + ".check.dimension",
         Title: "未标尺寸",
-        Summary: "当前图纸页全部视图查孔（孔标注、两向位置、销孔 H7 与 ±0.02）和外轮廓台阶有没有漏标的尺寸，只列出不改图。",
-        Usage: "不用点视图：当前图纸页上全部视图逐个检查——每种孔有没有孔标注、每个孔水平竖直有没有定位尺寸（按中心线算，阵列标法跨度里的也算）、销孔孔标注带没带 H7、相邻销孔间尺寸在不在且带 ±0.02、外轮廓每个台阶有没有尺寸（别的视图标过同值的也算）。缺的列进控制台，并在 SolidWorks 里选中漏标的孔和边；不加、不删任何尺寸。",
+        Summary: "当前图纸页全部视图（轴测图除外）查孔（孔标注、两向位置、销孔 H7 与 ±0.02）和外轮廓台阶有没有漏标的尺寸，只列出不改图。",
+        Usage: "不用点视图：当前图纸页上全部视图（轴测图不查）逐个检查——每种孔有没有孔标注、每个孔水平竖直有没有定位尺寸（按中心线算，阵列标法跨度里的也算）、销孔孔标注带没带 H7、相邻销孔间尺寸在不在且带 ±0.02、外轮廓每个台阶有没有尺寸（同一零件别的视图标过的也算）。缺的列进控制台，并在 SolidWorks 里选中漏标的孔和边；不加、不删任何尺寸。",
         Run: Run);
 
     // swCalloutVariableType_e
@@ -32,15 +33,22 @@ internal static class DimensionCheck
             return QuickOutcome.Ok("当前图纸页上没有视图，没有可检查的。");
 
         context.SetState("检查");
-        var checks = new List<(ScannedView Scan, ViewCheck Check)>();
-        var outlineValues = new List<double>();
+        var checks = new List<(ScannedView Scan, ViewCheck Check, string Model, IReadOnlyList<ViewDimension> Dimensions)>();
+        var axonometric = new List<string>();
         for (var i = 0; i < views.Count; i++)
         {
             context.Cancellation.ThrowIfCancellationRequested();
             var view = views[i];
             if (api.Call(view, "IView", "get_ReferencedDocument") is null)
                 continue;
-            context.Report($"未标尺寸：检查视图 {i + 1}/{views.Count}「{api.CallString(view, "IView", "get_Name")}」。");
+            var viewName = api.CallString(view, "IView", "get_Name");
+            if (HoleScan.Frame(context, view).Axonometric)
+            {
+                axonometric.Add(viewName);
+                continue;
+            }
+
+            context.Report($"未标尺寸：检查视图 {i + 1}/{views.Count}「{viewName}」。");
             var scan = HoleScan.Scan(context, "未标尺寸", withLines: true, view: view);
             var dimensions = DimensionScan.Read(api, scan);
             var geometry = dimensions.Select(item => item.Geometry).ToList();
@@ -48,20 +56,24 @@ internal static class DimensionCheck
                 .Where(item => item.Geometry.HoleCallout && HasH7(api, item.Display))
                 .Select(item => item.Geometry.Index)
                 .ToHashSet();
-            checks.Add((scan, DimensionCheckPlanner.Check(scan.Candidates, scan.Lines, scan.CurveSegments, geometry, h7, scan.Geometry.Scale)));
-            outlineValues.AddRange(geometry
-                .Where(dimension => (dimension.Linear || dimension.Ordinate) && dimension.Anchors.Any(anchor => anchor.ModelLine))
-                .Select(dimension => Math.Abs(dimension.Value)));
+            checks.Add((scan, DimensionCheckPlanner.Check(scan.Candidates, scan.Lines, scan.CurveSegments, geometry, h7, scan.Geometry.Scale),
+                HoleScan.ModelKey(api, view), geometry));
         }
 
         var lines = new List<string>();
+        if (axonometric.Count > 0)
+            lines.Add($"轴测图不查：{string.Join("、", axonometric.Select(name => $"「{name}」"))}。");
         var total = 0;
         api.Call(document, "IModelDoc2", "ClearSelection2", true);
-        foreach (var (scan, check) in checks)
+        foreach (var (scan, check, model, _) in checks)
         {
+            // 外轮廓站本视图没标的，同一模型别的视图已经定了也算标过（同「外轮廓」的跨视图去重，1.8.1 起按面判，不再按同值）。
+            var coverage = new OutlineCoverage();
+            foreach (var other in checks.Where(other => other.Scan != scan && other.Model == model))
+                coverage.AddView(other.Scan.Geometry.Frame, other.Dimensions);
             var issues = check.Issues
                 .Concat(check.Outline
-                    .Where(station => !outlineValues.Any(value => Math.Abs(value - station.Value) <= DimensionGeometry.ValueTolerance))
+                    .Where(station => !coverage.Determined(scan.Geometry.Frame, station.Axis, check.Datum(station.Axis), station.Coordinate))
                     .Select(station => new CheckIssue(DimensionCheckPlanner.DescribeStation(station), LineIndex: station.LineIndex)))
                 .ToList();
             if (issues.Count == 0)

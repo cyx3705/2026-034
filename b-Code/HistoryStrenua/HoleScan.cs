@@ -139,6 +139,17 @@ internal static class HoleScan
     }
 
     /// <summary>
+    /// 视图的朝向（1.8.1，判轴测图、外轮廓跨视图去重用）。比 <see cref="Scan"/> 轻得多：只问视图变换，不读边。
+    /// </summary>
+    public static ViewFrame Frame(QuickCommandContext context, object view)
+        => new ViewGeometry(context.Api, context.Session.Application, view).Frame;
+
+    /// <summary>视图引用的是哪个模型：文件路径 + 配置（1.8.1，外轮廓跨视图去重只比同一个模型的视图）。</summary>
+    public static string ModelKey(SolidWorksApi api, object view)
+        => api.CallString(view, "IView", "GetReferencedModelName").ToUpperInvariant()
+           + "|" + api.CallString(view, "IView", "get_ReferencedConfiguration");
+
+    /// <summary>
     /// 当前选择里有视图就用它；没有就等用户去点。点在视图里的任何东西（边、尺寸）都算点了这个视图，
     /// 只点在图纸空白处不算。
     /// </summary>
@@ -462,6 +473,23 @@ internal static class HoleScan
         {
             var point = ToSheet([_viewTransform], "CreatePoint", "IMathPoint", x, y, z);
             return new SheetPoint(point[0], point[1]);
+        }
+
+        /// <summary>
+        /// 视图的朝向（1.8.1）：把模型三根轴变到图纸上得 v_x、v_y、v_z（带比例），它们是旋转矩阵的三列，
+        /// 图纸 X / Y / Z 在模型里的方向就是三行。读一次记下。
+        /// </summary>
+        public ViewFrame Frame => _frame ??= ReadFrame();
+
+        private ViewFrame? _frame;
+
+        private ViewFrame ReadFrame()
+        {
+            var vx = ToSheet([_viewTransform], "CreateVector", "IMathVector", 1, 0, 0);
+            var vy = ToSheet([_viewTransform], "CreateVector", "IMathVector", 0, 1, 0);
+            var vz = ToSheet([_viewTransform], "CreateVector", "IMathVector", 0, 0, 1);
+            ModelDirection Row(int i) => new ModelDirection(vx[i], vy[i], vz[i]).Normalized();
+            return new ViewFrame(Row(0), Row(1), Row(2), ModelPointToSheet(0, 0, 0), Scale);
         }
 
         /// <summary><c>CircleParams</c>：圆心 xyz、轴向 xyz、半径。不是圆返回 null。</summary>

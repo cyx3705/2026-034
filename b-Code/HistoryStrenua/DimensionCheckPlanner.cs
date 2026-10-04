@@ -13,7 +13,14 @@ internal sealed record CheckIssue(string Text, int? EdgeIndex = null, int? LineI
 /// <param name="Outline">本视图里找不到尺寸的外轮廓站（是否别的视图标过由调用方再筛）。</param>
 /// <param name="HoleCount">孔数（一个腰型孔算一个）。</param>
 /// <param name="StationCount">外轮廓站数。</param>
-internal sealed record ViewCheck(IReadOnlyList<CheckIssue> Issues, IReadOnlyList<OutlineStation> Outline, int HoleCount, int StationCount);
+/// <param name="Left">左侧基准边的 X（图纸，米）；找不到为 null（这时没有外轮廓站）。</param>
+/// <param name="Top">上侧基准边的 Y。</param>
+internal sealed record ViewCheck(
+    IReadOnlyList<CheckIssue> Issues, IReadOnlyList<OutlineStation> Outline, int HoleCount, int StationCount, double? Left = null, double? Top = null)
+{
+    /// <summary>外轮廓站沿 <paramref name="axis"/> 从哪量起（有站时基准一定在）。</summary>
+    public double Datum(PositionAxis axis) => (axis == PositionAxis.Horizontal ? Left : Top) ?? 0;
+}
 
 /// <summary>
 /// 「未标尺寸」检查（1.8.0）的纯几何部分。SolidWorks 没有「工程图是否标全」的接口，这里按本模块自己的标注规则比对：
@@ -26,7 +33,7 @@ internal sealed record ViewCheck(IReadOnlyList<CheckIssue> Issues, IReadOnlyList
 /// 正好在基准边上的不用标。</item>
 /// <item>销孔：每种销孔的孔标注带 H7；相邻销孔之间的尺寸在且带对称公差（同 <see cref="DowelFitPlanner"/>）。</item>
 /// <item>外轮廓：每站（<see cref="OutlinePlanner.Stations"/>）要有一个沿这个方向量的尺寸某一头落在这条边上。本视图没有的交给调用方，
-/// 别的视图里有同值的外轮廓尺寸也算标过（总长总宽常在另一个视图里标）。</item>
+/// 同一模型别的视图里已有尺寸把它定了也算标过（总长总宽常在另一个视图里标；1.8.1 起按模型面判，见 <see cref="OutlineCoverage"/>）。</item>
 /// </list>
 /// </remarks>
 internal static class DimensionCheckPlanner
@@ -106,7 +113,7 @@ internal static class DimensionCheckPlanner
         var uncovered = stations.Where(station => !Located(positioned, station.Axis, station.Coordinate, scale)).ToList();
 
         var (holeCount, _) = HoleCalloutPlanner.Count(holes);
-        return new ViewCheck(issues, uncovered, holeCount, stations.Count);
+        return new ViewCheck(issues, uncovered, holeCount, stations.Count, left, top);
     }
 
     /// <summary>外轮廓站的说明：「外轮廓竖直边（左起 120）」。</summary>

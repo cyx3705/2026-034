@@ -181,6 +181,44 @@ internal static class OutlinePlanner
         return obsolete;
     }
 
+    /// <summary>
+    /// 尺寸链模式下组里那些别的视图已经定了的外轮廓站（1.8.1，重标时删；普通模式由 <see cref="Obsolete"/> 连同全部外轮廓坐标尺寸删）：
+    /// 两头都是外轮廓直边、沿它量的方向两头的边 <paramref name="determined"/> 说已定了的坐标尺寸。
+    /// 一组的成员（不含 0 点）要删光了，0 点一起删——还要标的站由 <c>Outline.ExtendGroup</c> 照常新建 0 点。
+    /// </summary>
+    /// <param name="existing">视图里已有的尺寸。</param>
+    /// <param name="outerSegments">外轮廓直边。</param>
+    /// <param name="scale">视图比例。</param>
+    /// <param name="determined">沿某方向坐标为两个值的两条边之间，别的视图是不是已经定了（<see cref="OutlineCoverage.Determined"/>）。</param>
+    public static List<int> CoveredOrdinates(
+        IReadOnlyList<ViewDimension> existing, IReadOnlyList<SheetSegment> outerSegments, double scale,
+        Func<PositionAxis, double, double, bool> determined)
+    {
+        ArgumentNullException.ThrowIfNull(existing);
+        ArgumentNullException.ThrowIfNull(determined);
+        bool OnOutline(DimensionAnchor anchor)
+            => anchor.ModelLine && anchor.Segment is { } segment && outerSegments.Any(outer => DimensionGeometry.SameSegment(outer, segment));
+        bool Covered(ViewDimension dimension)
+            => dimension.Anchors.Count >= 2 && dimension.Anchors.Take(2).All(OnOutline)
+               && new[] { PositionAxis.Horizontal, PositionAxis.Vertical }.Any(axis =>
+                   DimensionGeometry.Span(dimension, axis) is { } span
+                   && DimensionGeometry.Measures(dimension, axis, scale)
+                   && determined(axis, span.From, span.To));
+
+        var ordinates = existing.Where(dimension => dimension.Ordinate).ToList();
+        var covered = ordinates.Where(Covered).Select(dimension => dimension.Index).ToHashSet();
+        foreach (var zero in ordinates.Where(dimension => dimension.Anchors.Count == 1 && OnOutline(dimension.Anchors[0])))
+        {
+            var datum = zero.Anchors[0].Segment!.Value;
+            var members = ordinates.Where(dimension => dimension != zero
+                && dimension.Anchors.Any(anchor => anchor.Segment is { } segment && DimensionGeometry.SameSegment(segment, datum))).ToList();
+            if (members.Count > 0 && members.All(member => covered.Contains(member.Index)))
+                covered.Add(zero.Index);
+        }
+
+        return covered.Order().ToList();
+    }
+
     /// <summary>坐标尺寸组里还没有的站：组里已有同值（孔或外轮廓）的就不再加。</summary>
     public static List<OutlineStation> MissingFromGroup(IReadOnlyList<OutlineStation> stations, IReadOnlyList<double> groupValues)
         => stations

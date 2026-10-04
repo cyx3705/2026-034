@@ -9,6 +9,8 @@ namespace HistoryStrenua;
 /// 这样孔标注避障时尺寸都已在位。避障不单独成步，并在孔位尺寸与孔标注里（用户定）。</para>
 /// <para>1.8.0 加两步：外轮廓紧跟孔位尺寸（尺寸链模式下它往孔的那组坐标尺寸里加站，孔位尺寸重标会连组删掉，必须在后）；
 /// 销孔标注放最后（孔位尺寸重标会删掉销孔间的 ±0.02 尺寸；孔标注先把销孔的孔标注加好、摆好，这里只改 H7 并把折点挪回原处）。</para>
+/// <para>1.8.1：轴测图（等轴测、二等角、三等角等，判法见 <see cref="ViewFrame.Axonometric"/>）整个跳过，只标各向视图（用户定）。
+/// 外轮廓按视图顺序跨视图去重，前面视图标过的后面不再标（见 <see cref="Outline"/>）。</para>
 /// <para>不用点选视图；范围只是当前图纸页（用户定，不切换图纸页）。某个视图的某一步失败（如找不到基准边）
 /// 不中断，接着做后面的步骤与视图，最后回执失败并列出哪几步没成；取消则立即停。</para>
 /// </remarks>
@@ -18,8 +20,8 @@ internal static class HoleFlow
         Key: "hole-flow",
         CommandName: StrenuaIdentity.Domain + ".hole.flow",
         Title: "孔标注全流程",
-        Summary: "当前图纸页全部视图依次加销钉符号、中心符号线、孔位尺寸、外轮廓、孔标注、销孔标注（照页面开关），全部做完才结束。",
-        Usage: "不用点视图：当前图纸页上的全部视图逐个做一遍「销钉符号 → 中心符号线 → 孔位尺寸 → 外轮廓 → 孔标注 → 销孔标注」，照页面开关走（「避障」开着时文字压在别的孔的标注线条上就挪开，「尺寸链」开着时孔位尺寸与外轮廓用坐标尺寸）；某一步失败不中断，最后汇总。",
+        Summary: "当前图纸页全部视图（轴测图除外）依次加销钉符号、中心符号线、孔位尺寸、外轮廓、孔标注、销孔标注（照页面开关），全部做完才结束。",
+        Usage: "不用点视图：当前图纸页上的全部视图（轴测图跳过）逐个做一遍「销钉符号 → 中心符号线 → 孔位尺寸 → 外轮廓 → 孔标注 → 销孔标注」，外轮廓前面视图标过的后面视图不再标，照页面开关走（「避障」开着时文字压在别的孔的标注线条上就挪开，「尺寸链」开着时孔位尺寸与外轮廓用坐标尺寸）；某一步失败不中断，最后汇总。",
         Run: Run);
 
     private static readonly (string Title, Func<QuickCommandContext, object, QuickOutcome> Run)[] Steps =
@@ -49,6 +51,12 @@ internal static class HoleFlow
             if (api.Call(view, "IView", "get_ReferencedDocument") is null)
             {
                 lines.Add($"视图「{viewName}」没有引用模型，跳过。");
+                continue;
+            }
+
+            if (HoleScan.Frame(context, view).Axonometric)
+            {
+                lines.Add($"视图「{viewName}」是轴测图，跳过。");
                 continue;
             }
 

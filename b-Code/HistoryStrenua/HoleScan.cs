@@ -389,28 +389,37 @@ internal static class HoleScan
         }
 
         /// <summary>
-        /// 圆角弧（1.9.0「圆角标注」）：有端点的圆弧、轴线正对图纸、旁边贴着一张同半径的圆柱面；返回图纸上的圆心、半径、弧中点，
+        /// 圆角弧（1.9.0「圆角标注」）：圆弧（1.12.0 起也收没有端点的整圈，圆心角记 2π）、轴线正对图纸、旁边贴着一张同半径的圆柱面；返回图纸上的圆心、半径、弧中点，
         /// 模型半径，以及圆柱面是不是内凹（内圆角 / 凹弧的圆心在零件外，外圆角的圆心在零件里）。孔、腰型孔端头不归这里管（先过 <see cref="TryReadHole"/>）。
         /// </summary>
         public FilletArc? TryReadArc(object edge, int index)
         {
             try
             {
-                if (Circle(edge) is not { } circle
-                    || api.Call(edge, "IEdge", "GetStartVertex") is not { } start
-                    || api.Call(edge, "IEdge", "GetEndVertex") is not { } end)
+                if (Circle(edge) is not { } circle)
                     return null;
+                var start = api.Call(edge, "IEdge", "GetStartVertex");
+                var end = api.Call(edge, "IEdge", "GetEndVertex");
                 var transforms = Transforms(edge);
                 var axis = ToSheet(transforms, "CreateVector", "IMathVector", circle[3], circle[4], circle[5]);
                 if (!HoleCalloutPlanner.FacesViewer(axis[0], axis[1], axis[2]))
                     return null;
                 if (ArcFaceConcave(edge, circle) is not { } concave)
                     return null;
+                var center = ToSheet(transforms, "CreatePoint", "IMathPoint", circle[0], circle[1], circle[2]);
+                if (start is null || end is null)
+                {
+                    // 1.12.0：没有端点的整圈（凸台、轴端；内凹的整圈是孔，先被 TryReadHole 认走）也收进来，减掉孔以后标 Ø（FilletPlanner.WithoutCircles）。
+                    // 弧中点随便取圆上一点，标的时候文字方向由规划器按整圆另定。
+                    var (px, py, pz) = HoleCalloutPlanner.Perpendicular(circle[3], circle[4], circle[5]);
+                    var on = ToSheet(transforms, "CreatePoint", "IMathPoint", circle[0] + circle[6] * px, circle[1] + circle[6] * py, circle[2] + circle[6] * pz);
+                    return new FilletArc(index, new SheetPoint(center[0], center[1]), circle[6] * Scale, circle[6], new SheetPoint(on[0], on[1]), concave, 2 * Math.PI);
+                }
+
                 var s = api.CallDoubles(start, "IVertex", "GetPoint");
                 var e = api.CallDoubles(end, "IVertex", "GetPoint");
                 if (s.Length < 3 || e.Length < 3 || ArcMiddle(edge, circle, s, e) is not { } middle)
                     return null;
-                var center = ToSheet(transforms, "CreatePoint", "IMathPoint", circle[0], circle[1], circle[2]);
                 var mid = ToSheet(transforms, "CreatePoint", "IMathPoint", middle[0], middle[1], middle[2]);
                 var from = ToSheet(transforms, "CreatePoint", "IMathPoint", s[0], s[1], s[2]);
                 var to = ToSheet(transforms, "CreatePoint", "IMathPoint", e[0], e[1], e[2]);

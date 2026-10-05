@@ -72,7 +72,7 @@ var tests = new (string Name, Action Run)[]
     ("chamfer: which chamfers, grouping, which leg and where", TestChamferPlan),
     ("chamfer: side views and margins", TestChamferViews),
     ("fillet: which arcs, grouping and text side", TestFilletPlan),
-    ("fillet: circles and hole arcs are not fillets", TestFilletCircles),
+    ("fillet: holes subtracted from all circles, the rest get Ø", TestFilletCircles),
     ("check: overlapping annotations", TestOverlapCheck),
     ("clearance switch: fillet, chamfer, note, side views", TestClearanceSwitch),
     ("snapshot: file name", TestSnapshotName),
@@ -2115,12 +2115,36 @@ static void TestFilletCircles()
         Arc(6, 0.300, 0.050, 0.010, false, 1.2 * Math.PI),        // 外凸过半圈（耳板端头）：留
         Arc(7, 0.350, 0.050, 0.004, true, Math.PI / 3),           // 与认出的孔同圆：去
         Arc(8, 0.350, 0.050, 0.008, false, Math.PI),              // 与孔同心、半径不同的外凸端头 R：留
-        Arc(9, 0.400, 0.050, 0.006, false, 2 * Math.PI),          // 外凸整圆（凸台）：去
+        Arc(9, 0.400, 0.050, 0.006, false, 2 * Math.PI),          // 外凸整圆（凸台）：留，标 Ø
         Arc(10, 0.450, 0.050, 0.005, true, 0),                    // 圆心角没量（0）：不参与整圆判定
     };
+    // 用户定：识别所有圆，减去孔（认得出是孔的一律减，不替孔标注补漏）；剩下的整圆标 Ø。
     var (kept, excluded) = FilletPlanner.WithoutCircles(arcs, [new HoleEdge(0, 0.350, 0.050, 0.004)]);
-    Equal("0,1,6,8,10", string.Join(",", kept.Select(arc => arc.Index)));
-    Equal(6, excluded);
+    Equal("0,1,6,8,9,10", string.Join(",", kept.Select(arc => arc.Index)));
+    Equal(5, excluded);
+
+    // 剩下的整圆：标 Ø（不吃「未注圆角 R1」），同直径 3 个以上合标；文字从圆心往右上；被切成两段的凸台算一个。
+    var bosses = new List<FilletArc>
+    {
+        Arc(0, 0.050, 0.150, 0.001, false, 2 * Math.PI),          // Ø4 凸台（半径正好 1：不按 R1 跳过）
+        Arc(1, 0.100, 0.150, 0.003, false, 2 * Math.PI),          // Ø12 ×3
+        Arc(2, 0.150, 0.150, 0.003, false, 2 * Math.PI),
+        Arc(3, 0.200, 0.150, 0.003, false, 0.8 * Math.PI),        // 被切成两段的同一个凸台
+        Arc(4, 0.200, 0.150, 0.003, false, 1.2 * Math.PI),
+        Arc(5, 0.300, 0.150, 0.005, false, Math.PI / 2),          // 圆角 R10：照旧 R
+    };
+    var plan = FilletPlanner.Plan(bosses, [], []);
+    Equal(1, plan.ArcCount);
+    Equal(4, plan.CircleCount);
+    Equal(0, plan.DefaultCount);
+    Equal(3, plan.Targets.Count);
+    var grouped = plan.Targets.Single(t => t.Count == 3);
+    True(grouped.Diameter && grouped.Prefix == "3 x ", "同直径 3 个合标「3 x Ø」");
+    var single = plan.Targets.Single(t => t.Index == 0);
+    True(single.Diameter && single.TextAt.X > 0.050 && single.TextAt.Y > 0.150, "Ø 文字在右上");
+    True(!plan.Targets.Single(t => t.Index == 5).Diameter, "圆角弧仍标 R");
+    // 已有直径尺寸的整圆跳过。
+    Equal(1, FilletPlanner.Plan([bosses[0]], [(new SheetPoint(0.050, 0.150), 0.001)], []).Dimensioned);
 }
 
 static void TestOverlapCheck()

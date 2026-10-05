@@ -12,8 +12,8 @@ namespace HistoryStrenua;
 /// <param name="Sweep">圆心角（弧度，1.12.0）：带一个端点的整圈为 2π；0 = 没量（不参与整圆判定）。</param>
 internal readonly record struct FilletArc(int Index, SheetPoint Center, double Radius, double ModelRadius, SheetPoint Middle, bool Concave, double Sweep = 0);
 
-/// <summary>要加的一个 R 尺寸：标哪段弧、文字放哪、前缀（几段同半径的合标时「N x 」）。</summary>
-internal readonly record struct FilletTarget(int Index, SheetPoint TextAt, int Count)
+/// <summary>要加的一个 R 尺寸（整圆是 Ø 尺寸，1.12.0）：标哪段弧、文字放哪、前缀（几段同半径的合标时「N x 」）。</summary>
+internal readonly record struct FilletTarget(int Index, SheetPoint TextAt, int Count, bool Diameter = false)
 {
     public string Prefix => Count > 1 ? $"{Count} x " : string.Empty;
 }
@@ -22,8 +22,9 @@ internal readonly record struct FilletTarget(int Index, SheetPoint TextAt, int C
 /// <param name="Targets">要加的 R 尺寸，按图纸上从上到下、从左到右。</param>
 /// <param name="ArcCount">认出的圆角（同一圆角被切成几段的算一个）。</param>
 /// <param name="DefaultCount">R1 按技术要求「未注圆角R1」不标的个数。</param>
-/// <param name="Dimensioned">已经有 R / 直径尺寸、跳过的个数。</param>
-internal sealed record FilletPlan(IReadOnlyList<FilletTarget> Targets, int ArcCount, int DefaultCount, int Dimensioned);
+/// <param name="Dimensioned">已经有 R / 直径尺寸、跳过的个数（圆角与整圆合计）。</param>
+/// <param name="CircleCount">认出的要标 Ø 的整圆（1.12.0：孔已减掉，剩凸台、轴端这类）；不算在 <paramref name="ArcCount"/> 里。</param>
+internal sealed record FilletPlan(IReadOnlyList<FilletTarget> Targets, int ArcCount, int DefaultCount, int Dimensioned, int CircleCount = 0);
 
 /// <summary>
 /// 圆角标注（1.9.0）的纯几何部分：哪些弧要标 R、几段同半径的怎么合标、文字放哪。不碰 SolidWorks，能离线测。
@@ -71,15 +72,19 @@ internal static class FilletPlanner
             if (!distinct.Any(known => Same(known.Center, known.Radius, arc.Center, arc.Radius)))
                 distinct.Add(arc);
 
-        var defaults = distinct.Count(arc => Math.Abs(arc.ModelRadius - DefaultRadius) <= 5e-6);
-        var already = distinct.Count(arc => Math.Abs(arc.ModelRadius - DefaultRadius) > 5e-6 && dimensioned.Any(d => Same(d.Center, d.Radius, arc.Center, arc.Radius)));
+        // 1.12.0：整圆（几段合起来满一圈；孔已由 WithoutCircles 减掉）标 Ø，不吃「未注圆角 R1」，文字往右上。
+        var full = distinct.Where(arc => IsFull(arcs, arc)).Select(arc => arc.Index).ToHashSet();
+        bool Default(FilletArc arc) => !full.Contains(arc.Index) && Math.Abs(arc.ModelRadius - DefaultRadius) <= 5e-6;
+        var defaults = distinct.Count(Default);
+        var already = distinct.Count(arc => !Default(arc) && dimensioned.Any(d => Same(d.Center, d.Radius, arc.Center, arc.Radius)));
         var pending = distinct
-            .Where(arc => Math.Abs(arc.ModelRadius - DefaultRadius) > 5e-6)
+            .Where(arc => !Default(arc))
             .Where(arc => !dimensioned.Any(d => Same(d.Center, d.Radius, arc.Center, arc.Radius)))
+            .Select(arc => full.Contains(arc.Index) ? arc with { Middle = UpRight(arc), Concave = false } : arc)
             .ToList();
 
         var chosen = new List<(FilletArc Arc, int Count)>();
-        foreach (var group in pending.GroupBy(arc => (Math.Round(arc.ModelRadius / 5e-6), arc.Concave)))
+        foreach (var group in pending.GroupBy(arc => (Math.Round(arc.ModelRadius / 5e-6), arc.Concave, full.Contains(arc.Index))))
         {
             var members = group.OrderByDescending(arc => arc.Middle.Y).ThenBy(arc => arc.Middle.X).ToList();
             if (members.Count >= GroupThreshold)
@@ -93,14 +98,15 @@ internal static class FilletPlanner
         var targets = new List<FilletTarget>();
         foreach (var (arc, count) in chosen.OrderByDescending(item => item.Arc.Middle.Y).ThenBy(item => item.Arc.Middle.X))
         {
-            var text = (count > 1 ? $"{count} x " : string.Empty) + "R" + Value(arc.ModelRadius);
+            var diameter = full.Contains(arc.Index);
+            var text = (count > 1 ? $"{count} x " : string.Empty) + (diameter ? "Ø" + Value(2 * arc.ModelRadius) : "R" + Value(arc.ModelRadius));
             var (at, box) = PlaceText(arc.Middle, Outward(arc), text.Length, lines, placed, inside);
             if (avoid)
                 placed.Add(box);
-            targets.Add(new FilletTarget(arc.Index, at, count));
+            targets.Add(new FilletTarget(arc.Index, at, count, diameter));
         }
 
-        return new FilletPlan(targets, distinct.Count, defaults, already);
+        return new FilletPlan(targets, distinct.Count - full.Count, defaults, already, full.Count);
     }
 
     /// <summary>尺寸值的写法：「5」「5.5」「101」。</summary>
@@ -151,16 +157,16 @@ internal static class FilletPlanner
     private const double SweepTolerance = 0.05;
 
     /// <summary>
-    /// 去掉其实是圆（孔）的弧（1.12.0，用户报「圆角标注把圆也标了」，孔由孔类指令管，这里必须排除）。三种都不算圆角：
+    /// 减掉孔（1.12.0，用户定「识别所有圆，减去孔标注的圆」：认得出是孔的一律减，孔标注没标、标错是孔类的事，圆角标注不替它补）。减掉的：
     /// <list type="bullet">
-    /// <item>同圆心同半径的几段合起来是整圈：带一个端点的整圆边、被别的特征的边切成几段的孔或凸台（<see cref="HoleScan.ViewGeometry.TryReadHole"/>
+    /// <item>内凹、合起来满一圈的圆：孔（含带一个端点的整圆边、被别的特征的边切成几段的孔——<see cref="HoleScan.ViewGeometry.TryReadHole"/>
     /// 只认没有端点的整圈和恰好半圈，这些漏到了这里）；</item>
     /// <item>内凹且超过半圈：被零件边切掉一截的孔口（圆角最多半圈）；</item>
     /// <item>与认出的孔（含腰型孔端头）同圆心同半径：孔的另一部分。</item>
     /// </list>
-    /// 外凸的半圈以内的弧（耳板端头 R10 之类，即使与孔同心）照旧是圆角。
+    /// 留下的：圆角弧（外凸弧即使与孔同心，如耳板端头 R10，照旧标 R），以及外凸的整圆（凸台、轴端），由 <see cref="Plan"/> 标 Ø。
     /// </summary>
-    /// <returns>留下的圆角弧与去掉的段数。</returns>
+    /// <returns>留下的弧与减掉的段数。</returns>
     public static (List<FilletArc> Arcs, int Excluded) WithoutCircles(IReadOnlyList<FilletArc> arcs, IReadOnlyList<HoleEdge> holes)
     {
         var kept = new List<FilletArc>();
@@ -168,8 +174,7 @@ internal static class FilletPlanner
         {
             var circle = arcs.Where(other => Same(other.Center, other.Radius, arc.Center, arc.Radius)).ToList();
             var sweep = circle.Sum(other => other.Sweep);
-            var isHole = sweep >= 2 * Math.PI - SweepTolerance
-                || (arc.Concave && sweep > Math.PI + SweepTolerance)
+            var isHole = (arc.Concave && sweep > Math.PI + SweepTolerance)
                 || holes.Any(hole => Same(new SheetPoint(hole.X, hole.Y), hole.Radius, arc.Center, arc.Radius));
             if (!isHole)
                 kept.Add(arc);
@@ -177,6 +182,13 @@ internal static class FilletPlanner
 
         return (kept, arcs.Count - kept.Count);
     }
+
+    /// <summary>这段弧所在的圆（同圆心同半径的几段合起来）满一圈。</summary>
+    private static bool IsFull(IReadOnlyList<FilletArc> arcs, FilletArc arc)
+        => arcs.Where(other => Same(other.Center, other.Radius, arc.Center, arc.Radius)).Sum(other => other.Sweep) >= 2 * Math.PI - SweepTolerance;
+
+    /// <summary>整圆的 Ø 文字从圆心往右上 45° 引出（与孔标注的左上错开）。</summary>
+    private static SheetPoint UpRight(FilletArc arc) => new(arc.Center.X + arc.Radius * Math.Sqrt(0.5), arc.Center.Y + arc.Radius * Math.Sqrt(0.5));
 
     /// <summary>圆弧的圆心角（弧度）：起点、终点重合（带一个端点的整圈）为 2π；否则是起点到弧中点夹角的两倍。</summary>
     public static double SweepOf(SheetPoint center, SheetPoint start, SheetPoint end, SheetPoint middle)

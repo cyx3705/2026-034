@@ -63,6 +63,11 @@ var tests = new (string Name, Action Run)[]
     ("drawing: layout avoids frame contents", TestDrawingLayout),
     ("drawing: scales, ratios and iso factors", TestDrawingScales),
     ("drawing: technical note text", TestTechnicalNote),
+    ("drawing steps: existing views by direction", TestDrawingSlotOf),
+    ("drawing steps: side view beside the main view", TestDrawingBeside),
+    ("drawing steps: flexible side on the current sheet", TestDrawingChooseSlots),
+    ("drawing steps: iso and note on their own", TestDrawingSpots),
+    ("drawing steps: one-click runs the steps in order", TestDrawingSteps),
     ("fillet: which arcs, grouping and text side", TestFilletPlan),
     ("snapshot: file name", TestSnapshotName),
 };
@@ -105,6 +110,11 @@ static void TestCommandRegistration()
         "strenua.hole.outline",
         "strenua.drawing.auto",
         "strenua.drawing.create",
+        "strenua.drawing.project",
+        "strenua.drawing.iso",
+        "strenua.drawing.note",
+        "strenua.drawing.arrange",
+        "strenua.drawing.filletall",
         "strenua.drawing.fillet",
         "strenua.check.dimension",
         "strenua.check.snapshot",
@@ -129,7 +139,8 @@ static void TestCommandRegistration()
     True(hole.HiddenReason is null, "快捷指令要能在控制台直接敲");
     True(registry.TryGet("strenua.hole.centermark", out var centerMark) && !centerMark!.Readonly, "中心符号线会改工程图，不是只读");
     True(registry.TryGet("strenua.quick.list", out var list) && list!.Readonly, "列表是只读的");
-    foreach (var name in new[] { "strenua.drawing.create", "strenua.drawing.auto", "strenua.drawing.fillet", "strenua.check.snapshot" })
+    foreach (var name in new[] { "strenua.drawing.create", "strenua.drawing.auto", "strenua.drawing.project", "strenua.drawing.iso", "strenua.drawing.note",
+                 "strenua.drawing.arrange", "strenua.drawing.filletall", "strenua.drawing.fillet", "strenua.check.snapshot" })
         True(registry.TryGet(name, out var drawing) && !drawing!.Readonly && drawing.HiddenReason is null, $"{name} 要能在控制台直接敲（建图、加尺寸、写图片都不是只读）");
     True(registry.TryGet("strenua.quick.run", out var run) && !run!.Readonly, "按 key 执行会改工程图，不是只读");
     var keys = run!.Parameters!.Single(p => p.Name == "key").AllowedValues!;
@@ -258,11 +269,12 @@ static void TestClassPanels()
     Equal("检查", check.GetProperty("case").GetString()!);
     Equal(1, check.GetProperty("rows").GetArrayLength());
     Equal("未标尺寸,图纸截图", string.Join(",", check.GetProperty("rows")[0].GetProperty("widgets").EnumerateArray().Select(w => w.GetProperty("text").GetString())));
-    // 1.9.0 出图类：一键出图、新建工程图、圆角标注一行按钮，没有开关（一键出图照「孔」面板的开关走）。
+    // 1.9.0 出图类：一键出图与它拆出的各步（用户定），两行按钮，没有开关（照「孔」面板的开关走）。
     var drawing = branches.Single(branch => branch.GetProperty("id").GetString() == StrenuaPage.ClassPanelId("drawing"));
     Equal("出图", drawing.GetProperty("case").GetString()!);
-    Equal(1, drawing.GetProperty("rows").GetArrayLength());
-    Equal("一键出图,新建工程图,圆角标注", string.Join(",", drawing.GetProperty("rows")[0].GetProperty("widgets").EnumerateArray().Select(w => w.GetProperty("text").GetString())));
+    Equal(2, drawing.GetProperty("rows").GetArrayLength());
+    Equal("一键出图,新建工程图,投影视图,轴测图|技术要求,排版,全图圆角,圆角标注", string.Join("|", drawing.GetProperty("rows").EnumerateArray()
+        .Select(row => string.Join(",", row.GetProperty("widgets").EnumerateArray().Select(w => w.GetProperty("text").GetString())))));
     Equal("孔,出图,检查", string.Join(",", StrenuaPage.ClassOptions(QuickCommands.All)));
     // 开关在按钮下面，初值取当前设置。
     var switches = rows[buttonRows].GetProperty("widgets").EnumerateArray().ToList();
@@ -950,7 +962,8 @@ static void TestFlowCommand()
         && usage.IndexOf("→ 外轮廓", StringComparison.Ordinal) < usage.IndexOf("→ 孔标注", StringComparison.Ordinal)
         && usage.IndexOf("→ 孔标注", StringComparison.Ordinal) < usage.IndexOf("→ 销孔标注", StringComparison.Ordinal), "步骤顺序");
     True(usage.Contains("当前图纸页", StringComparison.Ordinal), "范围是当前图纸页");
-    Equal("hole-flow,dowel-symbol,center-mark,hole-position,hole-callout,dowel-fit,outline,drawing-auto,drawing-create,fillet,check-dimension,snapshot",
+    Equal("hole-flow,dowel-symbol,center-mark,hole-position,hole-callout,dowel-fit,outline,"
+        + "drawing-auto,drawing-create,drawing-project,drawing-iso,drawing-note,drawing-arrange,fillet-all,fillet,check-dimension,snapshot",
         string.Join(",", QuickCommands.All.Select(command => command.Key)));
 }
 
@@ -1629,20 +1642,20 @@ static void TestDrawingScales()
 
 static void TestTechnicalNote()
 {
-    var (text, source) = DrawingCreate.TechnicalNoteText(null);
-    Equal(DrawingCreate.DefaultTechnicalNote, text);
+    var (text, source) = DrawingNote.TechnicalNoteText(null);
+    Equal(DrawingNote.DefaultTechnicalNote, text);
     True(text.StartsWith("        技术要求\n", StringComparison.Ordinal) && text.Contains("8、未注尺寸参考3D数模。", StringComparison.Ordinal), "默认就是用户那 8 条");
     True(source.Contains("默认", StringComparison.Ordinal), source);
 
     var directory = Path.Combine(Path.GetTempPath(), "strenua-test-" + Guid.NewGuid().ToString("N"));
     try
     {
-        var (first, firstSource) = DrawingCreate.TechnicalNoteText(directory);
-        Equal(DrawingCreate.DefaultTechnicalNote, first);
-        var file = Path.Combine(directory, DrawingCreate.TechnicalNoteFile);
+        var (first, firstSource) = DrawingNote.TechnicalNoteText(directory);
+        Equal(DrawingNote.DefaultTechnicalNote, first);
+        var file = Path.Combine(directory, DrawingNote.TechnicalNoteFile);
         True(File.Exists(file) && firstSource.Contains("已写到", StringComparison.Ordinal), "第一次用时把默认内容写出来，方便用户改");
         File.WriteAllText(file, "技术要求\r\n1、去毛刺。\r\n", new System.Text.UTF8Encoding(false));
-        var (custom, customSource) = DrawingCreate.TechnicalNoteText(directory);
+        var (custom, customSource) = DrawingNote.TechnicalNoteText(directory);
         Equal("技术要求\n1、去毛刺。", custom);
         True(customSource.Contains("取自", StringComparison.Ordinal), customSource);
     }
@@ -1700,6 +1713,117 @@ static void TestFilletPlan()
     True(!ClearancePlanner.Hits(box, new SheetSegment(0.110, 0.090, 0.110, 0.110)), "R 文字不压线");
     Equal("5", FilletPlanner.Value(0.005));
     Equal("5.5", FilletPlanner.Value(0.0055));
+}
+
+static void TestDrawingSlotOf()
+{
+    // 第一角投影（国标）：看零件左侧（视线 −X）的摆右边、看右侧的摆左边、看上面（+Y）的摆下边、看下面的摆上边；第三角反过来。
+    foreach (var view in StandardView.All)
+    {
+        var frame = Frame(view);
+        ModelDirection Minus(ModelDirection d) => new(-d.X, -d.Y, -d.Z);
+        Equal(ViewSlot.Right, DrawingPlanner.SlotOf(frame, Minus(view.Right), firstAngle: true)!.Value);
+        Equal(ViewSlot.Left, DrawingPlanner.SlotOf(frame, view.Right, firstAngle: true)!.Value);
+        Equal(ViewSlot.Below, DrawingPlanner.SlotOf(frame, view.Up, firstAngle: true)!.Value);
+        Equal(ViewSlot.Above, DrawingPlanner.SlotOf(frame, Minus(view.Up), firstAngle: true)!.Value);
+        Equal(ViewSlot.Left, DrawingPlanner.SlotOf(frame, Minus(view.Right), firstAngle: false)!.Value);
+        Equal(ViewSlot.Above, DrawingPlanner.SlotOf(frame, view.Up, firstAngle: false)!.Value);
+        // 同轴（前后视）、斜的（轴测图）不是投影位。
+        True(DrawingPlanner.SlotOf(frame, view.Normal, firstAngle: true) is null, "主视图同向的不是投影位");
+        True(DrawingPlanner.SlotOf(frame, Minus(view.Normal), firstAngle: true) is null, "主视图反向（后视）不是投影位");
+        var (isoRight, _) = DrawingPlanner.IsoAxes(view.Normal, view.Right, view.Up);
+        True(DrawingPlanner.SlotOf(frame, PartHole.Cross(isoRight, view.Up).Normalized(), firstAngle: true) is null, "斜的不是投影位");
+    }
+
+    // 与「要哪几个投影视图」同一套：L 形件第一角摆右边的那个，看的正是孔口那一面（−X）。
+    var front = StandardView.Of("front");
+    var sides = DrawingPlanner.SideViews(Bracket(), Frame(front), firstAngle: true);
+    Equal(ViewSlot.Right, sides[0].Slot);
+    Equal(ViewSlot.Right, DrawingPlanner.SlotOf(Frame(front), new ModelDirection(-1, 0, 0), firstAngle: true)!.Value);
+    True(DrawingPlanner.Horizontal(ViewSlot.Left) && !DrawingPlanner.Horizontal(ViewSlot.Below), "左右视图看横向，上下视图看竖向");
+}
+
+static void TestDrawingBeside()
+{
+    // 单独加投影视图时贴着主视图放：间距（Gap + 该留的标注空间）与整页排版排出来的一样。
+    var a3 = SheetSpace.Standard(0.420, 0.297);
+    var mainBox = new ViewBox(0.120, 0.080, 0.030, 0.026);
+    foreach (var slot in new[] { ViewSlot.Right, ViewSlot.Left, ViewSlot.Below, ViewSlot.Above })
+    {
+        var side = DrawingPlanner.Horizontal(slot) ? new ViewBox(0.020, 0.080, 0.016, 0.018) : new ViewBox(0.120, 0.020, 0.022, 0.016);
+        var layout = DrawingPlanner.Layout(a3, new LayoutRequest(mainBox, new Dictionary<ViewSlot, ViewBox> { [slot] = side }, new ViewBox(0, 0, 0, 0), 0, 0));
+        True(layout.Fits, $"{slot}：{layout.Problem}");
+        var main = SheetRect.Around(layout.Main, mainBox.Width, mainBox.Height);
+        var beside = DrawingPlanner.Beside(main, mainBox, slot, side);
+        Near(layout.Sides[slot].X, beside.X);
+        Near(layout.Sides[slot].Y, beside.Y);
+    }
+}
+
+static void TestDrawingChooseSlots()
+{
+    // 「投影视图」单独按时，在当前图幅与比例下挑可换边视图的边——与「新建工程图」选图幅时估的那种摆法一致（15 个真零件）。
+    var templates = UserTemplates();
+    var flexible = 0;
+    foreach (var (name, _, _, _, geometry) in RealParts())
+    {
+        var chosen = DrawingPlanner.MainView(geometry).View;
+        var sides = DrawingPlanner.SideViews(geometry, Frame(chosen), firstAngle: true);
+        var choice = DrawingPlanner.ChooseSheet(geometry, chosen, sides, templates, chain: false)!;
+        var slots = DrawingPlanner.ChooseSlots(geometry, DrawingPlanner.ViewOf(Frame(chosen)), sides,
+            SheetSpace.Standard(choice.Template.Width, choice.Template.Height), choice.Scale, chain: false);
+        Equal(string.Join(",", choice.Slots), string.Join(",", slots));
+        if (sides.Any(side => side.Alternative is not null) && !slots.SequenceEqual(sides.Select(side => side.Slot)))
+            flexible++;
+    }
+
+    True(flexible >= 1, "至少一个零件的看厚度视图要换边才放得下（移动安装版5 A4 右放）");
+
+    // 哪种摆法都放不下：用首选。
+    var plate = Plate(new ModelDirection(0, 0, -1));
+    var back = StandardView.Of("back");
+    var plateSides = DrawingPlanner.SideViews(plate, Frame(back), firstAngle: true);
+    var tiny = DrawingPlanner.ChooseSlots(plate, back, plateSides, SheetSpace.Standard(0.297, 0.210), 1, chain: false);
+    Equal(plateSides[0].Slot, tiny[0]);
+}
+
+static void TestDrawingSpots()
+{
+    var a3 = SheetSpace.Standard(0.420, 0.297);
+    var main = DrawingPlanner.Occupied(new SheetPoint(0.120, 0.180), new ViewBox(0.150, 0.100, 0.030, 0.030)).ToList();
+    // 轴测图：原比例放得下就不缩，躲开视图与标题栏。
+    var (center, shrink, free) = DrawingPlanner.IsoSpot(a3, main, new ViewBox(0.080, 0.070, 0, 0), [1.0, 0.5], new SheetPoint(0.330, 0.180));
+    var iso = SheetRect.Around(center, 0.080, 0.070);
+    True(free && shrink == 1 && iso.Within(a3.Frame) && !main.Any(iso.Overlaps) && !a3.KeepOuts.Any(iso.Overlaps), "轴测图应放进空地");
+    // 原比例哪都放不下、缩一半放得下。
+    var (_, half, halfFree) = DrawingPlanner.IsoSpot(a3, main, new ViewBox(0.300, 0.200, 0, 0), [1.0, 0.5], new SheetPoint(0.330, 0.180));
+    True(halfFree && half == 0.5, "放不下就缩一档");
+    // 缩到底也没有空地：放在压得最少处，说明不是空地。
+    var (_, last, crowded) = DrawingPlanner.IsoSpot(a3, main, new ViewBox(0.500, 0.400, 0, 0), [1.0, 0.5], new SheetPoint(0.330, 0.180));
+    True(!crowded && last == 0.5, "没有空地要说明");
+
+    // 技术要求：先放标题栏正上方。
+    var (topLeft, noteFree) = DrawingPlanner.NotePlace(a3, 0.101, 0.042, main);
+    True(noteFree && topLeft.Y - 0.042 >= a3.TitleBlock.Top && topLeft.X + 0.101 <= a3.TitleBlock.Right, "技术要求先放标题栏正上方");
+    var everywhere = new List<SheetRect> { a3.Frame };
+    True(!DrawingPlanner.NotePlace(a3, 0.101, 0.042, everywhere).Free, "满了要说明");
+
+    // 只排视图（没有轴测图、技术要求）：不给它们位置。
+    var bare = DrawingPlanner.Layout(a3, new LayoutRequest(new ViewBox(0.150, 0.100, 0.030, 0.030), new Dictionary<ViewSlot, ViewBox>(), new ViewBox(0, 0, 0, 0), 0, 0));
+    True(bare.Fits && bare.Iso is null && bare.NoteTopLeft is null, "没有轴测图、技术要求就不排它们");
+}
+
+static void TestDrawingSteps()
+{
+    // 一键出图 = 出图类各步 + 孔标注全流程（不拆）+ 全图圆角，顺序写在用法里；每一步都是一条单独的指令（用户定）。
+    var auto = QuickCommands.All.Single(command => command.Key == "drawing-auto");
+    string[] steps = ["新建工程图", "投影视图", "轴测图", "技术要求", "排版", "孔标注全流程", "全图圆角"];
+    var positions = steps.Select(step => auto.Usage.IndexOf(step, StringComparison.Ordinal)).ToList();
+    True(positions.All(index => index >= 0) && positions.Zip(positions.Skip(1)).All(pair => pair.First < pair.Second), "一键出图用法里的步骤顺序：" + auto.Usage);
+    var titles = QuickCommands.All.Select(command => command.Title).ToHashSet();
+    True(steps.All(titles.Contains), "每一步都要有自己的按钮与指令");
+    Equal("hole", QuickCommands.All.Single(command => command.Title == "孔标注全流程").CommandClass);
+    True(QuickCommands.All.Where(command => command.CommandClass == "drawing").All(command => command.Title != "孔标注全流程"), "孔标注全流程留在孔类，不拆进出图类");
 }
 
 static void TestSnapshotName()

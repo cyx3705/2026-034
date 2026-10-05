@@ -190,6 +190,10 @@ internal static class HoleScan
         throw new QuickCommandException($"{SelectionTimeout.TotalSeconds:0} 秒内没有点选视图，{title}已放弃。");
     }
 
+    /// <summary>工程图里当前选中的视图（点在视图里的任何东西都算），没选返回 null，不等（出图类「投影视图」「轴测图」用）。</summary>
+    public static object? PreselectedView(SolidWorksApi api, object document)
+        => api.Call(document, "IModelDoc2", "get_SelectionManager") is { } selection ? SelectedView(api, selection) : null;
+
     private static object? SelectedView(SolidWorksApi api, object selection)
     {
         var count = api.CallInt(selection, "ISelectionMgr", "GetSelectedObjectCount2", -1);

@@ -1,12 +1,14 @@
 namespace HistoryStrenua;
 
 /// <summary>
-/// 快捷指令「一键出图」（1.9.0，出图类）：新建工程图（<see cref="DrawingCreate"/>）后接着对新图做孔标注全流程（<see cref="HoleFlow"/>，
-/// 照页面开关）和每个视图的圆角标注（<see cref="FilletDimension"/>，轴测图跳过）。不保存。
+/// 快捷指令「一键出图」（1.9.0，出图类）：依次跑出图类各步与孔标注全流程——新建工程图 → 投影视图 → 轴测图 → 技术要求 → 排版
+/// → 孔标注全流程（<see cref="HoleFlow"/>，照页面开关）→ 全图圆角。不保存。
 /// </summary>
 /// <remarks>
-/// 顺序：视图建好、排好 → 孔标注全流程（销钉符号、中心符号线、孔位尺寸、外轮廓、孔标注、销孔标注）→ 圆角标注。
-/// 圆角放最后：文字找空处时孔的尺寸已在位（它躲视图里的线；孔类注解各自的避障不管 R 尺寸）。某一步没成不中断，回执里列出来。
+/// <para>每一步都是一条单独的指令（用户定：拆开后人手工、AI 经 MCP 都能一步步做、中间改；孔标注全流程本身是孔类的，不拆）。
+/// 这里只是按顺序调它们，零件只读一次、主视图沿用刚建的那个。</para>
+/// <para>顺序：视图建齐、排好 → 孔标注全流程（销钉符号、中心符号线、孔位尺寸、外轮廓、孔标注、销孔标注）→ 圆角标注。
+/// 圆角放最后：文字找空处时孔的尺寸已在位（它躲视图里的线；孔类注解各自的避障不管 R 尺寸）。某一步没成不中断，回执里列出来。</para>
 /// </remarks>
 internal static class DrawingAuto
 {
@@ -14,50 +16,48 @@ internal static class DrawingAuto
         Key: "drawing-auto",
         CommandName: StrenuaIdentity.Domain + ".drawing.auto",
         Title: "一键出图",
-        Summary: "新建工程图后接着做孔标注全流程和圆角标注（轴测图跳过，照页面开关），一次出一张基本标好的图，不保存。",
-        Usage: "在 SolidWorks 里打开要出图的零件（或在装配体里选中一个零件）再按：先按「新建工程图」建图摆好视图与技术要求，再对新图全部视图（轴测图跳过）做「孔标注全流程」（销钉符号 → 中心符号线 → 孔位尺寸 → 外轮廓 → 孔标注 → 销孔标注，照「孔」面板的避障、尺寸链开关），最后每个视图做「圆角标注」。某一步没成不中断，最后汇总。新图不保存，请检查、微调后自己保存。",
+        Summary: "依次做新建工程图、投影视图、轴测图、技术要求、排版、孔标注全流程、全图圆角，一次出一张基本标好的图，不保存。",
+        Usage: "在 SolidWorks 里打开要出图的零件（或在装配体里选中一个零件）再按：依次做「新建工程图 → 投影视图 → 轴测图 → 技术要求 → 排版」，再对新图全部视图（轴测图跳过）做「孔标注全流程」（销钉符号 → 中心符号线 → 孔位尺寸 → 外轮廓 → 孔标注 → 销孔标注，照「孔」面板的避障、尺寸链开关），最后「全图圆角」。每一步也都能单独按。某一步没成不中断，最后汇总。新图不保存，请检查、微调后自己保存。",
         Run: Run);
 
     private static QuickOutcome Run(QuickCommandContext context)
     {
-        var created = DrawingCreate.Create(context);
-        if (!created.Outcome.Success || created.Drawing is null)
+        var created = DrawingCreate.Create(context, next: false);
+        if (!created.Outcome.Success || created.Drawing is not { } drawing || created.Main is not { } main || created.Part is not { } part)
             return created.Outcome;
 
         var api = context.Api;
         var lines = new List<string> { created.Outcome.Message };
         var failures = new List<string>();
-
-        context.Report("一键出图：视图已建好，开始孔标注全流程。");
-        var flow = HoleFlow.Run(context);
-        lines.Add(flow.Message);
-        if (!flow.Success)
-            failures.Add("孔标注全流程");
-
-        foreach (var view in HoleScan.SheetViews(api, created.Drawing))
+        void Step(string title, Func<QuickOutcome> run)
         {
             context.Cancellation.ThrowIfCancellationRequested();
-            if (api.Call(view, "IView", "get_ReferencedDocument") is null || HoleScan.Frame(context, view).Axonometric)
-                continue;
-            var name = api.CallString(view, "IView", "get_Name");
-            context.Report($"一键出图：视图「{name}」圆角标注。");
-            QuickOutcome fillet;
+            QuickOutcome outcome;
             try
             {
-                fillet = FilletDimension.Run(context, view);
+                outcome = run();
             }
             catch (QuickCommandException ex)
             {
-                fillet = QuickOutcome.Fail(ex.Message);
+                outcome = QuickOutcome.Fail($"{title}：{ex.Message}");
             }
 
-            lines.Add("[圆角标注] " + fillet.Message);
-            if (!fillet.Success)
-                failures.Add($"视图「{name}」圆角标注");
+            lines.Add(outcome.Message);
+            if (!outcome.Success)
+                failures.Add(title);
         }
 
-        api.Call(created.Drawing, "IModelDoc2", "ClearSelection2", true);
-        api.Call(created.Drawing, "IModelDoc2", "ViewZoomtofit2");
+        DrawingSheet Sheet() => DrawingSheet.Read(context, drawing, "一键出图", main, part);
+        Step("投影视图", () => DrawingProject.Run(context, Sheet()));
+        Step("轴测图", () => DrawingIso.Run(context, Sheet()));
+        Step("技术要求", () => DrawingNote.Run(context, Sheet()));
+        Step("排版", () => DrawingArrange.Run(context, Sheet()));
+        context.Report("一键出图：视图已建好、排好，开始孔标注全流程。");
+        Step("孔标注全流程", () => HoleFlow.Run(context));
+        Step("全图圆角", () => FilletAll.Run(context));
+
+        api.Call(drawing, "IModelDoc2", "ClearSelection2", true);
+        api.Call(drawing, "IModelDoc2", "ViewZoomtofit2");
         var head = "一键出图：" + (failures.Count == 0 ? "新图建好并标完（未保存）。" : $"新图建好（未保存），{failures.Count} 步没成（{string.Join("、", failures)}）。");
         var message = head + Environment.NewLine + string.Join(Environment.NewLine, lines);
         return failures.Count == 0 ? QuickOutcome.Ok(message) : QuickOutcome.Fail(message);

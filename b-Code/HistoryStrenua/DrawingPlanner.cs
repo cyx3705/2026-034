@@ -205,6 +205,48 @@ internal static class DrawingPlanner
             yield return sides.Select(side => side.Alternative ?? side.Slot).ToList();
     }
 
+    /// <summary>
+    /// 在已定的图幅与比例下给「可换边」的投影视图挑边（「投影视图」单独用时）：与 <see cref="ChooseSheet"/> 同一规则——
+    /// 按估计排版，取第一种放得下的摆法；都放不下用首选。
+    /// </summary>
+    public static IReadOnlyList<ViewSlot> ChooseSlots(PartGeometry part, StandardView main, IReadOnlyList<SideView> sides, SheetSpace sheet, double scale, bool chain)
+        => Arrangements(sides).FirstOrDefault(slots => Layout(sheet, Estimate(part, main, slots, scale, chain)).Fits)
+           ?? sides.Select(side => side.Slot).ToList();
+
+    /// <summary>真机读回的视图朝向当成一个「标准视图」用（估大小只要朝向，不要名字）。</summary>
+    public static StandardView ViewOf(ViewFrame frame) => new("actual", [], frame.Normal, frame.SheetX, frame.SheetY);
+
+    /// <summary>
+    /// 图纸上已有的视图摆在主视图哪一边（读现有图纸用：「投影视图」不重复加、「排版」认出谁是左右上下视图）：
+    /// 视线沿主视图图纸 X 的是左 / 右视图、沿图纸 Y 的是上 / 下视图——第一角投影里看零件左侧（视线 −X）的摆右边、
+    /// 看上面（+Y）的摆下边，第三角投影反过来（与 <see cref="SideViews"/> 同一套）。别的朝向（后视、斜的）返回 null。
+    /// </summary>
+    public static ViewSlot? SlotOf(ViewFrame main, ModelDirection normal, bool firstAngle)
+    {
+        var x = normal.Dot(main.SheetX);
+        var y = normal.Dot(main.SheetY);
+        if (x <= -AxisCosine) return firstAngle ? ViewSlot.Right : ViewSlot.Left;
+        if (x >= AxisCosine) return firstAngle ? ViewSlot.Left : ViewSlot.Right;
+        if (y >= AxisCosine) return firstAngle ? ViewSlot.Below : ViewSlot.Above;
+        if (y <= -AxisCosine) return firstAngle ? ViewSlot.Above : ViewSlot.Below;
+        return null;
+    }
+
+    /// <summary>左右视图看的是图纸横向，上下视图看的是竖向。</summary>
+    public static bool Horizontal(ViewSlot slot) => slot is ViewSlot.Right or ViewSlot.Left;
+
+    /// <summary>
+    /// 新加的投影视图贴着主视图放在哪（「投影视图」单独用时，主视图不动）：中间留 <see cref="Gap"/> 与该留的标注空间，
+    /// 与 <see cref="Layout"/> 排出来的间距一样。<paramref name="main"/> 是主视图实际外框。
+    /// </summary>
+    public static SheetPoint Beside(SheetRect main, ViewBox mainBox, ViewSlot slot, ViewBox side) => slot switch
+    {
+        ViewSlot.Right => new SheetPoint(main.Right + Gap + side.MarginLeft + side.Width / 2, main.Center.Y),
+        ViewSlot.Left => new SheetPoint(main.Left - mainBox.MarginLeft - Gap - side.Width / 2, main.Center.Y),
+        ViewSlot.Below => new SheetPoint(main.Center.X, main.Bottom - Gap - side.MarginTop - side.Height / 2),
+        _ => new SheetPoint(main.Center.X, main.Top + mainBox.MarginTop + Gap + side.Height / 2),
+    };
+
     private static string Features(int holes, int windows)
         => string.Join("、", new[] { holes > 0 ? $"孔 {holes} 个" : null, windows > 0 ? $"窗口 {windows} 个" : null }.Where(text => text is not null));
 
@@ -319,42 +361,59 @@ internal static class DrawingPlanner
         if (problem.Length > 0)
             return new LayoutResult(false, mainCenter, centers, null, 1, null, problem);
 
-        // 轴测图：原比例、再往下两档比例（IsoFactors）依次找空地，离「视图组右边那一片的中间、主视图那一行」最近；
-        // 都找不到就用最小那档放到压得最少的地方（轴测图只是看个样子，不为它换大图幅）。
-        var factors = request.IsoFactors ?? [1.0, 0.5];
-        var target = new SheetPoint((occupied.Max(r => r.Right) + frame.Right) / 2, mainY);
-        SheetPoint? iso = null;
-        var shrink = factors[^1];
-        foreach (var factor in factors)
-        {
-            iso = FreeSpot(frame, request.Iso.Width * factor, request.Iso.Height * factor, sheet.KeepOuts.Concat(occupied).ToList(), Gap, target);
-            if (iso is not null)
-            {
-                shrink = factor;
-                break;
-            }
-        }
-
+        // 轴测图：离「视图组右边那一片的中间、主视图那一行」最近的空地（见 IsoSpot）。没有轴测图（宽为 0）就不放。
         var crowded = new List<string>();
-        if (iso is null)
+        SheetPoint? iso = null;
+        var shrink = 1.0;
+        if (request.Iso.Width > 0)
         {
-            iso = LeastCrowded(frame, request.Iso.Width * shrink, request.Iso.Height * shrink, sheet.KeepOuts, occupied, target);
-            crowded.Add("轴测图");
+            var target = new SheetPoint((occupied.Max(r => r.Right) + frame.Right) / 2, mainY);
+            (var center, shrink, var free) = IsoSpot(sheet, occupied, request.Iso, request.IsoFactors ?? [1.0, 0.5], target);
+            iso = center;
+            if (!free)
+                crowded.Add("轴测图");
+            occupied.Add(SheetRect.Around(center, request.Iso.Width * shrink, request.Iso.Height * shrink));
         }
 
-        occupied.Add(SheetRect.Around(iso.Value, request.Iso.Width * shrink, request.Iso.Height * shrink));
-
-        // 技术要求：标题栏正上方靠右 → 左下角 → 任何空地（靠下靠右）→ 都没有就放到压得最少的地方（靠右下）。
-        var note = NoteSpot(sheet, request.NoteWidth, request.NoteHeight, occupied);
-        if (note is null && request.NoteWidth > 0)
+        // 技术要求（见 NotePlace）。没有技术要求（宽为 0）就不放。
+        SheetPoint? note = null;
+        if (request.NoteWidth > 0)
         {
-            var center = LeastCrowded(frame, request.NoteWidth, request.NoteHeight, sheet.KeepOuts, occupied, new SheetPoint(frame.Right, frame.Bottom));
-            note = new SheetPoint(center.X - request.NoteWidth / 2, center.Y + request.NoteHeight / 2);
-            crowded.Add("技术要求");
+            var (topLeft, free) = NotePlace(sheet, request.NoteWidth, request.NoteHeight, occupied);
+            note = topLeft;
+            if (!free)
+                crowded.Add("技术要求");
         }
 
         var crowding = crowded.Count == 0 ? string.Empty : $"{string.Join("、", crowded)}找不到完全空的地方，放在了压得最少处";
         return new LayoutResult(true, mainCenter, centers, iso, shrink, note, crowding);
+    }
+
+    /// <summary>
+    /// 轴测图放哪：原比例、再往下几档（<paramref name="factors"/>，相对图纸比例）依次找空地，离 <paramref name="target"/> 最近；
+    /// 都找不到就用最小那档放到压得最少的地方（轴测图只是看个样子，不为它换大图幅），<c>Free</c> 为 false。
+    /// </summary>
+    public static (SheetPoint Center, double Shrink, bool Free) IsoSpot(SheetSpace sheet, IReadOnlyList<SheetRect> occupied, ViewBox iso,
+        IReadOnlyList<double> factors, SheetPoint target)
+    {
+        var blocked = sheet.KeepOuts.Concat(occupied).ToList();
+        foreach (var factor in factors)
+            if (FreeSpot(sheet.Frame, iso.Width * factor, iso.Height * factor, blocked, Gap, target) is { } spot)
+                return (spot, factor, true);
+        var shrink = factors[^1];
+        return (LeastCrowded(sheet.Frame, iso.Width * shrink, iso.Height * shrink, sheet.KeepOuts, occupied, target), shrink, false);
+    }
+
+    /// <summary>
+    /// 技术要求放哪（返回左上角）：标题栏正上方靠右 → 左下角 → 任何空地（靠下靠右）→ 都没有就放到压得最少的地方（靠右下），<c>Free</c> 为 false。
+    /// </summary>
+    public static (SheetPoint TopLeft, bool Free) NotePlace(SheetSpace sheet, double width, double height, IReadOnlyList<SheetRect> occupied)
+    {
+        if (NoteSpot(sheet, width, height, occupied) is { } spot)
+            return (spot, true);
+        var frame = sheet.Frame;
+        var center = LeastCrowded(frame, width, height, sheet.KeepOuts, occupied, new SheetPoint(frame.Right, frame.Bottom));
+        return (new SheetPoint(center.X - width / 2, center.Y + height / 2), false);
     }
 
     /// <summary>

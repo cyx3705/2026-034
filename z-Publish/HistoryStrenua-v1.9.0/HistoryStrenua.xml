@@ -812,34 +812,52 @@
         <member name="M:HistoryStrenua.DowelSymbol.MarkedCenters(HistoryStrenua.SolidWorks.SolidWorksApi,HistoryStrenua.ScannedView)">
             <summary>视图里已有销钉符号所在的孔心（图纸坐标）。</summary>
         </member>
-        <member name="T:HistoryStrenua.DrawingAuto">
+        <member name="T:HistoryStrenua.DrawingArrange">
             <summary>
-            快捷指令「一键出图」（1.9.0，出图类）：新建工程图（<see cref="T:HistoryStrenua.DrawingCreate"/>）后接着对新图做孔标注全流程（<see cref="T:HistoryStrenua.HoleFlow"/>，
-            照页面开关）和每个视图的圆角标注（<see cref="T:HistoryStrenua.FilletDimension"/>，轴测图跳过）。不保存。
+            快捷指令「排版」（1.9.0，出图类，从「新建工程图」拆出）：当前图纸页按实际大小重新排开——主视图连同左右上下投影视图从图框左上角排起、
+            给尺寸留地方，轴测图进右边的空地，技术要求放标题栏正上方；整页排不下就把图纸比例降一档再排。
             </summary>
             <remarks>
-            顺序：视图建好、排好 → 孔标注全流程（销钉符号、中心符号线、孔位尺寸、外轮廓、孔标注、销孔标注）→ 圆角标注。
-            圆角放最后：文字找空处时孔的尺寸已在位（它躲视图里的线；孔类注解各自的避障不管 R 尺寸）。某一步没成不中断，回执里列出来。
+            <para>谁是主视图、谁摆哪边见 <see cref="T:HistoryStrenua.DrawingSheet"/>；怎么排见 <see cref="M:HistoryStrenua.DrawingPlanner.Layout(HistoryStrenua.SheetSpace,HistoryStrenua.LayoutRequest)"/>。认不出位置的视图（剖视、局部、后视……）
+            原地不动、连同标注空间当障碍躲开。已标的尺寸属于视图，跟着视图走。</para>
+            <para>轴测图先改回跟图纸比例走再量，需要时重新缩（不然反复排版会越缩越小）。</para>
+            </remarks>
+        </member>
+        <member name="T:HistoryStrenua.DrawingAuto">
+            <summary>
+            快捷指令「一键出图」（1.9.0，出图类）：依次跑出图类各步与孔标注全流程——新建工程图 → 投影视图 → 轴测图 → 技术要求 → 排版
+            → 孔标注全流程（<see cref="T:HistoryStrenua.HoleFlow"/>，照页面开关）→ 全图圆角。不保存。
+            </summary>
+            <remarks>
+            <para>每一步都是一条单独的指令（用户定：拆开后人手工、AI 经 MCP 都能一步步做、中间改；孔标注全流程本身是孔类的，不拆）。
+            这里只是按顺序调它们，零件只读一次、主视图沿用刚建的那个。</para>
+            <para>顺序：视图建齐、排好 → 孔标注全流程（销钉符号、中心符号线、孔位尺寸、外轮廓、孔标注、销孔标注）→ 圆角标注。
+            圆角放最后：文字找空处时孔的尺寸已在位（它躲视图里的线；孔类注解各自的避障不管 R 尺寸）。某一步没成不中断，回执里列出来。</para>
             </remarks>
         </member>
         <member name="T:HistoryStrenua.DrawingCreate">
             <summary>
             快捷指令「新建工程图」（1.9.0，出图类）：给当前零件（或装配体里选中的零件）按用户的工程图模板建一张图——
-            选图幅与比例、主视图、看侧面孔与厚度的投影视图、轴测图，技术要求放进图纸，按实际外框排开不重叠。不保存。
+            选图幅与比例、放主视图。不保存。投影视图、轴测图、技术要求、排版各是一条指令（<see cref="T:HistoryStrenua.DrawingProject"/>、<see cref="T:HistoryStrenua.DrawingIso"/>、
+            <see cref="T:HistoryStrenua.DrawingNote"/>、<see cref="T:HistoryStrenua.DrawingArrange"/>），「一键出图」（<see cref="T:HistoryStrenua.DrawingAuto"/>）依次全做。
             </summary>
             <remarks>
             <para>依据是用户 2026-025 台面2机器 15 张手工图的共同做法（DEC-021）：标题栏由模板的属性链接带出（图号、名称、材料、表面处理、
-            热处理、设计、日期、比例），「其余 6.3」与公司名在模板里，所以这里只管视图与技术要求。</para>
-            <para>挑视图、选模板与比例、排版都在 <see cref="T:HistoryStrenua.DrawingPlanner"/>（离线可测）；这里只做 SolidWorks 调用：建图、建视图、
-            量实际外框、插注释、落位。估出来放不下时按实际大小重排，还放不下就把整页比例降一档再排。</para>
+            热处理、设计、日期、比例），「其余 6.3」与公司名在模板里，所以出图类只管视图与技术要求。</para>
+            <para>图幅与比例按整套视图估（主视图、该有的投影视图、轴测图、技术要求都要排得下，<see cref="M:HistoryStrenua.DrawingPlanner.ChooseSheet(HistoryStrenua.PartGeometry,HistoryStrenua.StandardView,System.Collections.Generic.IReadOnlyList{HistoryStrenua.SideView},System.Collections.Generic.IReadOnlyList{HistoryStrenua.DrawingTemplate},System.Boolean)"/>），
+            所以只建主视图时纸看着偏大；主视图放在整套排好时它该在的位置。用户拆开用时（1.9.0 用户定）可以先改主视图、模板或比例再接着按后面几步。</para>
             <para>不保存（PowerSW 不替用户存文件）；SolidWorks 第一次保存时默认文件名就是零件名。</para>
             </remarks>
         </member>
         <member name="T:HistoryStrenua.DrawingCreate.Created">
-            <summary>建图的结论，另带新图（<c>IModelDoc2</c>）给「一键出图」接着用；失败时为 null。</summary>
+            <summary>建图的结论，另带新图（<c>IModelDoc2</c>）、主视图（<c>IView</c>）与零件几何给「一键出图」接着用；失败时为 null。</summary>
         </member>
-        <member name="M:HistoryStrenua.DrawingCreate.Created.#ctor(HistoryStrenua.QuickOutcome,System.Object)">
-            <summary>建图的结论，另带新图（<c>IModelDoc2</c>）给「一键出图」接着用；失败时为 null。</summary>
+        <member name="M:HistoryStrenua.DrawingCreate.Created.#ctor(HistoryStrenua.QuickOutcome,System.Object,System.Object,HistoryStrenua.PartGeometry)">
+            <summary>建图的结论，另带新图（<c>IModelDoc2</c>）、主视图（<c>IView</c>）与零件几何给「一键出图」接着用；失败时为 null。</summary>
+        </member>
+        <member name="M:HistoryStrenua.DrawingCreate.Create(HistoryStrenua.QuickCommandContext,System.Boolean)">
+            <param name="context">快捷指令上下文。</param>
+            <param name="next">回执末尾提示接下来按哪几步（「一键出图」自己接着做，不提示）。</param>
         </member>
         <member name="M:HistoryStrenua.DrawingCreate.ResolvePart(HistoryStrenua.QuickCommandContext)">
             <summary>
@@ -853,50 +871,34 @@
         <member name="M:HistoryStrenua.DrawingCreate.Activate(HistoryStrenua.SolidWorks.SolidWorksApi,System.Object,System.Object)">
             <summary>把新图切成活动窗口（NewDocument 之后活动窗口有时还停在零件上，后面按活动文档干活的步骤会做错图）。</summary>
         </member>
-        <member name="M:HistoryStrenua.DrawingCreate.SetSheetScale(HistoryStrenua.SolidWorks.SolidWorksApi,System.Object,System.Double)">
-            <summary>整页比例（视图默认跟图纸比例走，标题栏的「图纸比例」也读它）。</summary>
+        <member name="T:HistoryStrenua.DrawingIso">
+            <summary>
+            快捷指令「轴测图」（1.9.0，出图类，从「新建工程图」拆出）：当前工程图里从主视图（或选中的视图）斜投影出一个轴测图，
+            放进主视图右边的空地，放不下就缩一两档比例；图纸页上已有轴测图就不再加。
+            </summary>
+            <remarks>
+            用户 15 张手工图每张都有一个从主视图斜投影出来的轴测图（真机：摆在主视图右上方投影出来的就是）。放哪见 <see cref="M:HistoryStrenua.DrawingPlanner.IsoSpot(HistoryStrenua.SheetSpace,System.Collections.Generic.IReadOnlyList{HistoryStrenua.SheetRect},HistoryStrenua.ViewBox,System.Collections.Generic.IReadOnlyList{System.Double},HistoryStrenua.SheetPoint)"/>，
+            只躲现有的视图（连同标注空间）、标题栏等，别的不动；整页重排是「排版」的事。
+            </remarks>
         </member>
-        <member name="M:HistoryStrenua.DrawingCreate.Outline(HistoryStrenua.SolidWorks.SolidWorksApi,System.Object)">
-            <summary>视图外框（图纸坐标，米）。</summary>
+        <member name="T:HistoryStrenua.DrawingNote">
+            <summary>
+            快捷指令「技术要求」（1.9.0，出图类，从「新建工程图」拆出）：把技术要求注释放进当前工程图的图框里，
+            先放标题栏正上方、再左下角、再找空地；图框里已经有了就不再加。
+            </summary>
+            <remarks>
+            内容取模块数据目录的 <see cref="F:HistoryStrenua.DrawingNote.TechnicalNoteFile"/>，没有就用用户手工图上的那 8 条（<see cref="F:HistoryStrenua.DrawingNote.DefaultTechnicalNote"/>）并写出这个文件方便改；
+            字体字高随模板（<c>InsertNote</c> 用文档的注释样式）。放哪见 <see cref="M:HistoryStrenua.DrawingPlanner.NotePlace(HistoryStrenua.SheetSpace,System.Double,System.Double,System.Collections.Generic.IReadOnlyList{HistoryStrenua.SheetRect})"/>，只躲现有的视图与标题栏等，别的不动。
+            </remarks>
         </member>
-        <member name="M:HistoryStrenua.DrawingCreate.Unfold(HistoryStrenua.SolidWorks.SolidWorksApi,System.Object,System.String,System.Double,System.Double)">
-            <summary>选中父视图，在 (x, y) 处投影一个视图（斜着放就是轴测图）。</summary>
-        </member>
-        <member name="F:HistoryStrenua.DrawingCreate.TechnicalNoteFile">
+        <member name="F:HistoryStrenua.DrawingNote.TechnicalNoteFile">
             <summary>技术要求的文件名（模块数据目录里，用户可改，UTF-8）。</summary>
         </member>
-        <member name="F:HistoryStrenua.DrawingCreate.DefaultTechnicalNote">
+        <member name="F:HistoryStrenua.DrawingNote.DefaultTechnicalNote">
             <summary>用户的标准技术要求（2026-025 台面2机器手工图原文，含 SolidWorks 段落格式标记，字体字高随模板）。</summary>
         </member>
-        <member name="M:HistoryStrenua.DrawingCreate.InsertTechnicalNote(HistoryStrenua.QuickCommandContext,System.Object,System.Double,System.Double)">
-            <summary>
-            插技术要求：图框里已经有一条带「技术要求」的注释就不再加（模板备用的那几条摆在图框外，不算）。
-            内容取模块数据目录的 <see cref="F:HistoryStrenua.DrawingCreate.TechnicalNoteFile"/>；没有就用 <see cref="F:HistoryStrenua.DrawingCreate.DefaultTechnicalNote"/> 并顺手写出这个文件，方便用户改。
-            </summary>
-        </member>
-        <member name="M:HistoryStrenua.DrawingCreate.TechnicalNoteText(System.String)">
+        <member name="M:HistoryStrenua.DrawingNote.TechnicalNoteText(System.String)">
             <summary>技术要求的内容与出处说明。</summary>
-        </member>
-        <member name="M:HistoryStrenua.DrawingCreate.SheetAnnotations(HistoryStrenua.SolidWorks.SolidWorksApi,System.Object)">
-            <summary>图纸（含图纸格式）上的注解：名字、占的地方、注释文字（不是注释为空）。注释取它的外框，别的取位置前后 6 mm。</summary>
-        </member>
-        <member name="M:HistoryStrenua.DrawingCreate.DetectSpace(HistoryStrenua.SolidWorks.SolidWorksApi,System.Object,System.Double,System.Double,System.String)">
-            <summary>
-            实际图纸的可用空间：国标估计（<see cref="M:HistoryStrenua.SheetSpace.Standard(System.Double,System.Double)"/>）再加上图框里读到的每个注解（标题栏各格、修改栏、
-            「其余」粗糙度、公司名……），不同模板也躲得开。图框外的（模板备用的技术要求、分区字母）不算；刚插的技术要求不算。
-            </summary>
-        </member>
-        <member name="M:HistoryStrenua.DrawingCreate.Box(HistoryStrenua.QuickCommandContext,HistoryStrenua.PartGeometry,System.Object,System.Boolean,System.Boolean)">
-            <summary>视图在图纸上占多大：实际外框，加左边、上边的标注空间（按这个视图里能看到的孔的种数估）。</summary>
-        </member>
-        <member name="M:HistoryStrenua.DrawingCreate.Arrange(HistoryStrenua.QuickCommandContext,System.Object,System.Object,HistoryStrenua.PartGeometry,System.Object,System.Collections.Generic.IReadOnlyDictionary{HistoryStrenua.ViewSlot,System.Object},System.Object,System.Object,System.Double,System.Double,System.Double@)">
-            <summary>
-            按实际外框排版并落位：排不下就把整页比例降一档再排（视图跟着图纸比例变），降到底还排不下就按最后一次的结果尽量摆。
-            主视图挪了，与它对齐的投影视图跟着走；投影视图只能沿对齐方向挪；轴测图不对齐、随便放，需要时比例缩一档。
-            </summary>
-        </member>
-        <member name="M:HistoryStrenua.DrawingCreate.SetPosition(HistoryStrenua.SolidWorks.SolidWorksApi,System.Object,HistoryStrenua.SheetPoint)">
-            <summary>挪视图：<c>IView.Position</c> 就是外框中心（真机核对过）。</summary>
         </member>
         <member name="T:HistoryStrenua.StandardView">
             <summary>
@@ -1009,6 +1011,31 @@
         <member name="M:HistoryStrenua.DrawingPlanner.Arrangements(System.Collections.Generic.IReadOnlyList{HistoryStrenua.SideView})">
             <summary>投影视图的几种摆法：只有「可换边」的那个有两种。</summary>
         </member>
+        <member name="M:HistoryStrenua.DrawingPlanner.ChooseSlots(HistoryStrenua.PartGeometry,HistoryStrenua.StandardView,System.Collections.Generic.IReadOnlyList{HistoryStrenua.SideView},HistoryStrenua.SheetSpace,System.Double,System.Boolean)">
+            <summary>
+            在已定的图幅与比例下给「可换边」的投影视图挑边（「投影视图」单独用时）：与 <see cref="M:HistoryStrenua.DrawingPlanner.ChooseSheet(HistoryStrenua.PartGeometry,HistoryStrenua.StandardView,System.Collections.Generic.IReadOnlyList{HistoryStrenua.SideView},System.Collections.Generic.IReadOnlyList{HistoryStrenua.DrawingTemplate},System.Boolean)"/> 同一规则——
+            按估计排版，取第一种放得下的摆法；都放不下用首选。
+            </summary>
+        </member>
+        <member name="M:HistoryStrenua.DrawingPlanner.ViewOf(HistoryStrenua.ViewFrame)">
+            <summary>真机读回的视图朝向当成一个「标准视图」用（估大小只要朝向，不要名字）。</summary>
+        </member>
+        <member name="M:HistoryStrenua.DrawingPlanner.SlotOf(HistoryStrenua.ViewFrame,HistoryStrenua.ModelDirection,System.Boolean)">
+            <summary>
+            图纸上已有的视图摆在主视图哪一边（读现有图纸用：「投影视图」不重复加、「排版」认出谁是左右上下视图）：
+            视线沿主视图图纸 X 的是左 / 右视图、沿图纸 Y 的是上 / 下视图——第一角投影里看零件左侧（视线 −X）的摆右边、
+            看上面（+Y）的摆下边，第三角投影反过来（与 <see cref="M:HistoryStrenua.DrawingPlanner.SideViews(HistoryStrenua.PartGeometry,HistoryStrenua.ViewFrame,System.Boolean)"/> 同一套）。别的朝向（后视、斜的）返回 null。
+            </summary>
+        </member>
+        <member name="M:HistoryStrenua.DrawingPlanner.Horizontal(HistoryStrenua.ViewSlot)">
+            <summary>左右视图看的是图纸横向，上下视图看的是竖向。</summary>
+        </member>
+        <member name="M:HistoryStrenua.DrawingPlanner.Beside(HistoryStrenua.SheetRect,HistoryStrenua.ViewBox,HistoryStrenua.ViewSlot,HistoryStrenua.ViewBox)">
+            <summary>
+            新加的投影视图贴着主视图放在哪（「投影视图」单独用时，主视图不动）：中间留 <see cref="F:HistoryStrenua.DrawingPlanner.Gap"/> 与该留的标注空间，
+            与 <see cref="M:HistoryStrenua.DrawingPlanner.Layout(HistoryStrenua.SheetSpace,HistoryStrenua.LayoutRequest)"/> 排出来的间距一样。<paramref name="main"/> 是主视图实际外框。
+            </summary>
+        </member>
         <member name="M:HistoryStrenua.DrawingPlanner.Count(HistoryStrenua.PartGeometry,System.Collections.Generic.IReadOnlyList{HistoryStrenua.PartHole},HistoryStrenua.ModelDirection)">
             <summary>沿某方向的孔、窗口、圆弧面（R1 以上），以及孔口朝正 / 负向各几个。</summary>
         </member>
@@ -1051,6 +1078,17 @@
             <summary>
             排版：主视图连同左右、上下投影视图从图框左上角排起（左边、上边留标注空间），轴测图放进剩下的空地（离主视图右侧最近处），
             放不下就缩成一半；技术要求先试标题栏正上方、再试左下角、再找任何空地。不碰图框外、标题栏等禁区。
+            </summary>
+        </member>
+        <member name="M:HistoryStrenua.DrawingPlanner.IsoSpot(HistoryStrenua.SheetSpace,System.Collections.Generic.IReadOnlyList{HistoryStrenua.SheetRect},HistoryStrenua.ViewBox,System.Collections.Generic.IReadOnlyList{System.Double},HistoryStrenua.SheetPoint)">
+            <summary>
+            轴测图放哪：原比例、再往下几档（<paramref name="factors"/>，相对图纸比例）依次找空地，离 <paramref name="target"/> 最近；
+            都找不到就用最小那档放到压得最少的地方（轴测图只是看个样子，不为它换大图幅），<c>Free</c> 为 false。
+            </summary>
+        </member>
+        <member name="M:HistoryStrenua.DrawingPlanner.NotePlace(HistoryStrenua.SheetSpace,System.Double,System.Double,System.Collections.Generic.IReadOnlyList{HistoryStrenua.SheetRect})">
+            <summary>
+            技术要求放哪（返回左上角）：标题栏正上方靠右 → 左下角 → 任何空地（靠下靠右）→ 都没有就放到压得最少的地方（靠右下），<c>Free</c> 为 false。
             </summary>
         </member>
         <member name="M:HistoryStrenua.DrawingPlanner.LeastCrowded(HistoryStrenua.SheetRect,System.Double,System.Double,System.Collections.Generic.IReadOnlyList{HistoryStrenua.SheetRect},System.Collections.Generic.IReadOnlyList{HistoryStrenua.SheetRect},HistoryStrenua.SheetPoint)">
@@ -1198,6 +1236,104 @@
         <member name="M:HistoryStrenua.SideView.#ctor(HistoryStrenua.ViewSlot,System.String,System.Nullable{HistoryStrenua.ViewSlot})">
             <summary>一个投影视图：摆在主视图哪边、为什么要它；<see cref="P:HistoryStrenua.SideView.Alternative"/> 不为空时也可以摆到那一边（看厚度、只看圆弧的视图）。</summary>
         </member>
+        <member name="T:HistoryStrenua.DrawingProject">
+            <summary>
+            快捷指令「投影视图」（1.9.0，出图类，从「新建工程图」拆出）：当前工程图里从主视图（或选中的视图）投影出看侧面孔、窗口或厚度的视图，
+            已经有视图看着的方向不再加；新视图贴着主视图放，别的不动。
+            </summary>
+            <remarks>
+            要哪几个、摆哪边见 <see cref="M:HistoryStrenua.DrawingPlanner.SideViews(HistoryStrenua.PartGeometry,HistoryStrenua.ViewFrame,System.Boolean)"/>；「可换边」的按当前图幅与比例挑放得下的那边（<see cref="M:HistoryStrenua.DrawingPlanner.ChooseSlots(HistoryStrenua.PartGeometry,HistoryStrenua.StandardView,System.Collections.Generic.IReadOnlyList{HistoryStrenua.SideView},HistoryStrenua.SheetSpace,System.Double,System.Boolean)"/>），
+            与「新建工程图」选图幅时的估计一致。离主视图多远见 <see cref="M:HistoryStrenua.DrawingPlanner.Beside(HistoryStrenua.SheetRect,HistoryStrenua.ViewBox,HistoryStrenua.ViewSlot,HistoryStrenua.ViewBox)"/>。整页重排是「排版」的事。
+            </remarks>
+        </member>
+        <member name="T:HistoryStrenua.SheetNote">
+            <summary>图框里的技术要求注释：<c>INote</c>、它的 <c>IAnnotation</c>（挪位置用）与名字（排版时不把它当障碍）。</summary>
+        </member>
+        <member name="M:HistoryStrenua.SheetNote.#ctor(System.Object,System.Object,System.String)">
+            <summary>图框里的技术要求注释：<c>INote</c>、它的 <c>IAnnotation</c>（挪位置用）与名字（排版时不把它当障碍）。</summary>
+        </member>
+        <member name="T:HistoryStrenua.DrawingSheet">
+            <summary>
+            出图类各步（「投影视图」「轴测图」「技术要求」「排版」，从「新建工程图」拆出）读到的当前图纸页：图纸大小、投影角、比例；
+            主视图与它引用的零件几何；摆在主视图四边的投影视图、轴测图、其他视图；图框里的技术要求。
+            </summary>
+            <remarks>
+            <para>主视图：调用方指定的（选中的视图、「新建工程图」刚建的），否则取图纸页上第一个不是投影 / 辅助 / 剖视 / 局部视图、
+            也不是轴测图的模型视图，再没有就取第一个不是轴测图的视图。</para>
+            <para>其余视图按朝向归位（<see cref="M:HistoryStrenua.DrawingPlanner.SlotOf(HistoryStrenua.ViewFrame,HistoryStrenua.ModelDirection,System.Boolean)"/>）：同一个零件、视线沿主视图图纸 X / Y 的是左右 / 上下视图（每边一个），
+            轴测图取第一个；别的（剖视、局部、后视、别的零件、从别的视图投影出来的、同一边的第二个）归「其他」，排版时原地不动、当障碍躲开。</para>
+            <para>目前只认零件图：主视图引用的是装配体时报错（装配体总图还没做）。</para>
+            </remarks>
+        </member>
+        <member name="M:HistoryStrenua.DrawingSheet.#ctor(System.Object,System.Object,System.Double,System.Double,System.Boolean,System.Double,System.Object,System.String,HistoryStrenua.ViewFrame,HistoryStrenua.PartGeometry,System.Collections.Generic.IReadOnlyDictionary{HistoryStrenua.ViewSlot,System.Object},System.Object,System.Collections.Generic.IReadOnlyList{System.Object},HistoryStrenua.SheetNote)">
+            <summary>
+            出图类各步（「投影视图」「轴测图」「技术要求」「排版」，从「新建工程图」拆出）读到的当前图纸页：图纸大小、投影角、比例；
+            主视图与它引用的零件几何；摆在主视图四边的投影视图、轴测图、其他视图；图框里的技术要求。
+            </summary>
+            <remarks>
+            <para>主视图：调用方指定的（选中的视图、「新建工程图」刚建的），否则取图纸页上第一个不是投影 / 辅助 / 剖视 / 局部视图、
+            也不是轴测图的模型视图，再没有就取第一个不是轴测图的视图。</para>
+            <para>其余视图按朝向归位（<see cref="M:HistoryStrenua.DrawingPlanner.SlotOf(HistoryStrenua.ViewFrame,HistoryStrenua.ModelDirection,System.Boolean)"/>）：同一个零件、视线沿主视图图纸 X / Y 的是左右 / 上下视图（每边一个），
+            轴测图取第一个；别的（剖视、局部、后视、别的零件、从别的视图投影出来的、同一边的第二个）归「其他」，排版时原地不动、当障碍躲开。</para>
+            <para>目前只认零件图：主视图引用的是装配体时报错（装配体总图还没做）。</para>
+            </remarks>
+        </member>
+        <member name="M:HistoryStrenua.DrawingSheet.Read(HistoryStrenua.QuickCommandContext,System.Object,System.String,System.Object,HistoryStrenua.PartGeometry)">
+            <param name="context">快捷指令上下文。</param>
+            <param name="drawing">工程图（<c>IModelDoc2</c>）。</param>
+            <param name="title">指令名，写进进度与失败消息。</param>
+            <param name="main">指定主视图（选中的视图、刚建的主视图）；null 时自动认。</param>
+            <param name="part">主视图零件的几何已经读过就给（「一键出图」逐步调用时不重复读零件）。</param>
+        </member>
+        <member name="M:HistoryStrenua.DrawingSheet.Space(HistoryStrenua.QuickCommandContext,System.String)">
+            <summary>
+            实际图纸能放东西的地方：国标估计（<see cref="M:HistoryStrenua.SheetSpace.Standard(System.Double,System.Double)"/>）再加上图框里读到的每个注解（标题栏各格、修改栏、
+            「其余」粗糙度、公司名……），不同模板也躲得开；图框外的（模板备用的技术要求、分区字母）不算；技术要求本身与
+            <paramref name="exclude"/> 不算。「其他」视图连同标注空间也算禁区（排版不动它们）。
+            </summary>
+        </member>
+        <member name="M:HistoryStrenua.DrawingSheet.Occupied(HistoryStrenua.QuickCommandContext)">
+            <summary>主视图、投影视图现在连同标注空间占的地方，加上轴测图的外框：新加东西找空地时躲开它们（「其他」视图在 <see cref="M:HistoryStrenua.DrawingSheet.Space(HistoryStrenua.QuickCommandContext,System.String)"/> 里）。</summary>
+        </member>
+        <member name="M:HistoryStrenua.DrawingSheet.Box(HistoryStrenua.QuickCommandContext,System.Object,System.Boolean)">
+            <summary>视图在图纸上占多大：实际外框，加左边、上边的标注空间（按这个视图里能看到的孔的种数估）。</summary>
+        </member>
+        <member name="M:HistoryStrenua.DrawingSheet.Name(HistoryStrenua.SolidWorks.SolidWorksApi,System.Object)">
+            <summary>视图名，回执用。</summary>
+        </member>
+        <member name="M:HistoryStrenua.DrawingSheet.Outline(HistoryStrenua.SolidWorks.SolidWorksApi,System.Object)">
+            <summary>视图外框（图纸坐标，米）。</summary>
+        </member>
+        <member name="M:HistoryStrenua.DrawingSheet.SetPosition(HistoryStrenua.SolidWorks.SolidWorksApi,System.Object,HistoryStrenua.SheetPoint)">
+            <summary>挪视图：<c>IView.Position</c> 就是外框中心（真机核对过）。与父视图对齐的投影视图只沿对齐方向动。</summary>
+        </member>
+        <member name="M:HistoryStrenua.DrawingSheet.Unfold(HistoryStrenua.SolidWorks.SolidWorksApi,System.Object,System.String,System.Double,System.Double)">
+            <summary>选中父视图，在 (x, y) 处投影一个视图（斜着放就是轴测图）。</summary>
+        </member>
+        <member name="M:HistoryStrenua.DrawingSheet.SetSheetScale(HistoryStrenua.SolidWorks.SolidWorksApi,System.Object,System.Double)">
+            <summary>整页比例（视图默认跟图纸比例走，标题栏的「图纸比例」也读它）。</summary>
+        </member>
+        <member name="M:HistoryStrenua.DrawingSheet.SheetScale(HistoryStrenua.SolidWorks.SolidWorksApi,System.Object,System.Double)">
+            <summary>图纸页现在的比例（读回的，回执用）。</summary>
+        </member>
+        <member name="M:HistoryStrenua.DrawingSheet.ScaleIso(HistoryStrenua.SolidWorks.SolidWorksApi,System.Object,System.Double,System.Double,System.Collections.Generic.IReadOnlyList{System.Double})">
+            <summary>
+            轴测图比例：<paramref name="shrink"/> 为 1 时跟图纸比例走；小于 1 时用不大于「图纸比例 × shrink」的那档标准比例。
+            返回实际缩成图纸比例的几分之几。
+            </summary>
+        </member>
+        <member name="M:HistoryStrenua.DrawingSheet.NoteSize(HistoryStrenua.SolidWorks.SolidWorksApi,System.Object)">
+            <summary>注释的宽、高（<c>INote.GetExtent</c>）；读不到用用户标准 8 条的估计大小。</summary>
+        </member>
+        <member name="M:HistoryStrenua.DrawingSheet.SlotName(HistoryStrenua.ViewSlot)">
+            <summary>投影视图在主视图哪一边，回执用。</summary>
+        </member>
+        <member name="M:HistoryStrenua.DrawingSheet.Annotations(HistoryStrenua.SolidWorks.SolidWorksApi,System.Object)">
+            <summary>
+            图纸（含图纸格式）上的注解：名字、占的地方、注释文字、<c>IAnnotation</c>，是注释的再带 <c>INote</c>。
+            注释取它的外框，别的取位置前后 6 mm。
+            </summary>
+        </member>
         <member name="T:HistoryStrenua.DrawingSnapshot">
             <summary>
             快捷指令「图纸截图」（1.9.0，检查类）：把当前工程图的当前图纸页整页存成一张 PNG，回执给出文件路径。
@@ -1220,6 +1356,14 @@
             找工程图模板（1.9.0）：SolidWorks「选项 → 文件位置 → 文件模板」里各目录下的 <c>*.drwdot</c>，按文件名认图幅并排好
             （见 <see cref="M:HistoryStrenua.DrawingTemplate.Rank(System.Collections.Generic.IEnumerable{HistoryStrenua.DrawingTemplate})"/>）；一个都认不出时退回 SolidWorks 的默认工程图模板。
             </summary>
+        </member>
+        <member name="T:HistoryStrenua.FilletAll">
+            <summary>
+            快捷指令「全图圆角」（1.9.0，出图类，从「一键出图」拆出）：当前图纸页全部视图（轴测图跳过）逐个做「圆角标注」（<see cref="T:HistoryStrenua.FilletDimension"/>）。
+            </summary>
+            <remarks>
+            不用点视图（AI 经 MCP 调用时点不了视图）。某个视图没成不中断，最后汇总；范围只是当前图纸页，与「孔标注全流程」一样。
+            </remarks>
         </member>
         <member name="T:HistoryStrenua.FilletDimension">
             <summary>
@@ -2186,6 +2330,9 @@
             当前选择里有视图就用它；没有就等用户去点。点在视图里的任何东西（边、尺寸）都算点了这个视图，
             只点在图纸空白处不算。
             </summary>
+        </member>
+        <member name="M:HistoryStrenua.HoleScan.PreselectedView(HistoryStrenua.SolidWorks.SolidWorksApi,System.Object)">
+            <summary>工程图里当前选中的视图（点在视图里的任何东西都算），没选返回 null，不等（出图类「投影视图」「轴测图」用）。</summary>
         </member>
         <member name="M:HistoryStrenua.HoleScan.VisibleComponents(HistoryStrenua.SolidWorks.SolidWorksApi,System.Object,System.Object)">
             <summary>零件视图只有一个「无组件」；装配视图逐个可见组件取边。</summary>

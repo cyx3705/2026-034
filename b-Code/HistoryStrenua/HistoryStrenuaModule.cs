@@ -92,9 +92,9 @@ public sealed class HistoryStrenuaModule : IModuleContextAware
         registry.Register(Internal("describe", "返回 PowerSW 页面描述", _ => Json(StrenuaPage.Describe(runner.Options))));
         registry.Register(Internal("actions", "返回 PowerSW 页面动作声明", _ => Json(StrenuaPage.Actions())));
         registry.Register(Option(StrenuaOption.Clearance, "clearance", "避障",
-            "页面「避障」开关：开着时孔标注、孔位尺寸、销孔标注加完后把压在别的孔相关注解上的文字挪开（默认开）", runner.Options));
+            "页面「避障」开关：" + StrenuaPage.ClearanceSummary, runner.Options));
         registry.Register(Option(StrenuaOption.Chain, "chain", "尺寸链",
-            "页面「尺寸链」开关：开着时孔位尺寸与外轮廓改用 SW 尺寸链（坐标尺寸），每个方向一组、0 点在零件左侧 / 上侧直边（默认关）", runner.Options));
+            "页面「尺寸链」开关：" + StrenuaPage.ChainSummary, runner.Options));
     }
 
     /// <summary>

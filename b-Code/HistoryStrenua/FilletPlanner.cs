@@ -32,6 +32,8 @@ internal sealed record FilletPlan(IReadOnlyList<FilletTarget> Targets, int ArcCo
 /// 技术要求写了「未注圆角R1」，R1 不标。同半径的有 3 段以上时只标一个、前面写「N x 」（与用户「2 x C5」倒角、「8 x M5」孔标注同一写法）。</para>
 /// <para>文字往弧外的空处放：外圆角从圆心往弧中点再往外，内圆角（圆心在零件外）从弧中点往圆心方向。正方向压到视图里的线就左右各转 30°、60°，
 /// 再远一档（8 / 12 / 16 mm），都压就取压得最少的。</para>
+/// <para>1.11.0 归「避障」开关管（用户定：加东西的指令都挂上避障）：开着时除了视图的线，还躲视图里已有注解的线条与文字
+/// （孔标注、孔位尺寸……，一键出图里圆角在孔标注全流程之后）；关着时放在正方向近的一档，只保证在图框里。</para>
 /// </remarks>
 internal static class FilletPlanner
 {
@@ -58,8 +60,10 @@ internal static class FilletPlanner
     /// <param name="dimensioned">已有 R / 直径尺寸连着的弧：图纸上的圆心与半径。</param>
     /// <param name="obstacles">文字不要压的线（视图里的边、标题栏等的边）。</param>
     /// <param name="inside">文字要落在这里面（图框，1.10.0）；null 不限。</param>
+    /// <param name="texts">已有注解的文字框，也要躲（1.11.0）。</param>
+    /// <param name="avoid">「避障」开关（1.11.0）：false 时不躲线和文字，只保证在 <paramref name="inside"/> 里。</param>
     public static FilletPlan Plan(IReadOnlyList<FilletArc> arcs, IReadOnlyList<(SheetPoint Center, double Radius)> dimensioned, IReadOnlyList<SheetSegment> obstacles,
-        SheetRect? inside = null)
+        SheetRect? inside = null, IReadOnlyList<TextBox>? texts = null, bool avoid = true)
     {
         var distinct = new List<FilletArc>();
         foreach (var arc in arcs)
@@ -83,13 +87,15 @@ internal static class FilletPlanner
                 chosen.AddRange(members.Select(arc => (arc, 1)));
         }
 
-        var placed = new List<TextBox>();
+        var lines = avoid ? obstacles : [];
+        var placed = avoid ? new List<TextBox>(texts ?? []) : [];
         var targets = new List<FilletTarget>();
         foreach (var (arc, count) in chosen.OrderByDescending(item => item.Arc.Middle.Y).ThenBy(item => item.Arc.Middle.X))
         {
             var text = (count > 1 ? $"{count} x " : string.Empty) + "R" + Value(arc.ModelRadius);
-            var (at, box) = PlaceText(arc.Middle, Outward(arc), text.Length, obstacles, placed, inside);
-            placed.Add(box);
+            var (at, box) = PlaceText(arc.Middle, Outward(arc), text.Length, lines, placed, inside);
+            if (avoid)
+                placed.Add(box);
             targets.Add(new FilletTarget(arc.Index, at, count));
         }
 

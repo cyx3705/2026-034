@@ -80,8 +80,10 @@ internal static class ChamferPlanner
     /// <param name="dimensioned">这个视图里已有倒角尺寸连着的斜边。</param>
     /// <param name="elsewhere">这一页别的视图里已有倒角尺寸的倒角面（<see cref="ChamferEdge.Key"/>）。</param>
     /// <param name="inside">尺寸文字要落在这里面（图框）；null 不限。</param>
+    /// <param name="texts">已有注解的文字框，也要躲（1.11.0）。</param>
+    /// <param name="avoid">「避障」开关（1.11.0）：false 时不看压不压，按 下 → 右 → 上 → 左 取第一个在图框里的。</param>
     public static ChamferPlan Plan(IReadOnlyList<ChamferEdge> chamfers, IReadOnlyList<SheetSegment> lines, IReadOnlyList<SheetSegment> obstacles,
-        IReadOnlyList<SheetSegment> dimensioned, IReadOnlySet<string> elsewhere, SheetRect? inside = null)
+        IReadOnlyList<SheetSegment> dimensioned, IReadOnlySet<string> elsewhere, SheetRect? inside = null, IReadOnlyList<TextBox>? texts = null, bool avoid = true)
     {
         var distinct = new List<ChamferEdge>();
         foreach (var chamfer in chamfers)
@@ -107,7 +109,8 @@ internal static class ChamferPlanner
         }
 
         var extent = Extent(lines);
-        var placed = new List<TextBox>();
+        var placed = new List<TextBox>(avoid ? texts ?? [] : []);
+        var walls = avoid ? obstacles : [];
         var targets = new List<ChamferTarget>();
         var noLead = 0;
         foreach (var group in groups.OrderByDescending(members => members.Max(chamfer => chamfer.Middle.Y)))
@@ -129,7 +132,7 @@ internal static class ChamferPlanner
             var count = group.Count >= GroupThreshold ? group.Count : 1;
             var target = new ChamferTarget(chosen.Index, [], count, chosen.Equal);
             var text = target.Prefix + Value(chosen.Size.Short);
-            var placements = Place(chosen, corner!.Value, extent, text.Length, obstacles, placed, inside);
+            var placements = Place(chosen, corner!.Value, extent, text.Length, walls, avoid ? placed : [], inside);
             targets.Add(target with { Placements = placements });
         }
 

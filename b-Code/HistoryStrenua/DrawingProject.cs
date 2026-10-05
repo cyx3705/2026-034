@@ -7,6 +7,8 @@ namespace HistoryStrenua;
 /// <remarks>
 /// 要哪几个、摆哪边见 <see cref="DrawingPlanner.SideViews"/>；「可换边」的按当前图幅与比例挑放得下的那边（<see cref="DrawingPlanner.ChooseSlots"/>），
 /// 与「新建工程图」选图幅时的估计一致。离主视图多远见 <see cref="DrawingPlanner.Beside"/>。整页重排是「排版」的事。
+/// 1.11.0 挂上避障（用户定：加东西的指令都挂上）：「避障」开着时，贴着放的位置压到别的视图（连同尺寸空间）、轴测图、图框里的注解
+/// 就往离开主视图的方向让（<see cref="DrawingPlanner.AwayFrom"/>）；关着时照旧贴着放。
 /// </remarks>
 internal static class DrawingProject
 {
@@ -15,7 +17,7 @@ internal static class DrawingProject
         CommandName: StrenuaIdentity.Domain + ".drawing.project",
         Title: "投影视图",
         Summary: "当前工程图：从主视图（或选中的视图）投影出看侧面孔、窗口或厚度的视图，已有的方向不再加，贴着主视图放。",
-        Usage: "在工程图里按（选了视图就从它投影，没选就从主视图）：侧面沿图纸横向有孔或窗口就加左 / 右视图、沿竖向有就加上 / 下视图，摆哪边看孔口朝哪边多（照图纸的第一 / 第三角投影）；都没有就只加一个看厚度的（只有圆弧面时加在圆弧面多的方向）。那个方向已经有视图看着的不再加。新视图贴着主视图放、给尺寸留出地方，别的视图不动；整页重排按「排版」。",
+        Usage: "在工程图里按（选了视图就从它投影，没选就从主视图）：侧面沿图纸横向有孔或窗口就加左 / 右视图、沿竖向有就加上 / 下视图，摆哪边看孔口朝哪边多（照图纸的第一 / 第三角投影）；都没有就只加一个看厚度的（只有圆弧面时加在圆弧面多的方向）。那个方向已经有视图看着的不再加。新视图贴着主视图放、给尺寸留出地方，「避障」开着时压到别的视图、轴测图、注解就往外让，别的视图不动；整页重排按「排版」。",
         Run: Run);
 
     private static QuickOutcome Run(QuickCommandContext context)
@@ -38,6 +40,8 @@ internal static class DrawingProject
         var lines = new List<string>();
         var added = new List<object>();
         var failed = 0;
+        var avoid = context.Options.Clearance;
+        var fixedSpace = avoid ? sheet.Space(context) : null;
         context.SetState("加投影视图");
         for (var i = 0; i < planned.Count; i++)
         {
@@ -69,11 +73,33 @@ internal static class DrawingProject
             }
 
             var box = sheet.Box(context, view, slot: slot);
+            var away = string.Empty;
             if (box.Width > 0)
-                DrawingSheet.SetPosition(api, view, DrawingPlanner.Beside(at, sheet.Box(context, sheet.Main), slot, box));
+            {
+                var beside = DrawingPlanner.Beside(at, sheet.Box(context, sheet.Main), slot, box);
+                var center = beside;
+                if (fixedSpace is not null)
+                {
+                    var blocked = Blocked(context, sheet, fixedSpace, existing);
+                    if (DrawingPlanner.AwayFrom(beside, slot, box, blocked, fixedSpace.Frame) is { } free)
+                    {
+                        center = free;
+                        var distance = Math.Abs(free.X - beside.X) + Math.Abs(free.Y - beside.Y);
+                        if (distance > 1e-9)
+                            away = $"，避障往外让了 {distance * 1000:0.#} mm";
+                    }
+                    else
+                    {
+                        away = "，往外让到图框边还压着别的，贴着主视图放";
+                    }
+                }
+
+                DrawingSheet.SetPosition(api, view, center);
+            }
+
             existing[slot] = view;
             added.Add(view);
-            lines.Add($"· {DrawingSheet.SlotName(slot)}「{DrawingSheet.Name(api, view)}」：{reason}。");
+            lines.Add($"· {DrawingSheet.SlotName(slot)}「{DrawingSheet.Name(api, view)}」：{reason}{away}。");
         }
 
         api.Call(sheet.Drawing, "IModelDoc2", "EditRebuild3");
@@ -93,5 +119,20 @@ internal static class DrawingProject
               + (failed > 0 ? $"，{failed} 个 SolidWorks 没有投影出来" : string.Empty) + "。";
         var message = head + Environment.NewLine + string.Join(Environment.NewLine, lines);
         return failed > 0 ? QuickOutcome.Fail(message) : QuickOutcome.Ok(message);
+    }
+
+    /// <summary>
+    /// 新投影视图要躲的（1.11.0 避障）：标题栏、图框里的注解、「其他」视图连同尺寸空间（都在 <paramref name="space"/> 里），
+    /// 加上已有的别的投影视图连同尺寸空间、轴测图。主视图不算——新视图本来就往离开它的方向挪。
+    /// </summary>
+    private static List<SheetRect> Blocked(QuickCommandContext context, DrawingSheet sheet, SheetSpace space, IReadOnlyDictionary<ViewSlot, object> sides)
+    {
+        var api = context.Api;
+        var blocked = new List<SheetRect>(space.KeepOuts);
+        foreach (var (slot, view) in sides)
+            blocked.AddRange(DrawingPlanner.Occupied(DrawingSheet.Outline(api, view).Center, sheet.Box(context, view, slot: slot)));
+        if (sheet.Iso is not null)
+            blocked.Add(DrawingSheet.Outline(api, sheet.Iso));
+        return blocked;
     }
 }

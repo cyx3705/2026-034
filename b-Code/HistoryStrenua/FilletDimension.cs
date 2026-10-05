@@ -17,7 +17,7 @@ internal static class FilletDimension
         CommandName: StrenuaIdentity.Domain + ".drawing.fillet",
         Title: "圆角标注",
         Summary: "点一个工程图视图，给视图里的圆角弧各加一个 R 尺寸（R1 按技术要求不标，同半径 3 个以上合标 N x R），已标的跳过。",
-        Usage: "在工程图里点一个视图（先点后按、先按后点都行，60 秒内），该视图里正对图纸的圆角（外圆角、内圆角、凹弧）每个加一个 R 尺寸，文字放在零件外的空处、尽量不压线；R1 不标（技术要求「未注圆角R1」），同一半径有 3 个以上时只标一个并写「N x R」；已有 R 或直径尺寸的跳过。孔和腰型孔不算圆角。",
+        Usage: "在工程图里点一个视图（先点后按、先按后点都行，60 秒内），该视图里正对图纸的圆角（外圆角、内圆角、凹弧）每个加一个 R 尺寸，文字放在零件外的空处（「避障」开着时尽量不压线、不压已有标注，关着时放在弧外正方向）；R1 不标（技术要求「未注圆角R1」），同一半径有 3 个以上时只标一个并写「N x R」；已有 R 或直径尺寸的跳过。孔和腰型孔不算圆角。",
         Run: context => Run(context, null));
 
     // swDimensionType_e
@@ -37,8 +37,12 @@ internal static class FilletDimension
         if (scan.Arcs.Count == 0)
             return QuickOutcome.Ok($"视图「{viewName}」里没有正对图纸的圆角，没有加 R 尺寸。");
 
-        var plan = FilletPlanner.Plan(scan.Arcs, Dimensioned(api, scan), scan.Lines.Concat(scan.CurveSegments).Concat(DrawingSheet.FrameLines(api, document)).ToList(),
-            DrawingSheet.FrameRect(api, document));
+        // 1.11.0「避障」开着时连视图里已有注解的线与文字一起躲。
+        var avoid = context.Options.Clearance;
+        var annotations = avoid ? Clearance.ViewObstacles(api, scan.View) : Obstacles.Empty;
+        var plan = FilletPlanner.Plan(scan.Arcs, Dimensioned(api, scan),
+            scan.Lines.Concat(scan.CurveSegments).Concat(DrawingSheet.FrameLines(api, document)).Concat(annotations.Lines).ToList(),
+            DrawingSheet.FrameRect(api, document), annotations.Texts, avoid);
         var skipped = (plan.DefaultCount > 0 ? $"，{plan.DefaultCount} 个是 R1（技术要求未注圆角 R1）不标" : string.Empty)
             + (plan.Dimensioned > 0 ? $"，{plan.Dimensioned} 个已有尺寸跳过" : string.Empty);
         if (plan.Targets.Count == 0)

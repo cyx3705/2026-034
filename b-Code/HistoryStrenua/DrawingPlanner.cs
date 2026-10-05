@@ -455,6 +455,46 @@ internal static class DrawingPlanner
     }
 
     /// <summary>
+    /// 技术要求的默认位置（「避障」关，1.11.0）：标题栏正上方靠右，不看压不压别的（返回左上角）。
+    /// </summary>
+    public static SheetPoint NoteDefault(SheetSpace sheet, double width, double height)
+    {
+        var title = sheet.TitleBlock;
+        return new SheetPoint(title.Right - Gap - width, title.Top + Gap + height);
+    }
+
+    /// <summary>投影视图往外让一步挪多远（图纸 2.5 mm，与找空地的网格一样）。</summary>
+    public const double AwayStep = 0.0025;
+
+    /// <summary>
+    /// 投影视图让开（「避障」开，1.11.0）：贴着主视图的位置 <paramref name="start"/> 连同标注空间压到 <paramref name="blocked"/>
+    /// （别的视图连同尺寸空间、轴测图、图框里的注解、标题栏）就沿离开主视图的方向一步 <see cref="AwayStep"/> 往外挪，挪到不压为止。
+    /// 本来不压返回 <paramref name="start"/>；挪到出了 <paramref name="frame"/> 还压返回 null（调用方原地不动、回执里说）。
+    /// </summary>
+    public static SheetPoint? AwayFrom(SheetPoint start, ViewSlot slot, ViewBox box, IReadOnlyList<SheetRect> blocked, SheetRect frame)
+    {
+        var (dx, dy) = slot switch
+        {
+            ViewSlot.Right => (1.0, 0.0),
+            ViewSlot.Left => (-1.0, 0.0),
+            ViewSlot.Below => (0.0, -1.0),
+            _ => (0.0, 1.0),
+        };
+        for (var step = 0; step <= 400; step++)
+        {
+            var center = new SheetPoint(start.X + dx * step * AwayStep, start.Y + dy * step * AwayStep);
+            var rects = Occupied(center, box);
+            if (!rects.Any(rect => blocked.Any(rect.Overlaps)))
+                return center;
+            var whole = new SheetRect(rects.Min(r => r.Left), rects.Min(r => r.Bottom), rects.Max(r => r.Right), rects.Max(r => r.Top));
+            if (step > 0 && !whole.Within(frame))
+                return null;
+        }
+
+        return null;
+    }
+
+    /// <summary>
     /// 找不到空地时的退路：网格上每个位置算它与视图（含标注空间）、禁区重叠的面积（禁区算 4 倍），取最小的，一样小取离 <paramref name="target"/> 近的。
     /// </summary>
     internal static SheetPoint LeastCrowded(SheetRect frame, double width, double height, IReadOnlyList<SheetRect> keepOuts, IReadOnlyList<SheetRect> occupied, SheetPoint target)

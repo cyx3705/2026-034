@@ -10,8 +10,8 @@ var tests = new (string Name, Action Run)[]
     ("page owner follows domain", TestPageOwner),
     ("buttons, actions and commands line up", TestPageWiring),
     ("list rows", TestListRows),
-    ("toolbar: float, drag area, class, cancel", TestToolbar),
-    ("class panels: buttons and switches", TestClassPanels),
+    ("toolbar: float, drag area, class, cancel; switches for every class", TestToolbar),
+    ("class panels: buttons only", TestClassPanels),
     ("options: defaults, persistence, commands", TestOptions),
     ("cancel when idle", TestCancelWhenIdle),
     ("concentric edges are one hole", TestConcentricMerge),
@@ -71,6 +71,7 @@ var tests = new (string Name, Action Run)[]
     ("chamfer: which chamfers, grouping, which leg and where", TestChamferPlan),
     ("chamfer: side views and margins", TestChamferViews),
     ("fillet: which arcs, grouping and text side", TestFilletPlan),
+    ("clearance switch: fillet, chamfer, note, side views", TestClearanceSwitch),
     ("snapshot: file name", TestSnapshotName),
 };
 
@@ -228,11 +229,22 @@ static void TestListRows()
 
 static void TestToolbar()
 {
-    using var description = JsonDocument.Parse(StrenuaPage.Describe(new StrenuaOptions()));
+    var options = new StrenuaOptions();
+    options.Set(StrenuaOption.Clearance, false);
+    options.Set(StrenuaOption.Chain, true);
+    using var description = JsonDocument.Parse(StrenuaPage.Describe(options));
     var panel = Descendants(description.RootElement)
         .First(node => node.TryGetProperty("id", out var id) && id.GetString() == StrenuaPage.PanelId);
     var rows = panel.GetProperty("rows").EnumerateArray().ToList();
-    Equal(1, rows.Count);
+    // 1.11.0：开关从「孔」面板挪到工具条第二行，切到哪一类都在（用户定）；初值取当前设置。
+    Equal(2, rows.Count);
+    var switches = rows[1].GetProperty("widgets").EnumerateArray().ToList();
+    Equal("避障,尺寸链", string.Join(",", switches.Select(w => w.GetProperty("label").GetString())));
+    True(switches.All(w => w.GetProperty("kind").GetString() == "switch"), "第二行应全是开关");
+    Equal(StrenuaPage.ClearanceActionId, switches[0].GetProperty("action").GetString()!);
+    Equal(StrenuaPage.ChainActionId, switches[1].GetProperty("action").GetString()!);
+    Equal("false", switches[0].GetProperty("value").GetString()!);
+    Equal("true", switches[1].GetProperty("value").GetString()!);
     var widgets = rows[0].GetProperty("widgets").EnumerateArray().ToList();
     Equal(4, widgets.Count);
     Equal(StrenuaPage.FloatActionId, widgets[0].GetProperty("action").GetString()!);
@@ -248,10 +260,7 @@ static void TestToolbar()
 
 static void TestClassPanels()
 {
-    var options = new StrenuaOptions();
-    options.Set(StrenuaOption.Clearance, false);
-    options.Set(StrenuaOption.Chain, true);
-    using var description = JsonDocument.Parse(StrenuaPage.Describe(options));
+    using var description = JsonDocument.Parse(StrenuaPage.Describe(new StrenuaOptions()));
     var container = Descendants(description.RootElement)
         .First(node => node.TryGetProperty("id", out var id) && id.GetString() == StrenuaPage.ClassSwitchId);
     Equal("switch", container.GetProperty("type").GetString()!);
@@ -265,7 +274,7 @@ static void TestClassPanels()
     var rows = hole.GetProperty("rows").EnumerateArray().ToList();
     var holeTitles = QuickCommands.All.Where(c => c.CommandClass == "hole").Select(c => c.Title).ToList();
     var buttonRows = (holeTitles.Count + StrenuaPage.ButtonsPerRow - 1) / StrenuaPage.ButtonsPerRow;
-    Equal(buttonRows + 1, rows.Count);
+    Equal(buttonRows, rows.Count);
     var buttons = rows.Take(buttonRows).SelectMany(row => row.GetProperty("widgets").EnumerateArray()).ToList();
     True(rows.Take(buttonRows).All(row => row.GetProperty("widgets").GetArrayLength() <= StrenuaPage.ButtonsPerRow), "一行最多 4 个按钮");
     Equal(string.Join(",", holeTitles), string.Join(",", buttons.Select(button => button.GetProperty("text").GetString())));
@@ -274,19 +283,17 @@ static void TestClassPanels()
     Equal("检查", check.GetProperty("case").GetString()!);
     Equal(1, check.GetProperty("rows").GetArrayLength());
     Equal("未标尺寸,图纸截图", string.Join(",", check.GetProperty("rows")[0].GetProperty("widgets").EnumerateArray().Select(w => w.GetProperty("text").GetString())));
-    // 1.9.0 出图类：一键出图与它拆出的各步（用户定），1.10.0 加全图倒角、倒角标注，三行按钮，没有开关（照「孔」面板的开关走）。
+    // 1.9.0 出图类：一键出图与它拆出的各步（用户定），1.10.0 加全图倒角、倒角标注，三行按钮；开关在工具条上（1.11.0）。
     var drawing = branches.Single(branch => branch.GetProperty("id").GetString() == StrenuaPage.ClassPanelId("drawing"));
     Equal("出图", drawing.GetProperty("case").GetString()!);
     Equal(3, drawing.GetProperty("rows").GetArrayLength());
     Equal("一键出图,新建工程图,投影视图,轴测图|技术要求,排版,全图圆角,全图倒角|圆角标注,倒角标注", string.Join("|", drawing.GetProperty("rows").EnumerateArray()
         .Select(row => string.Join(",", row.GetProperty("widgets").EnumerateArray().Select(w => w.GetProperty("text").GetString())))));
     Equal("孔,出图,检查", string.Join(",", StrenuaPage.ClassOptions(QuickCommands.All)));
-    // 开关在按钮下面，初值取当前设置。
-    var switches = rows[buttonRows].GetProperty("widgets").EnumerateArray().ToList();
-    Equal("避障,尺寸链", string.Join(",", switches.Select(w => w.GetProperty("label").GetString())));
-    True(switches.All(w => w.GetProperty("kind").GetString() == "switch"), "第二行应全是开关");
-    Equal("false", switches[0].GetProperty("value").GetString()!);
-    Equal("true", switches[1].GetProperty("value").GetString()!);
+    // 类面板里只有按钮，没有开关（1.11.0 开关挪到工具条）。
+    True(branches.SelectMany(branch => branch.GetProperty("rows").EnumerateArray())
+        .SelectMany(row => row.GetProperty("widgets").EnumerateArray())
+        .All(w => w.GetProperty("kind").GetString() == "button"), "类面板里应只有按钮");
 }
 
 static void TestOptions()
@@ -1726,6 +1733,59 @@ static void TestFilletPlan()
     True(!ClearancePlanner.Hits(box, new SheetSegment(0.110, 0.090, 0.110, 0.110)), "R 文字不压线");
     Equal("5", FilletPlanner.Value(0.005));
     Equal("5.5", FilletPlanner.Value(0.0055));
+}
+
+static void TestClearanceSwitch()
+{
+    static double M(double mm) => mm / 1000;
+
+    // 圆角：正方向第一档（弧中点外 8 mm）压着一段已有注解的文字（1.11.0 躲已有注解）——开着就转开，关着就放在那儿。
+    var arc = new FilletArc(0, new SheetPoint(0.100, 0.100), 0.002, 0.004, new SheetPoint(0.102, 0.100), false);
+    var defaultAt = FilletPlanner.Plan([arc], [], [], avoid: false).Targets[0].TextAt;
+    Near(0.110, defaultAt.X);
+    Near(0.100, defaultAt.Y);
+    var callout = new TextBox(0.106, 0.099, 0.010, 0.0035);
+    var avoided = FilletPlanner.Plan([arc], [], [], texts: [callout]).Targets[0].TextAt;
+    var box = new TextBox(avoided.X - 0.0026, avoided.Y - 0.00175, 0.0052, 0.0035);
+    True(!ClearancePlanner.Hits(box, callout), "避障开：R 文字不压已有注解的字");
+    // 关着时线也不躲（与 TestFilletPlan「正方向压线就转开」同一条线）。
+    var wall = new SheetSegment(0.110, 0.090, 0.110, 0.110);
+    Equal(defaultAt, FilletPlanner.Plan([arc], [], [wall], texts: [callout], avoid: false).Targets[0].TextAt);
+
+    // 倒角：下边那个位置压着已有注解的字——开着换到右边，关着照「下 → 右」的先后留在下边。
+    SheetSegment S(double x1, double y1, double x2, double y2) => new(M(x1), M(y1), M(x2), M(y2));
+    var chamferLine = S(15, 0, 20, 5);
+    var lines = new List<SheetSegment> { S(0, 0, 0, 30), S(20, 5, 20, 30), S(0, 30, 20, 30), S(0, 0, 15, 0), chamferLine };
+    var chamfers = new List<ChamferEdge> { new(0, chamferLine, M(5), M(5), "B") };
+    var none = new HashSet<string>();
+    var note = new TextBox(M(10), M(-7), M(20), M(4));
+    var on = ChamferPlanner.Plan(chamfers, lines, lines, [], none, texts: [note]).Targets[0].Placements[0];
+    Equal(PositionAxis.Vertical, on.Axis);
+    var off = ChamferPlanner.Plan(chamfers, lines, lines, [], none, texts: [note], avoid: false).Targets[0].Placements[0];
+    Equal(PositionAxis.Horizontal, off.Axis);
+
+    // 技术要求关着避障：直接放标题栏正上方靠右（左上角定位）。
+    var a3 = SheetSpace.Standard(0.420, 0.297);
+    var topLeft = DrawingPlanner.NoteDefault(a3, 0.101, 0.042);
+    Near(a3.TitleBlock.Right - DrawingPlanner.Gap - 0.101, topLeft.X);
+    Near(a3.TitleBlock.Top + DrawingPlanner.Gap + 0.042, topLeft.Y);
+
+    // 投影视图让开：不压原地不动；压着「其他」视图就往离开主视图的方向挪到不压；挪出图框还压返回 null。
+    var side = new ViewBox(0.040, 0.060, 0.010, 0.010);
+    var start = new SheetPoint(0.250, 0.180);
+    Equal(start, DrawingPlanner.AwayFrom(start, ViewSlot.Right, side, [], a3.Frame)!.Value);
+    var other = new SheetRect(0.255, 0.150, 0.275, 0.170);
+    var moved = DrawingPlanner.AwayFrom(start, ViewSlot.Right, side, [other], a3.Frame)!.Value;
+    True(moved.X > start.X && Math.Abs(moved.Y - start.Y) < 1e-12, "右视图往右让");
+    True(!DrawingPlanner.Occupied(moved, side).Any(other.Overlaps), "让开后不再压");
+    True(DrawingPlanner.Occupied(new SheetPoint(moved.X - DrawingPlanner.AwayStep, moved.Y), side).Any(other.Overlaps), "只让到刚好不压");
+    var wallToEdge = new SheetRect(0.200, 0.100, 0.420, 0.300);
+    True(DrawingPlanner.AwayFrom(start, ViewSlot.Right, side, [wallToEdge], a3.Frame) is null, "让到图框边还压返回 null");
+    var below = DrawingPlanner.AwayFrom(start, ViewSlot.Below, side, [new SheetRect(0.240, 0.140, 0.260, 0.160)], a3.Frame)!.Value;
+    True(below.Y < start.Y && Math.Abs(below.X - start.X) < 1e-12, "下视图往下让");
+
+    // 开关说明里写到出图类（页面动作与指令自描述共用一句）。
+    True(StrenuaPage.ClearanceSummary.Contains("圆角") && StrenuaPage.ClearanceSummary.Contains("外轮廓"), "避障开关说明要写到出图类与外轮廓");
 }
 
 static void TestDrawingSlotOf()

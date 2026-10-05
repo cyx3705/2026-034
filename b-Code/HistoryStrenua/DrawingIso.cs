@@ -6,7 +6,7 @@ namespace HistoryStrenua;
 /// </summary>
 /// <remarks>
 /// 用户 15 张手工图每张都有一个从主视图斜投影出来的轴测图（真机：摆在主视图右上方投影出来的就是）。放哪见 <see cref="DrawingPlanner.IsoSpot"/>，
-/// 只躲现有的视图（连同标注空间）、标题栏等，别的不动；整页重排是「排版」的事。
+/// 只躲现有的视图（连同标注空间）、标题栏等，别的不动；整页重排是「排版」的事。「避障」关着时（1.11.0）不找空地也不缩，原比例放在主视图那一行右边。
 /// </remarks>
 internal static class DrawingIso
 {
@@ -15,7 +15,7 @@ internal static class DrawingIso
         CommandName: StrenuaIdentity.Domain + ".drawing.iso",
         Title: "轴测图",
         Summary: "当前工程图：从主视图（或选中的视图）斜投影出一个轴测图，放进右边的空地（放不下缩一两档比例），已有就不再加。",
-        Usage: "在工程图里按（选了视图就从它投影，没选就从主视图）：从主视图右上方斜投影出一个轴测图，放到离主视图那一行最近的空地，躲开现有视图连同它们的尺寸空间、标题栏等；原比例放不下就缩一档、两档（如 1:2 → 1:3 → 1:5）。图纸页上已有轴测图就不再加。别的视图不动；整页重排按「排版」。",
+        Usage: "在工程图里按（选了视图就从它投影，没选就从主视图）：从主视图右上方斜投影出一个轴测图，放到离主视图那一行最近的空地，躲开现有视图连同它们的尺寸空间、标题栏等；原比例放不下就缩一档、两档（如 1:2 → 1:3 → 1:5）。「避障」关着时不找空地、不缩，原比例放在主视图那一行右边。图纸页上已有轴测图就不再加。别的视图不动；整页重排按「排版」。",
         Run: Run);
 
     private static QuickOutcome Run(QuickCommandContext context)
@@ -46,14 +46,18 @@ internal static class DrawingIso
         var occupied = sheet.Occupied(context);
         var space = sheet.Space(context);
         var target = new SheetPoint((occupied.Max(rect => rect.Right) + space.Frame.Right) / 2, at.Center.Y);
-        var (center, shrink, free) = DrawingPlanner.IsoSpot(space, occupied, sheet.Box(context, iso, annotations: false),
-            DrawingPlanner.IsoFactors(sheet.Part, sheet.Scale), target);
+        var factors = DrawingPlanner.IsoFactors(sheet.Part, sheet.Scale);
+        // 1.11.0「避障」关着时不找空地、不缩：原比例放在主视图那一行右边的空处中间（找空地时的目标点）。
+        var avoid = context.Options.Clearance;
+        var (center, shrink, free) = avoid
+            ? DrawingPlanner.IsoSpot(space, occupied, sheet.Box(context, iso, annotations: false), factors, target)
+            : (target, factors[0], true);
         var factor = DrawingSheet.ScaleIso(api, iso, sheet.Scale, shrink, DrawingPlanner.Scales(sheet.Part));
         DrawingSheet.SetPosition(api, iso, center);
         api.Call(sheet.Drawing, "IModelDoc2", "EditRebuild3");
         api.Call(sheet.Drawing, "IModelDoc2", "ClearSelection2", true);
 
-        var message = $"轴测图：从视图「{sheet.MainName}」斜投影出「{name}」，放在空地上"
+        var message = $"轴测图：从视图「{sheet.MainName}」斜投影出「{name}」，" + (avoid ? "放在空地上" : "放在主视图那一行右边（避障关，没有找空地）")
             + (factor < 1 ? $"，比例缩成 {DrawingPlanner.ScaleText(sheet.Scale * factor)}" : string.Empty) + "。"
             + (free ? string.Empty : " 图上没有完全空的地方，放在了压得最少处，可按「排版」整页重排。")
             + (axonometric ? string.Empty : " 斜着投影出来的不是轴测图，照样留着。");

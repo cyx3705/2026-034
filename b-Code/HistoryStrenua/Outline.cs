@@ -13,6 +13,8 @@ namespace HistoryStrenua;
 /// <para>1.8.1 跨视图不重复（用户定：高度在视图 a 标了就别在视图 b 再标）：这一页别的视图（同一模型、不是轴测图）里已有的尺寸
 /// 已经定了的站不标，本视图里这样的旧外轮廓尺寸重标时删掉（判法见 <see cref="OutlineCoverage"/>）。全流程按视图顺序做，
 /// 所以排在前面的视图先标、后面的只补前面没有的。</para>
+/// <para>1.11.0 挂上避障（用户定：加东西的指令都挂上）：普通模式加完后，「避障」开着就把这一轮新加的外轮廓尺寸里数字压在孔相关注解
+/// 或别的线性尺寸上的沿尺寸线滑开（<see cref="Clearance.ClearOutline"/>）。尺寸链模式是坐标尺寸，SolidWorks 自己折弯排开，不挪。</para>
 /// </remarks>
 internal static class Outline
 {
@@ -21,7 +23,7 @@ internal static class Outline
         CommandName: StrenuaIdentity.Domain + ".hole.outline",
         Title: "外轮廓",
         Summary: "点一个工程图视图，以零件左侧、上侧直边为基准标出外轮廓每个台阶的位置（含总长总宽），照「尺寸链」开关出线性或坐标尺寸。",
-        Usage: "在工程图里点一个视图（先点后按、先按后点都行，60 秒内）。外轮廓上每条竖直边、水平边各算一站（开口槽、台阶都算，封闭型腔与孔不算，斜边圆弧不标），以零件最左、最上的直边为基准：「尺寸链」关时删掉旧外轮廓尺寸后每站一个尺寸，排在已有尺寸外面；「尺寸链」开时把还没有的站加进孔的那组坐标尺寸（没有就新建一组）。这一页别的视图已经标过的（如高度）不再重复标。",
+        Usage: "在工程图里点一个视图（先点后按、先按后点都行，60 秒内）。外轮廓上每条竖直边、水平边各算一站（开口槽、台阶都算，封闭型腔与孔不算，斜边圆弧不标），以零件最左、最上的直边为基准：「尺寸链」关时删掉旧外轮廓尺寸后每站一个尺寸，排在已有尺寸外面；「尺寸链」开时把还没有的站加进孔的那组坐标尺寸（没有就新建一组）。这一页别的视图已经标过的（如高度）不再重复标。「避障」开着时，新加尺寸的数字压在别的尺寸、孔标注、中心符号线上就沿尺寸线滑开。",
         Run: context => Run(context, null));
 
     /// <param name="context">快捷指令上下文。</param>
@@ -63,6 +65,7 @@ internal static class Outline
         var present = 0;
         var removed = 0;
         var failed = 0;
+        var clearance = default(ClearanceResult);
         try
         {
             // 两种模式都先删旧的外轮廓线性尺寸（来回切换不留另一种的）；普通模式连尺寸链模式加的外轮廓坐标尺寸一起删。
@@ -108,6 +111,7 @@ internal static class Outline
             else
             {
                 var (firstHorizontal, firstVertical) = FirstTiers(api, scan, left, top);
+                var before = DimensionNames(api, scan);
                 foreach (var dimension in OutlinePlanner.Dimensions(stations, left, top, firstHorizontal, firstVertical))
                 {
                     context.Cancellation.ThrowIfCancellationRequested();
@@ -117,6 +121,14 @@ internal static class Outline
                         added++;
                     else
                         failed++;
+                }
+
+                if (context.Options.Clearance && added > 0)
+                {
+                    context.SetState("避障");
+                    var fresh = DimensionNames(api, scan);
+                    fresh.ExceptWith(before);
+                    clearance = Clearance.ClearOutline(context, scan, HoleCalloutPlanner.Recognize(scan.Candidates), fresh);
                 }
             }
         }
@@ -133,6 +145,7 @@ internal static class Outline
                 : $"新加 {added} 个")
             + (removed > 0 ? $"（先删掉旧外轮廓尺寸 {removed} 个）" : string.Empty)
             + (failed > 0 ? $"，{failed} 个 SolidWorks 没有接受" : string.Empty)
+            + clearance.Describe("尺寸数字")
             + "。";
         return added == 0 && failed > 0 ? QuickOutcome.Fail(message) : QuickOutcome.Ok(message);
     }
@@ -207,6 +220,10 @@ internal static class Outline
 
         return coverage;
     }
+
+    /// <summary>视图里现有尺寸（注解）的名字：加之前、加之后各读一次，差就是这一轮新加的。</summary>
+    private static HashSet<string> DimensionNames(SolidWorksApi api, ScannedView scan)
+        => DimensionScan.Read(api, scan).Select(item => api.CallString(item.Annotation, "IAnnotation", "GetName")).ToHashSet(StringComparer.Ordinal);
 
     /// <summary>选基准边与站的那条边，按方向加水平 / 竖直尺寸；建出来的不是线性尺寸就删掉。</summary>
     private static bool Insert(SolidWorksApi api, ScannedView scan, object datumEdge, object edge, PositionAxis axis, SheetPoint textAt)

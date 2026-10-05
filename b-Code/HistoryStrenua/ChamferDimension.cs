@@ -20,7 +20,7 @@ internal static class ChamferDimension
         CommandName: StrenuaIdentity.Domain + ".drawing.chamfer",
         Title: "倒角标注",
         Summary: "点一个工程图视图，给侧着看成斜线的倒角标线性尺寸写「C5」（C1 按技术要求不标，同尺寸 2 个以上合标 N x C5），已标的跳过。",
-        Usage: "在工程图里点一个视图（先点后按、先按后点都行，60 秒内）：视图里侧着看成斜线的倒角（倒角特征做的平面倒角）每种尺寸标一个线性尺寸，量它的一条直角边、文字写「C5」，同一尺寸有 2 个以上时写「N x C5」，标靠右的那个；尺寸放在倒角那一侧的视图外，先下边、右边（孔位与外轮廓尺寸在上边、左边），出图框就换一边；不等边的倒角两条直角边各标一个。C1 不标（技术要求「未注倒角C1」）。这个视图里已标过的尺寸、这一页别的视图已标过的同一个倒角都跳过。轴端的锥面倒角暂不认。",
+        Usage: "在工程图里点一个视图（先点后按、先按后点都行，60 秒内）：视图里侧着看成斜线的倒角（倒角特征做的平面倒角）每种尺寸标一个线性尺寸，量它的一条直角边、文字写「C5」，同一尺寸有 2 个以上时写「N x C5」，标靠右的那个；尺寸放在倒角那一侧的视图外，先下边、右边（孔位与外轮廓尺寸在上边、左边），出图框就换一边；不等边的倒角两条直角边各标一个。C1 不标（技术要求「未注倒角C1」）。这个视图里已标过的尺寸、这一页别的视图已标过的同一个倒角都跳过。轴端的锥面倒角暂不认。「避障」开着时挑尺寸放哪边要躲开视图里已有的标注，关着时只看下、右、上、左的先后。",
         Run: context => Run(context, null));
 
     // swDimensionType_e.swChamferDimension
@@ -40,8 +40,11 @@ internal static class ChamferDimension
             return QuickOutcome.Ok($"视图「{viewName}」里没有侧着看成斜线的倒角，没有加 C 尺寸。");
 
         var (here, elsewhere) = Existing(context, scan);
-        var obstacles = scan.Lines.Concat(scan.CurveSegments).Concat(DrawingSheet.FrameLines(api, document)).ToList();
-        var plan = ChamferPlanner.Plan(scan.Chamfers, scan.Lines, obstacles, here, elsewhere, DrawingSheet.FrameRect(api, document));
+        // 1.11.0「避障」开着时连视图里已有注解的线与文字一起躲。
+        var avoid = context.Options.Clearance;
+        var annotations = avoid ? Clearance.ViewObstacles(api, scan.View) : Obstacles.Empty;
+        var obstacles = scan.Lines.Concat(scan.CurveSegments).Concat(DrawingSheet.FrameLines(api, document)).Concat(annotations.Lines).ToList();
+        var plan = ChamferPlanner.Plan(scan.Chamfers, scan.Lines, obstacles, here, elsewhere, DrawingSheet.FrameRect(api, document), annotations.Texts, avoid);
         var skipped = (plan.DefaultCount > 0 ? $"，{plan.DefaultCount} 个是 C1（技术要求未注倒角 C1）不标" : string.Empty)
             + (plan.Dimensioned > 0 ? $"，{plan.Dimensioned} 个已标过跳过" : string.Empty)
             + (plan.Elsewhere > 0 ? $"，{plan.Elsewhere} 个别的视图已标跳过" : string.Empty)

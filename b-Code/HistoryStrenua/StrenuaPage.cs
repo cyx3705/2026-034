@@ -12,14 +12,15 @@ namespace HistoryStrenua;
 /// 执行过程与结果照旧进控制台。
 /// </para>
 /// <para>
-/// 工具条从左到右：浮动、占位、类、取消。「浮动」是普通按钮，动作指向 Aurora 的 <c>aurora.ui.float</c>（1.30.1 起）。
+/// 工具条第一行从左到右：浮动、占位、类、取消；第二行是两个开关。「浮动」是普通按钮，动作指向 Aurora 的 <c>aurora.ui.float</c>（1.30.1 起）。
 /// 占位是一段占满余宽的说明文字，浮成小窗后按住它就能拖动整窗（按钮、选择框会吃掉按下，拖不动）。
 /// 「类」选择框把值发上 <see cref="ClassChannel"/>，下面的切换容器跟着它换成那一类的控制面板——将来加别的类，
 /// 加一块面板即可，工具条不变。
 /// </para>
 /// <para>
-/// 「孔」面板上面是孔类指令的按钮（每 4 个一行，1.8.0），下面一行是两个开关：避障（默认开）、尺寸链（默认关）。开关拨动即生效并记到本机
-/// （<see cref="StrenuaOptions"/>），页面描述里的初值取当前值。
+/// 每类面板只有按钮（每 4 个一行，1.8.0）。两个开关——避障（默认开）、尺寸链（默认关）——1.11.0 起从「孔」面板挪到工具条第二行，
+/// 切到哪一类都看得到、都管用（用户定：出图类标圆角、倒角时也要能选）。开关拨动即生效并记到本机（<see cref="StrenuaOptions"/>），
+/// 页面描述里的初值取当前值。
 /// </para>
 /// <para>按钮、类选项、动作声明全部从 <see cref="QuickCommands.All"/> 生成——加指令不改这里。</para>
 /// </remarks>
@@ -45,6 +46,14 @@ internal static class StrenuaPage
     public const string ClearanceActionId = StrenuaIdentity.Domain + ".option.clearance";
 
     public const string ChainActionId = StrenuaIdentity.Domain + ".option.chain";
+
+    /// <summary>「避障」开关管哪些指令（动作说明与指令自描述共用）。</summary>
+    public const string ClearanceSummary = "开着时往图纸上加东西的指令都躲开已有的：孔标注、孔位尺寸、销孔标注、外轮廓挪开压线的文字，"
+        + "圆角、倒角、技术要求、轴测图、投影视图找不压的地方；关着放默认位置（默认开）";
+
+    /// <summary>「尺寸链」开关管哪些指令。</summary>
+    public const string ChainSummary = "开着时孔位尺寸与外轮廓改用 SW 尺寸链（坐标尺寸），每方向一组、0 点在零件左 / 上侧直边；"
+        + "建图、投影视图留尺寸空间也照它估（默认关）";
 
     private static readonly JsonSerializerOptions Options = new()
     {
@@ -79,7 +88,7 @@ internal static class StrenuaPage
                             type = "panel",
                             id = PanelId,
                             text = "PowerSW 工具条",
-                            rows = new object[] { Toolbar(commands) },
+                            rows = new object[] { Toolbar(commands), Switches(options) },
                         },
                         new
                         {
@@ -87,7 +96,7 @@ internal static class StrenuaPage
                             id = ClassSwitchId,
                             source = "{selection." + ClassChannel + ".value}",
                             children = Classes(commands)
-                                .Select(group => ClassPanel(group.Key, group.ToList(), options))
+                                .Select(group => ClassPanel(group.Key, group.ToList()))
                                 .ToArray(),
                         },
                     },
@@ -116,7 +125,7 @@ internal static class StrenuaPage
                 title = "避障",
                 command = ClearanceActionId,
                 args = new { value = "{value}" },
-                summary = "开着时孔标注、孔位尺寸、销孔标注加完后把压在别的孔相关注解线条上的文字挪开（默认开）",
+                summary = ClearanceSummary,
             })
             .Append(new
             {
@@ -124,7 +133,7 @@ internal static class StrenuaPage
                 title = "尺寸链",
                 command = ChainActionId,
                 args = new { value = "{value}" },
-                summary = "开着时孔位尺寸与外轮廓改用 SolidWorks 尺寸链（坐标尺寸）：每个方向一组，0 点在零件左侧 / 上侧直边，不分种、不用阵列写法（默认关）",
+                summary = ChainSummary,
             })
             .Append(new
             {
@@ -171,8 +180,19 @@ internal static class StrenuaPage
     /// <summary>一行最多几个按钮（1.8.0：孔类到了 7 个，一行挤不下，按 4 个一行折）。</summary>
     public const int ButtonsPerRow = 4;
 
-    /// <summary>一类的控制面板：按钮每 <see cref="ButtonsPerRow"/> 个一行；孔类再加一行开关。</summary>
-    private static object ClassPanel(string commandClass, IReadOnlyList<QuickCommand> commands, StrenuaOptions options)
+    /// <summary>工具条第二行：两个开关，所有类共用（1.11.0）。</summary>
+    private static object Switches(StrenuaOptions options) => new
+    {
+        mode = "even",
+        widgets = new object[]
+        {
+            Switch("clearance", "避障", options.Clearance, ClearanceActionId),
+            Switch("chain", "尺寸链", options.Chain, ChainActionId),
+        },
+    };
+
+    /// <summary>一类的控制面板：按钮每 <see cref="ButtonsPerRow"/> 个一行。</summary>
+    private static object ClassPanel(string commandClass, IReadOnlyList<QuickCommand> commands)
     {
         var rows = commands
             .Chunk(ButtonsPerRow)
@@ -182,18 +202,6 @@ internal static class StrenuaPage
                 widgets = chunk.Select(command => (object)new { kind = "button", action = command.ActionId, text = command.Title }).ToArray(),
             })
             .ToList();
-        if (commandClass == "hole")
-        {
-            rows.Add(new
-            {
-                mode = "even",
-                widgets = new object[]
-                {
-                    Switch("clearance", "避障", options.Clearance, ClearanceActionId),
-                    Switch("chain", "尺寸链", options.Chain, ChainActionId),
-                },
-            });
-        }
 
         return new
         {

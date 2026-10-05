@@ -37,7 +37,8 @@ internal static class FilletDimension
         if (scan.Arcs.Count == 0)
             return QuickOutcome.Ok($"视图「{viewName}」里没有正对图纸的圆角，没有加 R 尺寸。");
 
-        var plan = FilletPlanner.Plan(scan.Arcs, Dimensioned(api, scan), scan.Lines.Concat(scan.CurveSegments).ToList());
+        var plan = FilletPlanner.Plan(scan.Arcs, Dimensioned(api, scan), scan.Lines.Concat(scan.CurveSegments).Concat(DrawingSheet.FrameLines(api, document)).ToList(),
+            DrawingSheet.FrameRect(api, document));
         var skipped = (plan.DefaultCount > 0 ? $"，{plan.DefaultCount} 个是 R1（技术要求未注圆角 R1）不标" : string.Empty)
             + (plan.Dimensioned > 0 ? $"，{plan.Dimensioned} 个已有尺寸跳过" : string.Empty);
         if (plan.Targets.Count == 0)

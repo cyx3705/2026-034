@@ -18,6 +18,8 @@ namespace HistoryStrenua;
 /// </param>
 /// <param name="ArcEdges">圆角弧的边本身（只在要求收集圆角时有，1.9.0）。</param>
 /// <param name="FilletArcs">圆角弧在图纸上的样子，与 <paramref name="ArcEdges"/> 一一对应。</param>
+/// <param name="ChamferEdges">倒角斜边本身（只在要求收集倒角时有，1.10.0）；它们同时也在直边里。</param>
+/// <param name="ChamferItems">倒角斜边在图纸上的样子，与 <paramref name="ChamferEdges"/> 一一对应。</param>
 internal sealed record ScannedView(
     object Document,
     object View,
@@ -29,8 +31,13 @@ internal sealed record ScannedView(
     IReadOnlyList<SheetSegment> Lines,
     IReadOnlyList<SheetSegment>? Curves = null,
     IReadOnlyList<object>? ArcEdges = null,
-    IReadOnlyList<FilletArc>? FilletArcs = null)
+    IReadOnlyList<FilletArc>? FilletArcs = null,
+    IReadOnlyList<object>? ChamferEdges = null,
+    IReadOnlyList<ChamferEdge>? ChamferItems = null)
 {
+    /// <summary>倒角斜边（只在要求收集倒角时有，1.10.0），<see cref="ChamferEdge.Index"/> 是 <see cref="ChamferEdges"/> 的下标。</summary>
+    public IReadOnlyList<ChamferEdge> Chamfers => ChamferItems ?? [];
+
     /// <summary>曲线边近似成的线段（没有时为空表）。</summary>
     public IReadOnlyList<SheetSegment> CurveSegments => Curves ?? [];
 
@@ -73,7 +80,9 @@ internal static class HoleScan
     /// <param name="withLines">同时收集视图里的直边（孔位尺寸找基准用）。</param>
     /// <param name="view">直接处理这个视图，不看选择、不等点选（「孔标注全流程」逐个视图调用时给）。</param>
     /// <param name="withArcs">同时收集圆角弧（1.9.0「圆角标注」用；要 <paramref name="withLines"/>）。</param>
-    public static ScannedView Scan(QuickCommandContext context, string title, bool withLines = false, object? view = null, bool withArcs = false)
+    /// <param name="withChamfers">同时收集倒角斜边（1.10.0「倒角标注」用；要 <paramref name="withLines"/>）。</param>
+    public static ScannedView Scan(QuickCommandContext context, string title, bool withLines = false, object? view = null, bool withArcs = false,
+        bool withChamfers = false)
     {
         var api = context.Api;
         var document = ActiveDrawing(context);
@@ -82,8 +91,9 @@ internal static class HoleScan
         var model = api.Call(view, "IView", "get_ReferencedDocument")
             ?? throw new QuickCommandException($"视图「{viewName}」没有引用模型（空视图，或模型是轻化/未加载状态）。");
 
-        context.SetState("识别孔");
-        context.Report($"{title}：正在识别视图「{viewName}」里的孔。");
+        var what = withChamfers ? "倒角" : withArcs ? "圆角" : "孔";
+        context.SetState("识别" + what);
+        context.Report($"{title}：正在识别视图「{viewName}」里的{what}。");
         var geometry = new ViewGeometry(api, context.Session.Application, view);
         var edges = new List<object>();
         var candidates = new List<HoleEdge>();
@@ -92,6 +102,8 @@ internal static class HoleScan
         var curves = new List<SheetSegment>();
         var arcEdges = new List<object>();
         var arcs = new List<FilletArc>();
+        var chamferEdges = new List<object>();
+        var chamfers = new List<ChamferEdge>();
         foreach (var component in VisibleComponents(api, view, model))
         {
             foreach (var edge in api.CallArray(view, "IView", "GetVisibleEntities2", component, ViewEntityEdge))
@@ -106,6 +118,11 @@ internal static class HoleScan
                 {
                     lines.Add(line);
                     lineEdges.Add(edge);
+                    if (withChamfers && geometry.TryReadChamfer(edge, chamferEdges.Count, line) is { } chamfer)
+                    {
+                        chamfers.Add(chamfer);
+                        chamferEdges.Add(edge);
+                    }
                 }
                 else if (withLines)
                 {
@@ -119,7 +136,7 @@ internal static class HoleScan
             }
         }
 
-        return new ScannedView(document, view, viewName, geometry, edges, candidates, lineEdges, lines, curves, arcEdges, arcs);
+        return new ScannedView(document, view, viewName, geometry, edges, candidates, lineEdges, lines, curves, arcEdges, arcs, chamferEdges, chamfers);
     }
 
     /// <summary>活动文档，必须是工程图。</summary>
@@ -397,6 +414,80 @@ internal static class HoleScan
             {
                 return null;
             }
+        }
+
+        /// <summary>
+        /// 倒角斜边（1.10.0「倒角标注」）：图纸上斜着的直边，一侧是正对图纸的平面，另一侧是倒角特征做的平面且侧着（法向在图纸平面里）。
+        /// 返回斜边、两条直角边（图纸上的横、竖跨度除以比例）与倒角面的标识；不是返回 null。
+        /// </summary>
+        /// <param name="edge">视图里的边。</param>
+        /// <param name="index">回指调用方手里的那条边。</param>
+        /// <param name="segment">这条边在图纸上的样子（<see cref="TryReadLine"/> 读过的）。</param>
+        public ChamferEdge? TryReadChamfer(object edge, int index, SheetSegment segment)
+        {
+            try
+            {
+                var (dx, dy) = (Math.Abs(segment.X2 - segment.X1), Math.Abs(segment.Y2 - segment.Y1));
+                var length = Math.Sqrt(dx * dx + dy * dy);
+                if (length <= 0 || dx <= length * 0.02 || dy <= length * 0.02)
+                    return null;
+                var transforms = Transforms(edge);
+                var facing = false;
+                object? chamfer = null;
+                foreach (var face in api.CallArray(edge, "IEdge", "GetTwoAdjacentFaces2"))
+                {
+                    if (face is null || api.Call(face, "IFace2", "GetSurface") is not { } surface || !api.CallBool(surface, "ISurface", "IsPlane"))
+                        continue;
+                    var n = api.CallDoubles(face, "IFace2", "get_Normal");
+                    if (n.Length < 3)
+                        continue;
+                    var v = ToSheet(transforms, "CreateVector", "IMathVector", n[0], n[1], n[2]);
+                    var norm = Math.Sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
+                    if (norm <= 0)
+                        continue;
+                    var z = Math.Abs(v[2] / norm);
+                    if (z >= 0.999)
+                        facing = true;
+                    else if (z <= 0.02 && PartScan.IsChamferFeature(api, face))
+                        chamfer = face;
+                }
+
+                return facing && chamfer is not null
+                    ? new ChamferEdge(index, segment, dx / Scale, dy / Scale, FaceKey(edge, chamfer))
+                    : null;
+            }
+            catch (Exception ex) when (ex is System.Runtime.InteropServices.COMException or InvalidCastException or System.Reflection.TargetException)
+            {
+                return null;
+            }
+        }
+
+        /// <summary>已有倒角尺寸连着的边属于哪张倒角面（<see cref="ChamferEdge.Key"/>）；不是倒角面的边、对象已失效返回 null。</summary>
+        public string? TryChamferKey(object edge)
+        {
+            try
+            {
+                foreach (var face in api.CallArray(edge, "IEdge", "GetTwoAdjacentFaces2"))
+                {
+                    if (face is not null && api.Call(face, "IFace2", "GetSurface") is { } surface && api.CallBool(surface, "ISurface", "IsPlane")
+                        && PartScan.IsChamferFeature(api, face))
+                        return FaceKey(edge, face);
+                }
+
+                return null;
+            }
+            catch (Exception ex) when (ex is System.Runtime.InteropServices.COMException or InvalidCastException or System.Reflection.TargetException)
+            {
+                return null;
+            }
+        }
+
+        /// <summary>面的标识：组件名 + 面在零件坐标里的包围盒（0.01 mm），跨视图认同一张倒角面用。</summary>
+        private string FaceKey(object edge, object face)
+        {
+            var component = api.Call(edge, "IEntity", "GetComponent") is { } owner ? api.CallString(owner, "IComponent2", "get_Name2") : string.Empty;
+            var box = api.CallDoubles(face, "IFace2", "GetBox");
+            return component + "|" + string.Join(",", box.Select(v => Math.Round(v * 1e5).ToString(System.Globalization.CultureInfo.InvariantCulture)));
         }
 
         /// <summary>圆弧旁边同半径的圆柱面是不是内凹（判法同 <see cref="HoleWall"/>）；旁边没有同半径圆柱面返回 null。</summary>

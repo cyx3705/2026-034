@@ -68,7 +68,7 @@ internal static class DrawingProject
                 continue;
             }
 
-            var box = sheet.Box(context, view);
+            var box = sheet.Box(context, view, slot: slot);
             if (box.Width > 0)
                 DrawingSheet.SetPosition(api, view, DrawingPlanner.Beside(at, sheet.Box(context, sheet.Main), slot, box));
             existing[slot] = view;

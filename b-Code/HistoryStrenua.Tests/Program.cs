@@ -68,6 +68,8 @@ var tests = new (string Name, Action Run)[]
     ("drawing steps: flexible side on the current sheet", TestDrawingChooseSlots),
     ("drawing steps: iso and note on their own", TestDrawingSpots),
     ("drawing steps: one-click runs the steps in order", TestDrawingSteps),
+    ("chamfer: which chamfers, grouping, which leg and where", TestChamferPlan),
+    ("chamfer: side views and margins", TestChamferViews),
     ("fillet: which arcs, grouping and text side", TestFilletPlan),
     ("snapshot: file name", TestSnapshotName),
 };
@@ -115,7 +117,9 @@ static void TestCommandRegistration()
         "strenua.drawing.note",
         "strenua.drawing.arrange",
         "strenua.drawing.filletall",
+        "strenua.drawing.chamferall",
         "strenua.drawing.fillet",
+        "strenua.drawing.chamfer",
         "strenua.check.dimension",
         "strenua.check.snapshot",
         "strenua.quick.list",
@@ -140,7 +144,8 @@ static void TestCommandRegistration()
     True(registry.TryGet("strenua.hole.centermark", out var centerMark) && !centerMark!.Readonly, "中心符号线会改工程图，不是只读");
     True(registry.TryGet("strenua.quick.list", out var list) && list!.Readonly, "列表是只读的");
     foreach (var name in new[] { "strenua.drawing.create", "strenua.drawing.auto", "strenua.drawing.project", "strenua.drawing.iso", "strenua.drawing.note",
-                 "strenua.drawing.arrange", "strenua.drawing.filletall", "strenua.drawing.fillet", "strenua.check.snapshot" })
+                 "strenua.drawing.arrange", "strenua.drawing.filletall", "strenua.drawing.chamferall", "strenua.drawing.fillet", "strenua.drawing.chamfer",
+                 "strenua.check.snapshot" })
         True(registry.TryGet(name, out var drawing) && !drawing!.Readonly && drawing.HiddenReason is null, $"{name} 要能在控制台直接敲（建图、加尺寸、写图片都不是只读）");
     True(registry.TryGet("strenua.quick.run", out var run) && !run!.Readonly, "按 key 执行会改工程图，不是只读");
     var keys = run!.Parameters!.Single(p => p.Name == "key").AllowedValues!;
@@ -269,11 +274,11 @@ static void TestClassPanels()
     Equal("检查", check.GetProperty("case").GetString()!);
     Equal(1, check.GetProperty("rows").GetArrayLength());
     Equal("未标尺寸,图纸截图", string.Join(",", check.GetProperty("rows")[0].GetProperty("widgets").EnumerateArray().Select(w => w.GetProperty("text").GetString())));
-    // 1.9.0 出图类：一键出图与它拆出的各步（用户定），两行按钮，没有开关（照「孔」面板的开关走）。
+    // 1.9.0 出图类：一键出图与它拆出的各步（用户定），1.10.0 加全图倒角、倒角标注，三行按钮，没有开关（照「孔」面板的开关走）。
     var drawing = branches.Single(branch => branch.GetProperty("id").GetString() == StrenuaPage.ClassPanelId("drawing"));
     Equal("出图", drawing.GetProperty("case").GetString()!);
-    Equal(2, drawing.GetProperty("rows").GetArrayLength());
-    Equal("一键出图,新建工程图,投影视图,轴测图|技术要求,排版,全图圆角,圆角标注", string.Join("|", drawing.GetProperty("rows").EnumerateArray()
+    Equal(3, drawing.GetProperty("rows").GetArrayLength());
+    Equal("一键出图,新建工程图,投影视图,轴测图|技术要求,排版,全图圆角,全图倒角|圆角标注,倒角标注", string.Join("|", drawing.GetProperty("rows").EnumerateArray()
         .Select(row => string.Join(",", row.GetProperty("widgets").EnumerateArray().Select(w => w.GetProperty("text").GetString())))));
     Equal("孔,出图,检查", string.Join(",", StrenuaPage.ClassOptions(QuickCommands.All)));
     // 开关在按钮下面，初值取当前设置。
@@ -963,7 +968,7 @@ static void TestFlowCommand()
         && usage.IndexOf("→ 孔标注", StringComparison.Ordinal) < usage.IndexOf("→ 销孔标注", StringComparison.Ordinal), "步骤顺序");
     True(usage.Contains("当前图纸页", StringComparison.Ordinal), "范围是当前图纸页");
     Equal("hole-flow,dowel-symbol,center-mark,hole-position,hole-callout,dowel-fit,outline,"
-        + "drawing-auto,drawing-create,drawing-project,drawing-iso,drawing-note,drawing-arrange,fillet-all,fillet,check-dimension,snapshot",
+        + "drawing-auto,drawing-create,drawing-project,drawing-iso,drawing-note,drawing-arrange,fillet-all,chamfer-all,fillet,chamfer,check-dimension,snapshot",
         string.Join(",", QuickCommands.All.Select(command => command.Key)));
 }
 
@@ -1423,8 +1428,12 @@ static List<(string Name, string Main, string Sheet, int Scale, PartGeometry Geo
             .ToList();
         var planes = part.GetProperty("planes").EnumerateArray().Select(Vector).ToList();
         var windows = part.TryGetProperty("windows", out var found) ? found.EnumerateArray().Select(Vector).ToList() : [];
+        // 1.10.0：平面倒角 [轴 x, y, z, 直角边 a, b]。
+        var chamfers = part.TryGetProperty("chamfers", out var faces)
+            ? faces.EnumerateArray().Select(c => new PartChamfer(new ModelDirection(c[0].GetDouble(), c[1].GetDouble(), c[2].GetDouble()), c[3].GetDouble(), c[4].GetDouble())).ToList()
+            : [];
         parts.Add((part.GetProperty("name").GetString()!, part.GetProperty("main").GetString()!, part.GetProperty("sheet").GetString()!,
-            part.GetProperty("scale").GetInt32(), new PartGeometry(new ModelBox(box[0], box[1], box[2], box[3], box[4], box[5]), cylinders, planes, windows)));
+            part.GetProperty("scale").GetInt32(), new PartGeometry(new ModelBox(box[0], box[1], box[2], box[3], box[4], box[5]), cylinders, planes, windows, chamfers)));
     }
 
     return parts;
@@ -1509,7 +1518,8 @@ static void TestDrawingSheet()
         var denominator = (int)Math.Round(1 / choice.Scale);
         if (size == sheet && denominator == scale)
             matched++;
-        lines.Add($"{name}: 用户 {sheet} 1:{scale}，本次 {choice.Template.SizeName} {DrawingPlanner.ScaleText(choice.Scale)}（{chosen.Key}，{string.Join("/", choice.Slots)}）{choice.Reason}");
+        lines.Add($"{name}: 用户 {sheet} 1:{scale}，本次 {choice.Template.SizeName} {DrawingPlanner.ScaleText(choice.Scale)}（{chosen.Key}，{string.Join("/", choice.Slots)}）{choice.Reason}"
+            + $"；轴测 ×{choice.Layout.IsoShrink:0.##}{(choice.Layout.Problem.Length > 0 ? "；" + choice.Layout.Problem : string.Empty)}");
         if (verbose)
         {
             var userTemplate = templates.First(t => t.SizeName.StartsWith(sheet, StringComparison.Ordinal));
@@ -1521,11 +1531,14 @@ static void TestDrawingSheet()
         }
         // 每张都要真的排得下：视图组、轴测图、技术要求互不重叠、都在图框里、不压标题栏。
         True(choice.Layout.Fits, $"{name}：选出来的版面排不下 {choice.Layout.Problem}");
+        // 1.10.0：技术要求都要有空地（挤不下时轴测图再缩一档；三个限位块多了倒角的下视图后原比例轴测图占了它的地方）。
+        True(choice.Layout.Problem.Length == 0, $"{name}：{choice.Layout.Problem}");
     }
 
     if (verbose)
         Console.WriteLine(string.Join(Environment.NewLine, lines));
-    True(matched >= 10, $"图幅与比例和手工图一致的应至少 10 张，实际 {matched}：" + Environment.NewLine + string.Join(Environment.NewLine, lines));
+    // 1.10.0：投影视图在与主视图共用的方向上没有孔就不留尺寸空间、视图外框后面那 4 mm 可以压图框线，外壳2 也对上了（A4 1:5），只剩后板 A2。
+    True(matched >= 14, $"图幅与比例和手工图一致的应至少 14 张，实际 {matched}：" + Environment.NewLine + string.Join(Environment.NewLine, lines));
 }
 
 static void TestDrawingSideViews()
@@ -1764,7 +1777,6 @@ static void TestDrawingChooseSlots()
 {
     // 「投影视图」单独按时，在当前图幅与比例下挑可换边视图的边——与「新建工程图」选图幅时估的那种摆法一致（15 个真零件）。
     var templates = UserTemplates();
-    var flexible = 0;
     foreach (var (name, _, _, _, geometry) in RealParts())
     {
         var chosen = DrawingPlanner.MainView(geometry).View;
@@ -1773,11 +1785,14 @@ static void TestDrawingChooseSlots()
         var slots = DrawingPlanner.ChooseSlots(geometry, DrawingPlanner.ViewOf(Frame(chosen)), sides,
             SheetSpace.Standard(choice.Template.Width, choice.Template.Height), choice.Scale, chain: false);
         Equal(string.Join(",", choice.Slots), string.Join(",", slots));
-        if (sides.Any(side => side.Alternative is not null) && !slots.SequenceEqual(sides.Select(side => side.Slot)))
-            flexible++;
     }
 
-    True(flexible >= 1, "至少一个零件的看厚度视图要换边才放得下（移动安装版5 A4 右放）");
+    // 宽板只看厚度：首选摆下边，下边那条压到 A3 的标题栏，换到右边（整组往下挪一点躲开修改栏）放得下。
+    var wide = new PartGeometry(new ModelBox(0, 0, 0, 0.20, 0.19, 0.01), [], []);
+    var front = StandardView.Of("front");
+    var wideSides = DrawingPlanner.SideViews(wide, Frame(front), firstAngle: true);
+    Equal(ViewSlot.Below, wideSides[0].Slot);
+    Equal(ViewSlot.Right, DrawingPlanner.ChooseSlots(wide, front, wideSides, SheetSpace.Standard(0.420, 0.297), 1, chain: false)[0]);
 
     // 哪种摆法都放不下：用首选。
     var plate = Plate(new ModelDirection(0, 0, -1));
@@ -1817,13 +1832,110 @@ static void TestDrawingSteps()
 {
     // 一键出图 = 出图类各步 + 孔标注全流程（不拆）+ 全图圆角，顺序写在用法里；每一步都是一条单独的指令（用户定）。
     var auto = QuickCommands.All.Single(command => command.Key == "drawing-auto");
-    string[] steps = ["新建工程图", "投影视图", "轴测图", "技术要求", "排版", "孔标注全流程", "全图圆角"];
+    string[] steps = ["新建工程图", "投影视图", "轴测图", "技术要求", "排版", "孔标注全流程", "全图圆角", "全图倒角"];
     var positions = steps.Select(step => auto.Usage.IndexOf(step, StringComparison.Ordinal)).ToList();
     True(positions.All(index => index >= 0) && positions.Zip(positions.Skip(1)).All(pair => pair.First < pair.Second), "一键出图用法里的步骤顺序：" + auto.Usage);
     var titles = QuickCommands.All.Select(command => command.Title).ToHashSet();
     True(steps.All(titles.Contains), "每一步都要有自己的按钮与指令");
     Equal("hole", QuickCommands.All.Single(command => command.Title == "孔标注全流程").CommandClass);
     True(QuickCommands.All.Where(command => command.CommandClass == "drawing").All(command => command.Title != "孔标注全流程"), "孔标注全流程留在孔类，不拆进出图类");
+}
+
+static void TestChamferPlan()
+{
+    // 端视图：20 × 30 的块，下边两个角各倒 C5（限位块右的下视图）；倒角斜边同时也在直边里（扫描时就是这样）。
+    static double M(double mm) => mm / 1000;
+    SheetSegment S(double x1, double y1, double x2, double y2) => new(M(x1), M(y1), M(x2), M(y2));
+    var leftChamfer = S(0, 5, 5, 0);
+    var rightChamfer = S(15, 0, 20, 5);
+    var lines = new List<SheetSegment>
+    {
+        S(0, 5, 0, 30), S(20, 5, 20, 30), S(0, 30, 20, 30), S(5, 0, 15, 0), leftChamfer, rightChamfer,
+    };
+    var chamfers = new List<ChamferEdge>
+    {
+        new(0, leftChamfer, M(5), M(5), "A"),
+        new(1, rightChamfer, M(5), M(5), "B"),
+    };
+    var none = new HashSet<string>();
+    var plan = ChamferPlanner.Plan(chamfers, lines, lines, [], none);
+    Equal(1, plan.Targets.Count);
+    var target = plan.Targets[0];
+    // 两个同尺寸合标「2 x C5」，标靠右的那个；用户定用普通线性尺寸：量横向那条直角边，尺寸线放在视图下边外 8 mm。
+    Equal(1, target.Index);
+    Equal(2, target.Count);
+    Equal("2 x C", target.Prefix);
+    Equal(1, target.Placements.Count);
+    Equal(PositionAxis.Horizontal, target.Placements[0].Axis);
+    Near(-0.008, target.Placements[0].At.Y);
+    Near(M(17.5), target.Placements[0].At.X);
+    // 被倒掉的角：右下角倒角在 (20, 0)，左下角在 (0, 0)。
+    Equal(new SheetPoint(M(20), M(0)), ChamferPlanner.Corner(rightChamfer, lines)!.Value);
+    Equal(new SheetPoint(M(0), M(0)), ChamferPlanner.Corner(leftChamfer, lines)!.Value);
+
+    // 靠着图框：下边放不下（出图框）就换到右边量竖向那条直角边（1.10.0：限位块前的下视图贴着图框底）。
+    var frame = new SheetRect(M(-10), M(-3), M(50), M(50));
+    var framed = ChamferPlanner.Plan(chamfers, lines, lines, [], none, frame).Targets[0].Placements[0];
+    Equal(PositionAxis.Vertical, framed.Axis);
+    Near(M(28), framed.At.X);
+
+    // C1 按技术要求不标。
+    var withDefault = chamfers.Append(new ChamferEdge(2, S(19, 30, 20, 29), M(1), M(1), "C")).ToList();
+    var defaults = ChamferPlanner.Plan(withDefault, lines, lines, [], none);
+    Equal(1, defaults.DefaultCount);
+    Equal(1, defaults.Targets.Count);
+    True(ChamferPlanner.IsDefault(withDefault[2]) && !ChamferPlanner.IsDefault(chamfers[0]), "C1 判定");
+
+    // 这个视图里标过其中一个：同尺寸的都算标过（用户限位块前两个 C5 只写了一个「C5」）。
+    var labeled = ChamferPlanner.Plan(chamfers, lines, lines, [leftChamfer], none);
+    Equal(0, labeled.Targets.Count);
+    Equal(2, labeled.Dimensioned);
+    // 别的视图标过同一张倒角面：跳过。
+    var elsewhere = ChamferPlanner.Plan(chamfers, lines, lines, [], new HashSet<string> { "A", "B" });
+    Equal(0, elsewhere.Targets.Count);
+    Equal(2, elsewhere.Elsewhere);
+    // 尺寸不同的各标各的，只写「C」不写「N x」。
+    var mixed = ChamferPlanner.Plan([chamfers[0], new ChamferEdge(1, S(17, 0, 20, 3), M(3), M(3), "B")], [.. lines, S(15, 0, 17, 0)], lines, [], none);
+    Equal(2, mixed.Targets.Count);
+    True(mixed.Targets.All(t => t.Count == 1 && t.Prefix == "C"), "不同尺寸不合标，写「C」");
+    // 不等边：两条直角边各标一个，不写 C。
+    var uneven = ChamferPlanner.Plan([new ChamferEdge(1, S(12, 0, 20, 5), M(8), M(5), "U")], [S(0, 0, 12, 0), S(20, 5, 20, 30)], lines, [], none).Targets.Single();
+    Equal(2, uneven.Placements.Count);
+    Equal("", uneven.Prefix);
+    // 两头接不上水平 / 竖直直边：认不出哪边在零件外，标不了，说明。
+    var floating = ChamferPlanner.Plan([new ChamferEdge(0, S(50, 50, 55, 55), M(5), M(5), "F")], lines, lines, [], none);
+    Equal(0, floating.Targets.Count);
+    Equal(1, floating.NoLead);
+}
+
+static void TestChamferViews()
+{
+    // 限位块右：20 × 30 × 100，沿长度方向（Z）两条 C5，另有一圈 C1。主视图看上面（法向 +Y，图纸竖向是 −Z）：
+    // C5 只有沿 Z 看才成斜线——要一个上 / 下视图（1.9.0 没有，倒角标不上）；C1 不标，也不为它加视图。
+    var box = new ModelBox(-0.01, -0.015, 0, 0.01, 0.015, 0.1);
+    PartChamfer C(ModelDirection axis, double leg) => new(axis, leg, leg);
+    var z = new ModelDirection(0, 0, 1);
+    var x = new ModelDirection(1, 0, 0);
+    var block = new PartGeometry(box, [], [], [], [C(z, 0.005), C(z, 0.005), C(x, 0.001), C(z, 0.001)]);
+    True(block.Chamfers[2].Default && !block.Chamfers[0].Default, "C1 判定");
+    var top = StandardView.Of("top");
+    var sides = DrawingPlanner.SideViews(block, Frame(top), firstAngle: true);
+    Equal(1, sides.Count);
+    Equal(ViewSlot.Below, sides[0].Slot);
+    True(sides[0].Reason.Contains("倒角 2 个", StringComparison.Ordinal) && sides[0].Alternative is null, "看倒角的视图：" + sides[0].Reason);
+    // 只有 C1：照旧只加一个看厚度的。
+    var plain = new PartGeometry(box, [], [], [], [C(x, 0.001)]);
+    True(DrawingPlanner.SideViews(plain, Frame(top), firstAngle: true).Single().Alternative is not null, "只有 C1 时还是看厚度、可换边");
+
+    // 投影视图的尺寸空间：与主视图共用的方向上没有孔就不留（右视图的左边、下视图的上边）。
+    var right = DrawingPlanner.SideBox(0.03, 0.04, ViewSlot.Right, 0, chain: false);
+    Near(0, right.MarginLeft);
+    Near(DrawingPlanner.AnnotationMargin(0, chain: false), right.MarginTop);
+    var below = DrawingPlanner.SideBox(0.03, 0.04, ViewSlot.Below, 0, chain: true);
+    Near(0, below.MarginTop);
+    Near(DrawingPlanner.AnnotationMargin(0, chain: true), below.MarginLeft);
+    var holes = DrawingPlanner.SideBox(0.03, 0.04, ViewSlot.Below, 2, chain: false);
+    Near(DrawingPlanner.AnnotationMargin(2, chain: false), holes.MarginTop);
 }
 
 static void TestSnapshotName()

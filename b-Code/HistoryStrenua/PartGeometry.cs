@@ -40,7 +40,20 @@ internal sealed record PartCylinder(
     IReadOnlyList<ModelDirection> Openings);
 
 /// <summary>
-/// 零件的几何摘要：包围盒、全部圆柱面、全部平面的外法向、平面上的「窗口」。由 <c>PartScan</c> 从 SolidWorks 读出，规划器只看它。
+/// 零件上一张平面倒角（1.10.0）：倒角特征做的平面。沿 <see cref="Axis"/> 看它侧着成一条斜线，倒角尺寸要标在这样的视图里。
+/// </summary>
+/// <param name="Axis">倒掉的那条棱的方向（沿坐标轴的单位向量，正向）。</param>
+/// <param name="LegA">一条直角边（米）。</param>
+/// <param name="LegB">另一条直角边（米）。</param>
+internal sealed record PartChamfer(ModelDirection Axis, double LegA, double LegB)
+{
+    /// <summary>C1（技术要求「未注倒角C1」，不标，也不为它加视图）。</summary>
+    public bool Default => Math.Abs(LegA - ChamferPlanner.DefaultLeg) <= ChamferPlanner.SizeTolerance
+                           && Math.Abs(LegB - ChamferPlanner.DefaultLeg) <= ChamferPlanner.SizeTolerance;
+}
+
+/// <summary>
+/// 零件的几何摘要：包围盒、全部圆柱面、全部平面的外法向、平面上的「窗口」、平面倒角。由 <c>PartScan</c> 从 SolidWorks 读出，规划器只看它。
 /// </summary>
 /// <param name="Box">包围盒。</param>
 /// <param name="Cylinders">全部圆柱面。</param>
@@ -49,12 +62,17 @@ internal sealed record PartCylinder(
 /// 窗口（1.9.0）：平面上不是单个整圆的内环（方窗、异形切口、腰型孔口），每个记一次所在平面的外法向。
 /// 外壳2 顶面两个方窗口只有沿这个方向看得到，首版只认孔和圆弧，整张图漏了这一面。
 /// </param>
+/// <param name="ChamferFaces">平面倒角（1.10.0）：限位块右的 C5 只有从端头看才成斜线，1.9.0 没有这个视图，倒角标不上。</param>
 internal sealed record PartGeometry(
     ModelBox Box,
     IReadOnlyList<PartCylinder> Cylinders,
     IReadOnlyList<ModelDirection>? PlaneNormals = null,
-    IReadOnlyList<ModelDirection>? WindowNormals = null)
+    IReadOnlyList<ModelDirection>? WindowNormals = null,
+    IReadOnlyList<PartChamfer>? ChamferFaces = null)
 {
+    /// <summary>平面倒角（没读时为空）。</summary>
+    public IReadOnlyList<PartChamfer> Chamfers => ChamferFaces ?? [];
+
     /// <summary>平面的外法向（没读时为空）。</summary>
     public IReadOnlyList<ModelDirection> Planes => PlaneNormals ?? [];
 

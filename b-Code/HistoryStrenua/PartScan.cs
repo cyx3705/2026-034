@@ -26,6 +26,7 @@ internal static class PartScan
         var cylinders = new List<PartCylinder>();
         var planes = new List<ModelDirection>();
         var windows = new List<ModelDirection>();
+        var chamfers = new List<PartChamfer>();
         foreach (var body in api.CallArray(part, "IPartDoc", "GetBodies2", SolidBody, true))
         {
             foreach (var face in api.CallArray(body, "IBody2", "GetFaces"))
@@ -42,6 +43,8 @@ internal static class PartScan
                     planes.Add(normal);
                     for (var i = Windows(api, face); i > 0; i--)
                         windows.Add(normal);
+                    if (ReadChamfer(api, face, normal) is { } chamfer)
+                        chamfers.Add(chamfer);
                 }
                 else if (ReadCylinder(api, face, surface) is { } cylinder)
                 {
@@ -50,8 +53,44 @@ internal static class PartScan
             }
         }
 
-        return new PartGeometry(new ModelBox(box[0], box[1], box[2], box[3], box[4], box[5]), cylinders, planes, windows);
+        return new PartGeometry(new ModelBox(box[0], box[1], box[2], box[3], box[4], box[5]), cylinders, planes, windows, chamfers);
     }
+
+    /// <summary>
+    /// 平面倒角（1.10.0）：所属特征是倒角（<c>Chamfer</c>），法向恰好有一个分量为 0——那根轴就是倒掉的棱的方向；
+    /// 两条直角边取面的包围盒沿另两根轴的跨度（真机：限位块右 C5 包围盒 5 × 5 × 100、C1 为 1 × 1 × 100）。三个角上斜着的不算。
+    /// </summary>
+    private static PartChamfer? ReadChamfer(SolidWorksApi api, object face, ModelDirection normal)
+    {
+        double[] n = [normal.X, normal.Y, normal.Z];
+        var zero = Enumerable.Range(0, 3).Where(i => Math.Abs(n[i]) < 1e-6).ToList();
+        if (zero.Count != 1 || !IsChamferFeature(api, face))
+            return null;
+        var box = api.CallDoubles(face, "IFace2", "GetBox");
+        if (box.Length < 6)
+            return null;
+        var axis = zero[0];
+        var legs = Enumerable.Range(0, 3).Where(i => i != axis).Select(i => box[i + 3] - box[i]).ToList();
+        double[] direction = [0, 0, 0];
+        direction[axis] = 1;
+        return new PartChamfer(new ModelDirection(direction[0], direction[1], direction[2]), legs[0], legs[1]);
+    }
+
+    /// <summary>面属于倒角特征（特征类型 <c>Chamfer</c>，真机读回）。</summary>
+    internal static bool IsChamferFeature(SolidWorksApi api, object face)
+    {
+        try
+        {
+            return api.Call(face, "IFace2", "GetFeature") is { } feature && api.CallString(feature, "IFeature", "GetTypeName2") == ChamferFeatureType;
+        }
+        catch (Exception ex) when (ex is System.Runtime.InteropServices.COMException or InvalidCastException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>倒角特征的类型名。</summary>
+    public const string ChamferFeatureType = "Chamfer";
 
     private static PartCylinder? ReadCylinder(SolidWorksApi api, object face, object surface)
     {

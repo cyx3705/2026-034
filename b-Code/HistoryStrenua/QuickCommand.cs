@@ -93,7 +93,9 @@ internal static class QuickCommands
         DrawingNote.Command,
         DrawingArrange.Command,
         FilletAll.Command,
+        ChamferAll.Command,
         FilletDimension.Command,
+        ChamferDimension.Command,
         DimensionCheck.Command,
         DrawingSnapshot.Command,
     ];

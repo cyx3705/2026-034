@@ -38,7 +38,7 @@ internal static class DrawingArrange
             var (noteWidth, noteHeight) = DrawingSheet.NoteSize(api, sheet.Note?.Note);
             var request = new LayoutRequest(
                 sheet.Box(context, sheet.Main),
-                sheet.Sides.ToDictionary(pair => pair.Key, pair => sheet.Box(context, pair.Value)),
+                sheet.Sides.ToDictionary(pair => pair.Key, pair => sheet.Box(context, pair.Value, slot: pair.Key)),
                 sheet.Iso is null ? new ViewBox(0, 0, 0, 0) : sheet.Box(context, sheet.Iso, annotations: false),
                 noteWidth,
                 noteHeight,

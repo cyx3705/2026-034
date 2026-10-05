@@ -138,21 +138,60 @@ internal sealed record DrawingSheet(
     {
         var api = context.Api;
         var result = new List<SheetRect>();
-        foreach (var view in Sides.Values.Prepend(Main))
-            result.AddRange(DrawingPlanner.Occupied(Outline(api, view).Center, Box(context, view)));
+        result.AddRange(DrawingPlanner.Occupied(Outline(api, Main).Center, Box(context, Main)));
+        foreach (var (slot, view) in Sides)
+            result.AddRange(DrawingPlanner.Occupied(Outline(api, view).Center, Box(context, view, slot: slot)));
         if (Iso is not null)
             result.Add(Outline(api, Iso));
         return result;
     }
 
-    /// <summary>视图在图纸上占多大：实际外框，加左边、上边的标注空间（按这个视图里能看到的孔的种数估）。</summary>
-    public ViewBox Box(QuickCommandContext context, object view, bool annotations = true)
+    /// <summary>
+    /// 视图在图纸上占多大：实际外框，加左边、上边的标注空间（按这个视图里能看到的孔的种数估）；给了 <paramref name="slot"/> 的投影视图
+    /// 在与主视图共用的方向上没有孔就不留（<see cref="DrawingPlanner.SideBox"/>）。
+    /// </summary>
+    public ViewBox Box(QuickCommandContext context, object view, bool annotations = true, ViewSlot? slot = null)
     {
         var outline = Outline(context.Api, view);
         if (!annotations)
             return new ViewBox(outline.Width, outline.Height, 0, 0);
-        var margin = DrawingPlanner.AnnotationMargin(DrawingPlanner.HoleKinds(Part, HoleScan.Frame(context, view).Normal), context.Options.Chain);
+        var kinds = DrawingPlanner.HoleKinds(Part, HoleScan.Frame(context, view).Normal);
+        if (slot is { } side)
+            return DrawingPlanner.SideBox(outline.Width, outline.Height, side, kinds, context.Options.Chain);
+        var margin = DrawingPlanner.AnnotationMargin(kinds, context.Options.Chain);
         return new ViewBox(outline.Width, outline.Height, margin, margin);
+    }
+
+    /// <summary>
+    /// 当前图纸页的图框线与标题栏、修改栏、图号框的边（按国标估计，<see cref="SheetSpace.Standard"/>），圆角、倒角文字找空处时也躲它们
+    /// （1.10.0：限位块前 A4 上的「2 x C5」贴在了图框底线上）。读不到图纸大小返回空。
+    /// </summary>
+    public static IReadOnlyList<SheetSegment> FrameLines(SolidWorksApi api, object drawing)
+        => StandardSpace(api, drawing) is { } space ? space.KeepOuts.Prepend(space.Frame).SelectMany(Edges).ToList() : [];
+
+    /// <summary>
+    /// 圆角、倒角文字要落在哪里面：图框（国标估计）往里缩 3 mm——文字下面还有引线的横线，估的文字框贴着图框时真机画出来压在图框线上
+    /// （限位块前的「2 x C5」）。读不到图纸大小返回 null。
+    /// </summary>
+    public static SheetRect? FrameRect(SolidWorksApi api, object drawing) => StandardSpace(api, drawing)?.Frame.Inflate(-TextFrameMargin);
+
+    /// <summary>圆角、倒角文字离图框至少这么远（图纸 3 mm）。</summary>
+    public const double TextFrameMargin = 0.003;
+
+    private static SheetSpace? StandardSpace(SolidWorksApi api, object drawing)
+    {
+        if (api.Call(drawing, "IDrawingDoc", "GetCurrentSheet") is not { } sheet)
+            return null;
+        var properties = api.CallDoubles(sheet, "ISheet", "GetProperties2");
+        return properties.Length > 6 && properties[5] > 0 && properties[6] > 0 ? SheetSpace.Standard(properties[5], properties[6]) : null;
+    }
+
+    private static IEnumerable<SheetSegment> Edges(SheetRect rect)
+    {
+        yield return new SheetSegment(rect.Left, rect.Bottom, rect.Right, rect.Bottom);
+        yield return new SheetSegment(rect.Right, rect.Bottom, rect.Right, rect.Top);
+        yield return new SheetSegment(rect.Right, rect.Top, rect.Left, rect.Top);
+        yield return new SheetSegment(rect.Left, rect.Top, rect.Left, rect.Bottom);
     }
 
     /// <summary>视图名，回执用。</summary>

@@ -56,8 +56,10 @@ internal static class FilletPlanner
 
     /// <param name="arcs">视图里的圆角弧。</param>
     /// <param name="dimensioned">已有 R / 直径尺寸连着的弧：图纸上的圆心与半径。</param>
-    /// <param name="obstacles">文字不要压的线（视图里的边）。</param>
-    public static FilletPlan Plan(IReadOnlyList<FilletArc> arcs, IReadOnlyList<(SheetPoint Center, double Radius)> dimensioned, IReadOnlyList<SheetSegment> obstacles)
+    /// <param name="obstacles">文字不要压的线（视图里的边、标题栏等的边）。</param>
+    /// <param name="inside">文字要落在这里面（图框，1.10.0）；null 不限。</param>
+    public static FilletPlan Plan(IReadOnlyList<FilletArc> arcs, IReadOnlyList<(SheetPoint Center, double Radius)> dimensioned, IReadOnlyList<SheetSegment> obstacles,
+        SheetRect? inside = null)
     {
         var distinct = new List<FilletArc>();
         foreach (var arc in arcs)
@@ -86,7 +88,7 @@ internal static class FilletPlanner
         foreach (var (arc, count) in chosen.OrderByDescending(item => item.Arc.Middle.Y).ThenBy(item => item.Arc.Middle.X))
         {
             var text = (count > 1 ? $"{count} x " : string.Empty) + "R" + Value(arc.ModelRadius);
-            var (at, box) = Place(arc, text.Length, obstacles, placed);
+            var (at, box) = PlaceText(arc.Middle, Outward(arc), text.Length, obstacles, placed, inside);
             placed.Add(box);
             targets.Add(new FilletTarget(arc.Index, at, count));
         }
@@ -107,10 +109,14 @@ internal static class FilletPlanner
         return length > 0 ? (dx / length, dy / length) : (Math.Sqrt(0.5), Math.Sqrt(0.5));
     }
 
-    /// <summary>文字放哪：近的一档里先正方向、再两侧转；压到线或别的文字就试下一个，都压取压得最少的。</summary>
-    private static (SheetPoint At, TextBox Box) Place(FilletArc arc, int characters, IReadOnlyList<SheetSegment> obstacles, IReadOnlyList<TextBox> placed)
+    /// <summary>
+    /// 文字放哪（圆角、倒角共用）：从 <paramref name="from"/> 沿 <paramref name="outward"/> 走近的一档，先正方向、再两侧转；
+    /// 压到线或别的文字、出了 <paramref name="inside"/>（图框）就试下一个，都不行取压得最少的。
+    /// </summary>
+    internal static (SheetPoint At, TextBox Box) PlaceText(SheetPoint from, (double X, double Y) outward, int characters,
+        IReadOnlyList<SheetSegment> obstacles, IReadOnlyList<TextBox> placed, SheetRect? inside = null)
     {
-        var (ox, oy) = Outward(arc);
+        var (ox, oy) = outward;
         var width = characters * CharWidth;
         (SheetPoint At, TextBox Box, int Hits) best = default;
         var first = true;
@@ -119,10 +125,11 @@ internal static class FilletPlanner
             foreach (var turn in Turns)
             {
                 var (dx, dy) = (ox * Math.Cos(turn) - oy * Math.Sin(turn), ox * Math.Sin(turn) + oy * Math.Cos(turn));
-                var at = new SheetPoint(arc.Middle.X + dx * reach, arc.Middle.Y + dy * reach);
+                var at = new SheetPoint(from.X + dx * reach, from.Y + dy * reach);
                 // 文字以 at 为中心估一个框（水平文字）。
                 var box = new TextBox(at.X - width / 2, at.Y - CharHeight / 2, width, CharHeight);
-                var hits = obstacles.Count(line => ClearancePlanner.Hits(box, line)) + placed.Count(other => ClearancePlanner.Hits(box, other));
+                var hits = obstacles.Count(line => ClearancePlanner.Hits(box, line)) + placed.Count(other => ClearancePlanner.Hits(box, other))
+                    + (inside is { } frame && !new SheetRect(box.X, box.Y, box.X + box.Width, box.Y + box.Height).Within(frame) ? 10 : 0);
                 if (hits == 0)
                     return (at, box);
                 if (first || hits < best.Hits)

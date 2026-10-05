@@ -162,20 +162,20 @@ internal static class DrawingPlanner
         var alongX = Count(part, holes, r);
         var alongY = Count(part, holes, u);
 
-        // 沿图纸 X：摆右边的视图在第一角投影里看 −X 那一侧。窗口两面都看得到，不影响摆哪边。
-        if (alongX.Holes + alongX.Windows > 0)
+        // 沿图纸 X：摆右边的视图在第一角投影里看 −X 那一侧。窗口两面都看得到，不影响摆哪边；倒角（1.10.0）沿这个方向看才成斜线、才标得了。
+        if (alongX.Holes + alongX.Windows + alongX.Chamfers > 0)
         {
             var rightShows = firstAngle ? alongX.Minus : alongX.Plus;
             var leftShows = firstAngle ? alongX.Plus : alongX.Minus;
-            result.Add(new SideView(rightShows >= leftShows ? ViewSlot.Right : ViewSlot.Left, "侧面沿图纸横向有" + Features(alongX.Holes, alongX.Windows)));
+            result.Add(new SideView(rightShows >= leftShows ? ViewSlot.Right : ViewSlot.Left, "侧面沿图纸横向有" + Features(alongX.Holes, alongX.Windows, alongX.Chamfers)));
         }
 
         // 沿图纸 Y：摆下边的视图在第一角投影里看 +Y 那一侧（零件上面）。
-        if (alongY.Holes + alongY.Windows > 0)
+        if (alongY.Holes + alongY.Windows + alongY.Chamfers > 0)
         {
             var belowShows = firstAngle ? alongY.Plus : alongY.Minus;
             var aboveShows = firstAngle ? alongY.Minus : alongY.Plus;
-            result.Add(new SideView(belowShows >= aboveShows ? ViewSlot.Below : ViewSlot.Above, "侧面沿图纸竖向有" + Features(alongY.Holes, alongY.Windows)));
+            result.Add(new SideView(belowShows >= aboveShows ? ViewSlot.Below : ViewSlot.Above, "侧面沿图纸竖向有" + Features(alongY.Holes, alongY.Windows, alongY.Chamfers)));
         }
 
         if (result.Count > 0)
@@ -247,18 +247,24 @@ internal static class DrawingPlanner
         _ => new SheetPoint(main.Center.X, main.Top + mainBox.MarginTop + Gap + side.Height / 2),
     };
 
-    private static string Features(int holes, int windows)
-        => string.Join("、", new[] { holes > 0 ? $"孔 {holes} 个" : null, windows > 0 ? $"窗口 {windows} 个" : null }.Where(text => text is not null));
+    private static string Features(int holes, int windows, int chamfers)
+        => string.Join("、", new[]
+        {
+            holes > 0 ? $"孔 {holes} 个" : null,
+            windows > 0 ? $"窗口 {windows} 个" : null,
+            chamfers > 0 ? $"倒角 {chamfers} 个" : null,
+        }.Where(text => text is not null));
 
-    /// <summary>沿某方向的孔、窗口、圆弧面（R1 以上），以及孔口朝正 / 负向各几个。</summary>
-    private static (int Holes, int Windows, int Arcs, int Plus, int Minus, int Total) Count(PartGeometry part, IReadOnlyList<PartHole> holes, ModelDirection direction)
+    /// <summary>沿某方向的孔、窗口、圆弧面（R1 以上）、倒角（C1 以外，沿这个方向看成斜线的），以及孔口朝正 / 负向各几个。</summary>
+    private static (int Holes, int Windows, int Arcs, int Chamfers, int Plus, int Minus, int Total) Count(PartGeometry part, IReadOnlyList<PartHole> holes, ModelDirection direction)
     {
         var along = holes.Where(hole => Along(hole.Axis, direction)).ToList();
         var arcs = part.Cylinders.Count(cylinder => !(cylinder.Concave && cylinder.Full) && cylinder.Radius >= ArcMinRadius && Along(cylinder.Axis, direction));
         var plus = along.Count(hole => hole.Openings.Any(o => o.Dot(direction) > AxisCosine));
         var minus = along.Count(hole => hole.Openings.Any(o => o.Dot(direction) < -AxisCosine));
         var windows = part.Windows.Count(normal => Along(normal, direction));
-        return (along.Count, windows, arcs, plus, minus, along.Count + windows + arcs);
+        var chamfers = part.Chamfers.Count(chamfer => !chamfer.Default && Along(chamfer.Axis, direction));
+        return (along.Count, windows, arcs, chamfers, plus, minus, along.Count + windows + arcs + chamfers);
     }
 
     /// <summary>
@@ -289,6 +295,18 @@ internal static class DrawingPlanner
     public static double AnnotationMargin(int holeKinds, bool chain)
         => Math.Clamp(0.010 + 0.006 * holeKinds + 0.006, chain ? 0.026 : 0.016, 0.080);
 
+    /// <summary>
+    /// 投影视图连同标注空间（1.10.0）：与主视图共用的那个方向（左右视图的竖直方向、上下视图的水平方向）上的外轮廓尺寸主视图已经标了
+    /// （外轮廓跨视图不重复），只有视图里有孔时才要孔位尺寸——没有孔就不在那一边留尺寸空间。限位块右的下视图只为倒角而加，
+    /// 两边都留时 A4 竖向差几毫米、退到了 A3（用户手工图是 A4）。
+    /// </summary>
+    public static ViewBox SideBox(double width, double height, ViewSlot slot, int holeKinds, bool chain)
+    {
+        var margin = AnnotationMargin(holeKinds, chain);
+        var shared = holeKinds > 0 ? margin : 0;
+        return Horizontal(slot) ? new ViewBox(width, height, shared, margin) : new ViewBox(width, height, margin, shared);
+    }
+
     /// <summary>沿某个视线方向的孔有几种（这些孔在那个视图里是圆，各要一层位置尺寸）。</summary>
     public static int HoleKinds(PartGeometry part, ModelDirection normal)
         => part.Holes.Where(hole => Along(hole.Axis, normal)).Select(hole => hole.Kind).Distinct(StringComparer.Ordinal).Count();
@@ -316,8 +334,7 @@ internal static class DrawingPlanner
         {
             var horizontal = slot is ViewSlot.Right or ViewSlot.Left;
             var normal = horizontal ? main.Right : main.Up;
-            var margin = AnnotationMargin(HoleKinds(part, normal), chain);
-            sideBoxes[slot] = horizontal ? new ViewBox(d, h, margin, margin) : new ViewBox(w, d, margin, margin);
+            sideBoxes[slot] = horizontal ? SideBox(d, h, slot, HoleKinds(part, normal), chain) : SideBox(w, d, slot, HoleKinds(part, normal), chain);
         }
 
         var (isoRight, isoUp) = IsoAxes(main.Normal, main.Right, main.Up);
@@ -333,7 +350,7 @@ internal static class DrawingPlanner
 
     /// <summary>
     /// 排版：主视图连同左右、上下投影视图从图框左上角排起（左边、上边留标注空间），轴测图放进剩下的空地（离主视图右侧最近处），
-    /// 放不下就缩成一半；技术要求先试标题栏正上方、再试左下角、再找任何空地。不碰图框外、标题栏等禁区。
+    /// 放不下就缩成一半；技术要求先试标题栏正上方、再试左下角、再找任何空地，都没有就把轴测图再缩一档重放。不碰图框外、标题栏等禁区。
     /// </summary>
     public static LayoutResult Layout(SheetSpace sheet, LayoutRequest request)
     {
@@ -357,9 +374,30 @@ internal static class DrawingPlanner
         }
 
         var (mainCenter, centers, occupied) = block;
-        var mainY = mainCenter.Y;
         if (problem.Length > 0)
             return new LayoutResult(false, mainCenter, centers, null, 1, null, problem);
+
+        // 轴测图、技术要求：技术要求找不到空地时，轴测图从再小一档起重放（轴测图只是看个样子，技术要求要读；
+        // 1.10.0 三个限位块为倒角多了下视图，A4 上原比例的轴测图占了技术要求的地方，技术要求压到了轴测图与孔标注）。
+        var factors = request.IsoFactors ?? [1.0, 0.5];
+        LayoutResult? first = null;
+        for (var start = 0; start < (request.Iso.Width > 0 ? factors.Count : 1); start++)
+        {
+            var result = Extras(sheet, request, mainCenter, centers, occupied, factors.Skip(start).ToList());
+            if (result.Problem.Length == 0)
+                return result;
+            first ??= result;
+        }
+
+        return first!;
+    }
+
+    /// <summary>视图组排好后放轴测图与技术要求；<paramref name="factors"/> 是这一轮轴测图依次试的缩放。</summary>
+    private static LayoutResult Extras(SheetSpace sheet, LayoutRequest request, SheetPoint mainCenter, IReadOnlyDictionary<ViewSlot, SheetPoint> centers,
+        IReadOnlyList<SheetRect> views, IReadOnlyList<double> factors)
+    {
+        var frame = sheet.Frame;
+        var occupied = views.ToList();
 
         // 轴测图：离「视图组右边那一片的中间、主视图那一行」最近的空地（见 IsoSpot）。没有轴测图（宽为 0）就不放。
         var crowded = new List<string>();
@@ -367,8 +405,8 @@ internal static class DrawingPlanner
         var shrink = 1.0;
         if (request.Iso.Width > 0)
         {
-            var target = new SheetPoint((occupied.Max(r => r.Right) + frame.Right) / 2, mainY);
-            (var center, shrink, var free) = IsoSpot(sheet, occupied, request.Iso, request.IsoFactors ?? [1.0, 0.5], target);
+            var target = new SheetPoint((occupied.Max(r => r.Right) + frame.Right) / 2, mainCenter.Y);
+            (var center, shrink, var free) = IsoSpot(sheet, occupied, request.Iso, factors, target);
             iso = center;
             if (!free)
                 crowded.Add("轴测图");
@@ -455,9 +493,13 @@ internal static class DrawingPlanner
             yield return (dx, total - dx);
     }
 
-    /// <summary>视图组放不下的原因；放得下为空串。</summary>
+    /// <summary>
+    /// 视图组放不下的原因；放得下为空串。视图右边、下边那条 <see cref="Gap"/> 只为隔开下一个视图，可以压到图框线上
+    /// （视图外框本身就比零件多出约 6 mm 留白，1.10.0：限位块前主视图加下视图在 A4 上差的正是这 2 mm，用户手工图的下视图外框就贴着图框）。
+    /// </summary>
     private static string BlockProblem(SheetSpace sheet, IReadOnlyList<SheetRect> occupied)
-        => occupied.Any(rect => !rect.Within(sheet.Frame)) ? "视图连同标注空间超出图框"
+        => occupied.Any(rect => !rect.Within(new SheetRect(sheet.Frame.Left, sheet.Frame.Bottom - Gap, sheet.Frame.Right + Gap, sheet.Frame.Top)))
+            ? "视图连同标注空间超出图框"
             : occupied.Any(rect => sheet.KeepOuts.Any(rect.Overlaps)) ? "视图压到标题栏等图框内容"
             : string.Empty;
 

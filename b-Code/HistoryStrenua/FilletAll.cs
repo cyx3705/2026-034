@@ -16,7 +16,12 @@ internal static class FilletAll
         Usage: "不用点视图：当前图纸页上的全部视图（轴测图跳过）逐个做「圆角标注」——正对图纸的圆角弧各加一个 R 尺寸，文字放在零件外的空处；R1 不标（技术要求「未注圆角R1」），同一半径 3 个以上只标一个并写「N x R」，已有 R 或直径尺寸的跳过。某个视图没成不中断，最后汇总。",
         Run: Run);
 
-    internal static QuickOutcome Run(QuickCommandContext context)
+    internal static QuickOutcome Run(QuickCommandContext context) => EachView(context, "全图圆角", FilletDimension.Run);
+
+    /// <summary>
+    /// 当前图纸页全部视图（轴测图、没引用模型的跳过）逐个做 <paramref name="step"/>，某个视图没成不中断，最后汇总（全图圆角、全图倒角共用）。
+    /// </summary>
+    internal static QuickOutcome EachView(QuickCommandContext context, string title, Func<QuickCommandContext, object?, QuickOutcome> step)
     {
         var api = context.Api;
         var document = HoleScan.ActiveDrawing(context);
@@ -30,11 +35,11 @@ internal static class FilletAll
             if (api.Call(view, "IView", "get_ReferencedDocument") is null || HoleScan.Frame(context, view).Axonometric)
                 continue;
             var name = DrawingSheet.Name(api, view);
-            context.Report($"全图圆角：视图「{name}」。");
+            context.Report($"{title}：视图「{name}」。");
             QuickOutcome outcome;
             try
             {
-                outcome = FilletDimension.Run(context, view);
+                outcome = step(context, view);
             }
             catch (QuickCommandException ex)
             {
@@ -49,8 +54,8 @@ internal static class FilletAll
 
         api.Call(document, "IModelDoc2", "ClearSelection2", true);
         if (done == 0)
-            return QuickOutcome.Ok("全图圆角：当前图纸页上没有要标圆角的视图（轴测图跳过），没有改动。");
-        var head = $"全图圆角：当前图纸页 {done} 个视图都已做完"
+            return QuickOutcome.Ok($"{title}：当前图纸页上没有要标的视图（轴测图跳过），没有改动。");
+        var head = $"{title}：当前图纸页 {done} 个视图都已做完"
             + (failures.Count > 0 ? $"，{failures.Count} 个没成（{string.Join("、", failures)}）" : string.Empty) + "。";
         var message = head + Environment.NewLine + string.Join(Environment.NewLine, lines);
         return failures.Count > 0 ? QuickOutcome.Fail(message) : QuickOutcome.Ok(message);

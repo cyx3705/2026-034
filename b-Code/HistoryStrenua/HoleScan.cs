@@ -16,6 +16,8 @@ namespace HistoryStrenua;
 /// 其余不是孔的边（圆角、整圆凸台、样条……）近似成的线段（只在要求收集直边时有，1.8.0）：
 /// 圆弧取起点 → 弧中点 → 终点两段，整圆取外接八边形，别的曲线取弦。外轮廓判定拿它挡射线。
 /// </param>
+/// <param name="ArcEdges">圆角弧的边本身（只在要求收集圆角时有，1.9.0）。</param>
+/// <param name="FilletArcs">圆角弧在图纸上的样子，与 <paramref name="ArcEdges"/> 一一对应。</param>
 internal sealed record ScannedView(
     object Document,
     object View,
@@ -25,10 +27,15 @@ internal sealed record ScannedView(
     IReadOnlyList<HoleEdge> Candidates,
     IReadOnlyList<object> LineEdges,
     IReadOnlyList<SheetSegment> Lines,
-    IReadOnlyList<SheetSegment>? Curves = null)
+    IReadOnlyList<SheetSegment>? Curves = null,
+    IReadOnlyList<object>? ArcEdges = null,
+    IReadOnlyList<FilletArc>? FilletArcs = null)
 {
     /// <summary>曲线边近似成的线段（没有时为空表）。</summary>
     public IReadOnlyList<SheetSegment> CurveSegments => Curves ?? [];
+
+    /// <summary>圆角弧（只在要求收集圆角时有，1.9.0），<see cref="FilletArc.Index"/> 是 <see cref="ArcEdges"/> 的下标。</summary>
+    public IReadOnlyList<FilletArc> Arcs => FilletArcs ?? [];
 }
 
 /// <summary>
@@ -65,7 +72,8 @@ internal static class HoleScan
     /// <param name="title">指令名，写进进度与失败消息，如「孔标注」。</param>
     /// <param name="withLines">同时收集视图里的直边（孔位尺寸找基准用）。</param>
     /// <param name="view">直接处理这个视图，不看选择、不等点选（「孔标注全流程」逐个视图调用时给）。</param>
-    public static ScannedView Scan(QuickCommandContext context, string title, bool withLines = false, object? view = null)
+    /// <param name="withArcs">同时收集圆角弧（1.9.0「圆角标注」用；要 <paramref name="withLines"/>）。</param>
+    public static ScannedView Scan(QuickCommandContext context, string title, bool withLines = false, object? view = null, bool withArcs = false)
     {
         var api = context.Api;
         var document = ActiveDrawing(context);
@@ -82,6 +90,8 @@ internal static class HoleScan
         var lineEdges = new List<object>();
         var lines = new List<SheetSegment>();
         var curves = new List<SheetSegment>();
+        var arcEdges = new List<object>();
+        var arcs = new List<FilletArc>();
         foreach (var component in VisibleComponents(api, view, model))
         {
             foreach (var edge in api.CallArray(view, "IView", "GetVisibleEntities2", component, ViewEntityEdge))
@@ -100,11 +110,16 @@ internal static class HoleScan
                 else if (withLines)
                 {
                     curves.AddRange(geometry.CurveOutline(edge));
+                    if (withArcs && geometry.TryReadArc(edge, arcEdges.Count) is { } arc)
+                    {
+                        arcs.Add(arc);
+                        arcEdges.Add(edge);
+                    }
                 }
             }
         }
 
-        return new ScannedView(document, view, viewName, geometry, edges, candidates, lineEdges, lines, curves);
+        return new ScannedView(document, view, viewName, geometry, edges, candidates, lineEdges, lines, curves, arcEdges, arcs);
     }
 
     /// <summary>活动文档，必须是工程图。</summary>
@@ -341,6 +356,76 @@ internal static class HoleScan
                     return null;
                 var center = ToSheet(Transforms(edge), "CreatePoint", "IMathPoint", circle[0], circle[1], circle[2]);
                 return new SheetPoint(center[0], center[1]);
+            }
+            catch (Exception ex) when (ex is System.Runtime.InteropServices.COMException or InvalidCastException or System.Reflection.TargetException)
+            {
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// 圆角弧（1.9.0「圆角标注」）：有端点的圆弧、轴线正对图纸、旁边贴着一张同半径的圆柱面；返回图纸上的圆心、半径、弧中点，
+        /// 模型半径，以及圆柱面是不是内凹（内圆角 / 凹弧的圆心在零件外，外圆角的圆心在零件里）。孔、腰型孔端头不归这里管（先过 <see cref="TryReadHole"/>）。
+        /// </summary>
+        public FilletArc? TryReadArc(object edge, int index)
+        {
+            try
+            {
+                if (Circle(edge) is not { } circle
+                    || api.Call(edge, "IEdge", "GetStartVertex") is not { } start
+                    || api.Call(edge, "IEdge", "GetEndVertex") is not { } end)
+                    return null;
+                var transforms = Transforms(edge);
+                var axis = ToSheet(transforms, "CreateVector", "IMathVector", circle[3], circle[4], circle[5]);
+                if (!HoleCalloutPlanner.FacesViewer(axis[0], axis[1], axis[2]))
+                    return null;
+                if (ArcFaceConcave(edge, circle) is not { } concave)
+                    return null;
+                var s = api.CallDoubles(start, "IVertex", "GetPoint");
+                var e = api.CallDoubles(end, "IVertex", "GetPoint");
+                if (s.Length < 3 || e.Length < 3 || ArcMiddle(edge, circle, s, e) is not { } middle)
+                    return null;
+                var center = ToSheet(transforms, "CreatePoint", "IMathPoint", circle[0], circle[1], circle[2]);
+                var mid = ToSheet(transforms, "CreatePoint", "IMathPoint", middle[0], middle[1], middle[2]);
+                return new FilletArc(index, new SheetPoint(center[0], center[1]), circle[6] * Scale, circle[6], new SheetPoint(mid[0], mid[1]), concave);
+            }
+            catch (Exception ex) when (ex is System.Runtime.InteropServices.COMException or InvalidCastException or System.Reflection.TargetException)
+            {
+                return null;
+            }
+        }
+
+        /// <summary>圆弧旁边同半径的圆柱面是不是内凹（判法同 <see cref="HoleWall"/>）；旁边没有同半径圆柱面返回 null。</summary>
+        private bool? ArcFaceConcave(object edge, double[] circle)
+        {
+            var (ux, uy, uz) = HoleCalloutPlanner.Perpendicular(circle[3], circle[4], circle[5]);
+            var radius = circle[6];
+            var (px, py, pz) = (circle[0] + radius * ux, circle[1] + radius * uy, circle[2] + radius * uz);
+            foreach (var face in api.CallArray(edge, "IEdge", "GetTwoAdjacentFaces2"))
+            {
+                if (face is null || api.Call(face, "IFace2", "GetSurface") is not { } surface || !api.CallBool(surface, "ISurface", "IsCylinder"))
+                    continue;
+                var cylinder = api.CallDoubles(surface, "ISurface", "get_CylinderParams");
+                var evaluated = api.CallDoubles(surface, "ISurface", "EvaluateAtPoint", px, py, pz);
+                if (cylinder.Length < 7 || evaluated.Length < 3
+                    || Math.Abs(cylinder[6] - radius) > Math.Max(1e-9, radius * HoleCalloutPlanner.RadiusTolerance))
+                    continue;
+                var dot = evaluated[0] * ux + evaluated[1] * uy + evaluated[2] * uz;
+                return HoleCalloutPlanner.IsHoleWall(radius, cylinder[6], api.CallBool(face, "IFace2", "FaceInSurfaceSense"), dot);
+            }
+
+            return null;
+        }
+
+        /// <summary>圆或圆弧边在图纸上的圆心与半径；不是圆、或对象已失效返回 null（读已有 R / 直径尺寸连着的弧用，1.9.0）。</summary>
+        public (SheetPoint Center, double Radius)? TryReadCircle(object edge)
+        {
+            try
+            {
+                if (Circle(edge) is not { } circle)
+                    return null;
+                var center = ToSheet(Transforms(edge), "CreatePoint", "IMathPoint", circle[0], circle[1], circle[2]);
+                return (new SheetPoint(center[0], center[1]), circle[6] * Scale);
             }
             catch (Exception ex) when (ex is System.Runtime.InteropServices.COMException or InvalidCastException or System.Reflection.TargetException)
             {

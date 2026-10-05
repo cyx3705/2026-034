@@ -56,6 +56,15 @@ var tests = new (string Name, Action Run)[]
     ("hole faces the viewer", TestFacesViewer),
     ("hole wall is concave and same radius", TestHoleWall),
     ("perpendicular is unit and orthogonal", TestPerpendicular),
+    ("drawing: templates by file name", TestDrawingTemplates),
+    ("drawing: main view (15 real parts)", TestDrawingMainView),
+    ("drawing: sheet and scale (15 real parts)", TestDrawingSheet),
+    ("drawing: side views by hole openings", TestDrawingSideViews),
+    ("drawing: layout avoids frame contents", TestDrawingLayout),
+    ("drawing: scales, ratios and iso factors", TestDrawingScales),
+    ("drawing: technical note text", TestTechnicalNote),
+    ("fillet: which arcs, grouping and text side", TestFilletPlan),
+    ("snapshot: file name", TestSnapshotName),
 };
 
 var failed = 0;
@@ -94,7 +103,11 @@ static void TestCommandRegistration()
         "strenua.hole.flow",
         "strenua.hole.dowelfit",
         "strenua.hole.outline",
+        "strenua.drawing.auto",
+        "strenua.drawing.create",
+        "strenua.drawing.fillet",
         "strenua.check.dimension",
+        "strenua.check.snapshot",
         "strenua.quick.list",
         "strenua.quick.run",
         "strenua.quick.cancel",
@@ -116,6 +129,8 @@ static void TestCommandRegistration()
     True(hole.HiddenReason is null, "快捷指令要能在控制台直接敲");
     True(registry.TryGet("strenua.hole.centermark", out var centerMark) && !centerMark!.Readonly, "中心符号线会改工程图，不是只读");
     True(registry.TryGet("strenua.quick.list", out var list) && list!.Readonly, "列表是只读的");
+    foreach (var name in new[] { "strenua.drawing.create", "strenua.drawing.auto", "strenua.drawing.fillet", "strenua.check.snapshot" })
+        True(registry.TryGet(name, out var drawing) && !drawing!.Readonly && drawing.HiddenReason is null, $"{name} 要能在控制台直接敲（建图、加尺寸、写图片都不是只读）");
     True(registry.TryGet("strenua.quick.run", out var run) && !run!.Readonly, "按 key 执行会改工程图，不是只读");
     var keys = run!.Parameters!.Single(p => p.Name == "key").AllowedValues!;
     True(QuickCommands.All.All(command => keys.Contains(command.Key)), "quick.run 的 key 候选应覆盖全部快捷指令");
@@ -238,10 +253,17 @@ static void TestClassPanels()
     var buttons = rows.Take(buttonRows).SelectMany(row => row.GetProperty("widgets").EnumerateArray()).ToList();
     True(rows.Take(buttonRows).All(row => row.GetProperty("widgets").GetArrayLength() <= StrenuaPage.ButtonsPerRow), "一行最多 4 个按钮");
     Equal(string.Join(",", holeTitles), string.Join(",", buttons.Select(button => button.GetProperty("text").GetString())));
-    // 检查类一块面板、只有按钮没有开关。
+    // 检查类一块面板、只有按钮没有开关（1.9.0 多了「图纸截图」）。
     var check = branches.Single(branch => branch.GetProperty("id").GetString() == StrenuaPage.ClassPanelId("check"));
     Equal("检查", check.GetProperty("case").GetString()!);
     Equal(1, check.GetProperty("rows").GetArrayLength());
+    Equal("未标尺寸,图纸截图", string.Join(",", check.GetProperty("rows")[0].GetProperty("widgets").EnumerateArray().Select(w => w.GetProperty("text").GetString())));
+    // 1.9.0 出图类：一键出图、新建工程图、圆角标注一行按钮，没有开关（一键出图照「孔」面板的开关走）。
+    var drawing = branches.Single(branch => branch.GetProperty("id").GetString() == StrenuaPage.ClassPanelId("drawing"));
+    Equal("出图", drawing.GetProperty("case").GetString()!);
+    Equal(1, drawing.GetProperty("rows").GetArrayLength());
+    Equal("一键出图,新建工程图,圆角标注", string.Join(",", drawing.GetProperty("rows")[0].GetProperty("widgets").EnumerateArray().Select(w => w.GetProperty("text").GetString())));
+    Equal("孔,出图,检查", string.Join(",", StrenuaPage.ClassOptions(QuickCommands.All)));
     // 开关在按钮下面，初值取当前设置。
     var switches = rows[buttonRows].GetProperty("widgets").EnumerateArray().ToList();
     Equal("避障,尺寸链", string.Join(",", switches.Select(w => w.GetProperty("label").GetString())));
@@ -928,7 +950,7 @@ static void TestFlowCommand()
         && usage.IndexOf("→ 外轮廓", StringComparison.Ordinal) < usage.IndexOf("→ 孔标注", StringComparison.Ordinal)
         && usage.IndexOf("→ 孔标注", StringComparison.Ordinal) < usage.IndexOf("→ 销孔标注", StringComparison.Ordinal), "步骤顺序");
     True(usage.Contains("当前图纸页", StringComparison.Ordinal), "范围是当前图纸页");
-    Equal("hole-flow,dowel-symbol,center-mark,hole-position,hole-callout,dowel-fit,outline,check-dimension",
+    Equal("hole-flow,dowel-symbol,center-mark,hole-position,hole-callout,dowel-fit,outline,drawing-auto,drawing-create,fillet,check-dimension,snapshot",
         string.Join(",", QuickCommands.All.Select(command => command.Key)));
 }
 
@@ -1362,6 +1384,352 @@ static void TestPerpendicular()
         Near(0, ux * x + uy * y + uz * z);
         Near(1, Math.Sqrt(ux * ux + uy * uy + uz * uz));
     }
+}
+
+// ---- 1.9.0 出图 ----
+
+/// <summary>用户 2026-025 台面2机器 15 个零件：几何摘要（真机 PartScan 读出、压缩存放）与用户手工图的选择。</summary>
+static List<(string Name, string Main, string Sheet, int Scale, PartGeometry Geometry)> RealParts()
+{
+    var path = Path.Combine(AppContext.BaseDirectory, "Fixtures", "台面2机器零件.json");
+    using var document = JsonDocument.Parse(File.ReadAllText(path));
+    ModelDirection Vector(JsonElement v) => new(v[0].GetDouble(), v[1].GetDouble(), v[2].GetDouble());
+    var parts = new List<(string, string, string, int, PartGeometry)>();
+    foreach (var part in document.RootElement.EnumerateArray())
+    {
+        var box = part.GetProperty("box").EnumerateArray().Select(v => v.GetDouble()).ToArray();
+        var cylinders = part.GetProperty("cylinders").EnumerateArray()
+            .Select(c => new PartCylinder(
+                Vector(c.GetProperty("a")),
+                Vector(c.GetProperty("p")),
+                c.GetProperty("r").GetDouble(),
+                c.GetProperty("c").GetBoolean(),
+                c.GetProperty("f").GetBoolean(),
+                c.GetProperty("k").GetString()!,
+                c.GetProperty("o").EnumerateArray().Select(Vector).ToList()))
+            .ToList();
+        var planes = part.GetProperty("planes").EnumerateArray().Select(Vector).ToList();
+        var windows = part.TryGetProperty("windows", out var found) ? found.EnumerateArray().Select(Vector).ToList() : [];
+        parts.Add((part.GetProperty("name").GetString()!, part.GetProperty("main").GetString()!, part.GetProperty("sheet").GetString()!,
+            part.GetProperty("scale").GetInt32(), new PartGeometry(new ModelBox(box[0], box[1], box[2], box[3], box[4], box[5]), cylinders, planes, windows)));
+    }
+
+    return parts;
+}
+
+/// <summary>用户的「零件 - 高悦精密」模板（A4 横、A4 竖、A3、A2）与默认的装配体模板，排好序。</summary>
+static IReadOnlyList<DrawingTemplate> UserTemplates()
+    => DrawingTemplate.Rank(new[]
+    {
+        "零件 - 高悦精密A3.drwdot", "零件 - 高悦精密A4横向.drwdot", "零件 - 高悦精密A4纵向.drwdot", "零件 - 高悦精密A2.drwdot",
+        "装配体 - 高悦精密A3.drwdot", "gb_a3.drwdot",
+    }.Select(name => DrawingTemplate.FromFile(@"C:\templates\" + name)!));
+
+static void TestDrawingTemplates()
+{
+    var a3 = DrawingTemplate.FromFile(@"C:\t\零件 - 高悦精密A3.drwdot")!;
+    Equal(0.420, a3.Width);
+    Equal(0.297, a3.Height);
+    Equal("A3", a3.SizeName);
+    var landscape = DrawingTemplate.FromFile(@"C:\t\零件 - 高悦精密A4横向.drwdot")!;
+    Equal(0.297, landscape.Width);
+    Equal("A4 横", landscape.SizeName);
+    var portrait = DrawingTemplate.FromFile(@"C:\t\零件 - 高悦精密A4纵向.drwdot")!;
+    Equal(0.210, portrait.Width);
+    Equal("A4 竖", portrait.SizeName);
+    True(DrawingTemplate.FromFile(@"C:\t\gb_a4.drwdot")!.Width < 0.25, "名字不写横竖的 A4 按竖放");
+    True(DrawingTemplate.FromFile(@"C:\t\gb_a2.drwdot")!.Width > 0.5, "A3 以上不写横竖按横放");
+    True(DrawingTemplate.FromFile(@"C:\t\标准模板.drwdot") is null, "认不出图幅的不算");
+    True(DrawingTemplate.FromFile(@"C:\t\A10 图框.drwdot") is null, "A10 不是图幅");
+
+    // 零件图只用名字带「零件」的；有横放的就只用横放的；图幅从小到大。
+    var ranked = UserTemplates();
+    Equal("零件 - 高悦精密A4横向,零件 - 高悦精密A3,零件 - 高悦精密A2", string.Join(",", ranked.Select(t => t.Name)));
+    // 没有「零件」模板时退到不带「装配」的。
+    var fallback = DrawingTemplate.Rank(new[] { "装配体 - A3.drwdot", "gb_a3.drwdot", "gb_a4.drwdot" }.Select(n => DrawingTemplate.FromFile(@"C:\t\" + n)!));
+    Equal("gb_a3", string.Join(",", fallback.Select(t => t.Name)));
+}
+
+static void TestDrawingMainView()
+{
+    // 用户 15 张手工图的主视图。差异只在两处（外加两处同轴另一面）：
+    // 外壳2 用户看的是投影面积最大的上视、孔却在侧面，本模块取孔与圆弧最多的那一面；连接件、外壳沿轴两面都没有孔口，取了正向的那一面。
+    var accepted = new Dictionary<string, string[]>
+    {
+        ["XLL-HDYY-01-04-02 连接件"] = ["back", "front"],
+        ["XLL-HDYY-01-04-09 外壳2"] = ["top", "right", "left"],
+        ["XLL-HDYY-01-04-10 外壳"] = ["left", "right"],
+    };
+    var matched = 0;
+    foreach (var (name, main, _, _, geometry) in RealParts())
+    {
+        var chosen = DrawingPlanner.MainView(geometry).View.Key;
+        var ok = accepted.TryGetValue(name, out var allowed) ? allowed.Contains(chosen) : chosen == main;
+        True(ok, $"{name}：主视图应为 {main}，实际 {chosen}");
+        if (chosen == main)
+            matched++;
+    }
+
+    True(matched >= 12, $"与手工图完全一致的主视图应至少 12 张，实际 {matched}");
+
+    // 板件：孔最多的一面，沉头孔朝哪面看哪面。
+    var plate = Plate(holesOpenTo: new ModelDirection(0, 0, -1));
+    Equal("back", DrawingPlanner.MainView(plate).View.Key);
+    // L 形件：截面上 3 个圆角（沿 Z），两条腿侧面各 2 个孔（沿 X、沿 Y）——看截面。
+    Equal("front", DrawingPlanner.MainView(Bracket()).View.Key);
+}
+
+static void TestDrawingSheet()
+{
+    var templates = UserTemplates();
+    var verbose = Environment.GetEnvironmentVariable("STRENUA_PLAN") == "1";
+    var matched = 0;
+    var lines = new List<string>();
+    foreach (var (name, main, sheet, scale, geometry) in RealParts())
+    {
+        var chosen = DrawingPlanner.MainView(geometry).View;
+        var frame = new ViewFrame(chosen.Right, chosen.Up, chosen.Normal, new SheetPoint(0, 0), 1);
+        var sides = DrawingPlanner.SideViews(geometry, frame, firstAngle: true);
+        var choice = DrawingPlanner.ChooseSheet(geometry, chosen, sides, templates, chain: false);
+        True(choice is not null, $"{name}：哪个模板都放不下");
+        var size = choice!.Template.SizeName.Split(' ')[0];
+        var denominator = (int)Math.Round(1 / choice.Scale);
+        if (size == sheet && denominator == scale)
+            matched++;
+        lines.Add($"{name}: 用户 {sheet} 1:{scale}，本次 {choice.Template.SizeName} {DrawingPlanner.ScaleText(choice.Scale)}（{chosen.Key}，{string.Join("/", choice.Slots)}）{choice.Reason}");
+        if (verbose)
+        {
+            var userTemplate = templates.First(t => t.SizeName.StartsWith(sheet, StringComparison.Ordinal));
+            var request = DrawingPlanner.Estimate(geometry, chosen, choice.Slots, 1.0 / scale, chain: false);
+            var layout = DrawingPlanner.Layout(SheetSpace.Standard(userTemplate.Width, userTemplate.Height), request);
+            lines.Add($"    用户那张 {sheet} 1:{scale}：{(layout.Fits ? "放得下" : layout.Problem)}；主视图 {request.Main.Width * 1000:0}×{request.Main.Height * 1000:0} 留 {request.Main.MarginLeft * 1000:0}，"
+                + string.Join("，", request.Sides.Select(p => $"{p.Key} {p.Value.Width * 1000:0}×{p.Value.Height * 1000:0} 留 {p.Value.MarginLeft * 1000:0}"))
+                + $"，轴测 {request.Iso.Width * 1000:0}×{request.Iso.Height * 1000:0}");
+        }
+        // 每张都要真的排得下：视图组、轴测图、技术要求互不重叠、都在图框里、不压标题栏。
+        True(choice.Layout.Fits, $"{name}：选出来的版面排不下 {choice.Layout.Problem}");
+    }
+
+    if (verbose)
+        Console.WriteLine(string.Join(Environment.NewLine, lines));
+    True(matched >= 10, $"图幅与比例和手工图一致的应至少 10 张，实际 {matched}：" + Environment.NewLine + string.Join(Environment.NewLine, lines));
+}
+
+static void TestDrawingSideViews()
+{
+    // 板件：侧面没有孔也没有圆弧面——只加一个看厚度的，宽板摆下边，也可换到右边。
+    var plate = Plate(new ModelDirection(0, 0, -1));
+    var back = StandardView.Of("back");
+    var plateSides = DrawingPlanner.SideViews(plate, Frame(back), firstAngle: true);
+    Equal(1, plateSides.Count);
+    Equal(ViewSlot.Below, plateSides[0].Slot);
+    Equal(ViewSlot.Right, plateSides[0].Alternative!.Value);
+    Equal("Below|Right", string.Join("|", DrawingPlanner.Arrangements(plateSides).Select(slots => string.Join(",", slots))));
+
+    // L 形件看截面：竖腿的孔沿图纸 X、孔口朝 −X——第一角投影里摆右边的视图看的正是零件左侧（−X）；
+    // 横腿的孔沿图纸 Y、两头都通——摆下边（看零件上面）。第三角投影：右边看 +X，于是摆左边。
+    var front = StandardView.Of("front");
+    var first = DrawingPlanner.SideViews(Bracket(), Frame(front), firstAngle: true);
+    Equal("Right,Below", string.Join(",", first.Select(side => side.Slot)));
+    True(first.All(side => side.Alternative is null), "看孔的投影视图不能换边（换了就看不到孔口那一面）");
+    var third = DrawingPlanner.SideViews(Bracket(), Frame(front), firstAngle: false);
+    Equal("Left,Below", string.Join(",", third.Select(side => side.Slot)));
+
+    // 侧面只有圆弧面：只加一个，加在圆弧面多的方向；两个方向都有时可换边（用户外壳只加了一个右视图）。
+    var rounded = new PartGeometry(new ModelBox(0, 0, 0, 0.2, 0.1, 0.05),
+    [
+        new(new ModelDirection(1, 0, 0), new ModelDirection(0, 0.01, 0.01), 0.005, false, false, "Fillet1", []),
+        new(new ModelDirection(1, 0, 0), new ModelDirection(0, 0.09, 0.01), 0.005, false, false, "Fillet1", []),
+        new(new ModelDirection(0, 1, 0), new ModelDirection(0.01, 0, 0.01), 0.005, false, false, "Fillet2", []),
+        new(new ModelDirection(0, 1, 0), new ModelDirection(0.19, 0, 0.01), 0.0008, false, false, "Fillet3", []),
+    ], []);
+    var arcs = DrawingPlanner.SideViews(rounded, Frame(front), firstAngle: true);
+    Equal(1, arcs.Count);
+    Equal(ViewSlot.Right, arcs[0].Slot);
+    Equal(ViewSlot.Below, arcs[0].Alternative!.Value);
+    True(arcs[0].Reason.Contains("圆弧面 2 张", StringComparison.Ordinal), "R1 以下的修边圆角不算：" + arcs[0].Reason);
+}
+
+static ViewFrame Frame(StandardView view) => new(view.Right, view.Up, view.Normal, new SheetPoint(0, 0), 1);
+
+static void TestDrawingLayout()
+{
+    var a3 = SheetSpace.Standard(0.420, 0.297);
+    var request = new LayoutRequest(
+        new ViewBox(0.150, 0.100, 0.040, 0.040),
+        new Dictionary<ViewSlot, ViewBox> { [ViewSlot.Right] = new(0.020, 0.100, 0.016, 0.016) },
+        new ViewBox(0.080, 0.080, 0, 0),
+        0.101, 0.042, [1.0, 0.5]);
+    var layout = DrawingPlanner.Layout(a3, request);
+    True(layout.Fits && layout.Problem.Length == 0, "A3 上一个 150×100 的主视图加右视图、轴测图、技术要求应排得开：" + layout.Problem);
+    var main = SheetRect.Around(layout.Main, 0.150, 0.100);
+    var right = SheetRect.Around(layout.Sides[ViewSlot.Right], 0.020, 0.100);
+    var iso = SheetRect.Around(layout.Iso!.Value, 0.080 * layout.IsoShrink, 0.080 * layout.IsoShrink);
+    var note = new SheetRect(layout.NoteTopLeft!.Value.X, layout.NoteTopLeft.Value.Y - 0.042, layout.NoteTopLeft.Value.X + 0.101, layout.NoteTopLeft.Value.Y);
+    Near(layout.Main.Y, layout.Sides[ViewSlot.Right].Y);
+    True(right.Left - main.Right >= 0.016, "右视图与主视图之间要给右视图的竖直尺寸留地方");
+    True(main.Left - a3.Frame.Left >= 0.040 && a3.Frame.Top - main.Top >= 0.040, "主视图左边、上边留标注空间");
+    foreach (var (name, rect) in new[] { ("主视图", main), ("右视图", right), ("轴测图", iso), ("技术要求", note) })
+    {
+        True(rect.Within(a3.Frame), $"{name}出了图框");
+        True(!a3.KeepOuts.Any(rect.Overlaps), $"{name}压到标题栏等");
+    }
+
+    True(!iso.Overlaps(main) && !iso.Overlaps(right) && !note.Overlaps(iso) && !note.Overlaps(main), "轴测图、技术要求不压视图");
+    True(note.Bottom >= a3.TitleBlock.Top && note.Right <= a3.TitleBlock.Right, "技术要求先放标题栏正上方");
+
+    // 最左边是左视图、它上边的尺寸条会压到左上角图号框：整组往下（或往右）挪开，而不是判放不下（首版真机就栽在这）。
+    var left = new LayoutRequest(
+        new ViewBox(0.100, 0.060, 0.016, 0.016),
+        new Dictionary<ViewSlot, ViewBox> { [ViewSlot.Left] = new(0.030, 0.060, 0.016, 0.016) },
+        new ViewBox(0.050, 0.050, 0, 0), 0.101, 0.042, [1.0]);
+    var shifted = DrawingPlanner.Layout(a3, left);
+    True(shifted.Fits, "左视图压图号框时应挪开：" + shifted.Problem);
+    var leftView = SheetRect.Around(shifted.Sides[ViewSlot.Left], 0.030, 0.060);
+    var strip = new SheetRect(leftView.Left, leftView.Top, leftView.Right, leftView.Top + 0.016);
+    True(!a3.KeepOuts.Any(strip.Overlaps), "左视图上边的尺寸条不能压图号框");
+
+    // 主视图本身就比图框大：放不下，说清原因。
+    var huge = DrawingPlanner.Layout(a3, request with { Main = new ViewBox(0.400, 0.260, 0.040, 0.040) });
+    True(!huge.Fits && huge.Problem.Length > 0, "放不下要说原因");
+
+    // 视图组放得下、技术要求找不到完全空的地方：照样算排得下，技术要求放在压得最少处并说明。
+    var crowded = DrawingPlanner.Layout(a3, request with { NoteWidth = 0.380, NoteHeight = 0.100 });
+    True(crowded.Fits && crowded.NoteTopLeft is not null && crowded.Problem.Contains("技术要求", StringComparison.Ordinal), "技术要求挤不下时放在压得最少处：" + crowded.Problem);
+}
+
+static void TestDrawingScales()
+{
+    Equal("1:5", DrawingPlanner.ScaleText(0.2));
+    Equal("1:3", DrawingPlanner.ScaleText(1.0 / 3));
+    Equal("2:1", DrawingPlanner.ScaleText(2));
+    Equal((1, 3), DrawingPlanner.ScaleRatio(1.0 / 3));
+    Equal((2, 1), DrawingPlanner.ScaleRatio(2));
+    var plate = Plate(new ModelDirection(0, 0, 1));
+    Equal(1.0, DrawingPlanner.Scales(plate)[0]);
+    var small = new PartGeometry(new ModelBox(0, 0, 0, 0.03, 0.02, 0.01), [], []);
+    Equal(2.0, DrawingPlanner.Scales(small)[0]);
+    var tiny = new PartGeometry(new ModelBox(0, 0, 0, 0.012, 0.01, 0.005), [], []);
+    Equal(5.0, DrawingPlanner.Scales(tiny)[0]);
+    // 轴测图可缩成：原比例、再往下两档（1:2 → 1:3、1:5）。
+    Equal("1,0.667,0.4", string.Join(",", DrawingPlanner.IsoFactors(plate, 0.5).Select(f => f.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture))));
+    // 标准视图的朝向（真机读回）：右手系、图纸 X × 图纸 Y = 朝看图的人。
+    foreach (var view in StandardView.All)
+    {
+        var cross = PartHole.Cross(view.Right, view.Up);
+        Near(1, cross.Dot(view.Normal));
+    }
+}
+
+static void TestTechnicalNote()
+{
+    var (text, source) = DrawingCreate.TechnicalNoteText(null);
+    Equal(DrawingCreate.DefaultTechnicalNote, text);
+    True(text.StartsWith("        技术要求\n", StringComparison.Ordinal) && text.Contains("8、未注尺寸参考3D数模。", StringComparison.Ordinal), "默认就是用户那 8 条");
+    True(source.Contains("默认", StringComparison.Ordinal), source);
+
+    var directory = Path.Combine(Path.GetTempPath(), "strenua-test-" + Guid.NewGuid().ToString("N"));
+    try
+    {
+        var (first, firstSource) = DrawingCreate.TechnicalNoteText(directory);
+        Equal(DrawingCreate.DefaultTechnicalNote, first);
+        var file = Path.Combine(directory, DrawingCreate.TechnicalNoteFile);
+        True(File.Exists(file) && firstSource.Contains("已写到", StringComparison.Ordinal), "第一次用时把默认内容写出来，方便用户改");
+        File.WriteAllText(file, "技术要求\r\n1、去毛刺。\r\n", new System.Text.UTF8Encoding(false));
+        var (custom, customSource) = DrawingCreate.TechnicalNoteText(directory);
+        Equal("技术要求\n1、去毛刺。", custom);
+        True(customSource.Contains("取自", StringComparison.Ordinal), customSource);
+    }
+    finally
+    {
+        Directory.Delete(directory, recursive: true);
+    }
+}
+
+static void TestFilletPlan()
+{
+    FilletArc Arc(int index, double cx, double cy, double radius, double mx, double my, bool concave)
+        => new(index, new SheetPoint(cx, cy), radius * 0.5, radius, new SheetPoint(mx, my), concave);
+
+    var arcs = new List<FilletArc>
+    {
+        Arc(0, 0.050, 0.100, 0.005, 0.0482, 0.1018, false),   // R5 外圆角（左上）
+        Arc(1, 0.150, 0.020, 0.005, 0.1518, 0.0182, false),   // R5 外圆角（右下）
+        Arc(2, 0.100, 0.060, 0.010, 0.0965, 0.0565, true),    // R10 内圆角
+        Arc(3, 0.100, 0.060, 0.010, 0.0965, 0.0565, true),    // 同一个 R10 被切成两段
+        Arc(4, 0.120, 0.120, 0.001, 0.1203, 0.1203, false),   // R1：技术要求不标
+    };
+    var plan = FilletPlanner.Plan(arcs, [], []);
+    Equal(4, plan.ArcCount);
+    Equal(1, plan.DefaultCount);
+    Equal("0,2,1", string.Join(",", plan.Targets.Select(t => t.Index)));
+    True(plan.Targets.All(t => t.Count == 1 && t.Prefix.Length == 0), "两个 R5 不到 3 个，各标各的");
+
+    // 已有 R 尺寸的跳过。
+    var existing = FilletPlanner.Plan(arcs, [(new SheetPoint(0.050, 0.100), 0.0025)], []);
+    Equal(1, existing.Dimensioned);
+    True(existing.Targets.All(t => t.Index != 0), "已标的不再标");
+
+    // 同半径 3 个以上合标「N x R」，标在最靠左上的那个上。
+    var corners = Enumerable.Range(0, 4)
+        .Select(i => Arc(i, 0.02 + 0.1 * (i % 2), 0.02 + 0.1 * (i / 2), 0.003, 0.02 + 0.1 * (i % 2) - 0.001, 0.02 + 0.1 * (i / 2) + 0.001, false))
+        .ToList();
+    var grouped = FilletPlanner.Plan(corners, [], []);
+    Equal(1, grouped.Targets.Count);
+    Equal(4, grouped.Targets[0].Count);
+    Equal("4 x ", grouped.Targets[0].Prefix);
+    Equal(2, grouped.Targets[0].Index);
+
+    // 文字放在空处：外圆角往弧外，内圆角往圆心那边。
+    var (ox, oy) = FilletPlanner.Outward(Arc(0, 0, 0, 0.004, 0.002, 0, false));
+    True(ox > 0.99 && Math.Abs(oy) < 1e-9, "外圆角文字朝弧外");
+    (ox, oy) = FilletPlanner.Outward(Arc(0, 0, 0, 0.004, 0.002, 0, true));
+    True(ox < -0.99 && Math.Abs(oy) < 1e-9, "内圆角文字朝圆心那边");
+
+    // 正方向压线就转开。
+    var arc = Arc(0, 0.100, 0.100, 0.004, 0.102, 0.100, false);
+    var blocked = FilletPlanner.Plan([arc], [], [new SheetSegment(0.110, 0.090, 0.110, 0.110)]);
+    var at = blocked.Targets[0].TextAt;
+    var box = new TextBox(at.X - 0.0026, at.Y - 0.00175, 0.0052, 0.0035);
+    True(!ClearancePlanner.Hits(box, new SheetSegment(0.110, 0.090, 0.110, 0.110)), "R 文字不压线");
+    Equal("5", FilletPlanner.Value(0.005));
+    Equal("5.5", FilletPlanner.Value(0.0055));
+}
+
+static void TestSnapshotName()
+{
+    Equal("Draw1 - 图纸1", DrawingSnapshot.SafeName("Draw1 - 图纸1"));
+    Equal("a_b_c__", DrawingSnapshot.SafeName("a/b:c*?"));
+}
+
+/// <summary>300 × 200 × 10 的板，6 个沉头孔沿 Z，沉头朝 <paramref name="holesOpenTo"/>。</summary>
+static PartGeometry Plate(ModelDirection holesOpenTo)
+{
+    var cylinders = new List<PartCylinder>();
+    for (var i = 0; i < 6; i++)
+    {
+        var point = new ModelDirection(0.02 + 0.05 * i, 0.05, 0);
+        cylinders.Add(new PartCylinder(new ModelDirection(0, 0, 1), point, 0.0033, true, true, "CBORE", [new(0, 0, 1), new(0, 0, -1)]));
+        cylinders.Add(new PartCylinder(new ModelDirection(0, 0, 1), point, 0.0055, true, true, "CBORE", [holesOpenTo]));
+    }
+
+    return new PartGeometry(new ModelBox(0, 0, 0, 0.3, 0.2, 0.01), cylinders, []);
+}
+
+/// <summary>96 × 96 × 28 的 L 形件：截面 3 个圆角沿 Z；横腿 2 个孔沿 Y（朝 +Y）、竖腿 2 个孔沿 X（朝 −X）。</summary>
+static PartGeometry Bracket()
+{
+    var cylinders = new List<PartCylinder>
+    {
+        new(new ModelDirection(0, 0, 1), new ModelDirection(0.005, 0.015, 0), 0.005, false, false, "Fillet3", []),
+        new(new ModelDirection(0, 0, 1), new ModelDirection(0.086, 0.030, 0), 0.010, true, false, "Fillet1", []),
+        new(new ModelDirection(0, 0, 1), new ModelDirection(0.091, 0.091, 0), 0.005, false, false, "Fillet2", []),
+    };
+    foreach (var x in new[] { 0.030, 0.060 })
+        cylinders.Add(new PartCylinder(new ModelDirection(0, 1, 0), new ModelDirection(x, 0, 0.014), 0.0033, true, true, "CBORE1", [new(0, 1, 0), new(0, -1, 0)]));
+    foreach (var y in new[] { 0.045, 0.075 })
+        cylinders.Add(new PartCylinder(new ModelDirection(1, 0, 0), new ModelDirection(0, y, 0.014), 0.0033, true, true, "CBORE2", [new(-1, 0, 0)]));
+    return new PartGeometry(new ModelBox(0, 0, 0, 0.096, 0.096, 0.028), cylinders, []);
 }
 
 /// <summary>全部后代里的对象节点（含自身）。只有对象才有属性可查。</summary>

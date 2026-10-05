@@ -77,6 +77,9 @@ internal sealed class StrenuaOptions
 
     public bool Get(StrenuaOption option) => option == StrenuaOption.Clearance ? Clearance : Chain;
 
+    /// <summary>模块数据目录（存档文件所在目录，1.9.0 起技术要求文本、图纸截图也放这里）；只在内存里时为 null。</summary>
+    public string? DataDirectory => _path is null ? null : Path.GetDirectoryName(_path);
+
     /// <summary>缺的项按默认值：将来加开关时旧存档照样读。</summary>
     private sealed record Saved(bool Clearance = true, bool Chain = false);
 }

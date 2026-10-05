@@ -12,6 +12,11 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- 1.9.0：用户 2026-025 台面2机器 15 个零件的几何摘要（真机 PartScan 读出），对照手工图检查出图规划。 -->
+    <None Update="Fixtures\*.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\HistoryStrenua\HistoryStrenua.csproj" />
     <!-- 模块工程把宿主运行库设成 Private=false（部署时由宿主提供）。
          测试是独立可执行文件，没有宿主给它，所以这里必须自己带一份。 -->

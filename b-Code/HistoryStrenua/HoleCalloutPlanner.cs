@@ -68,7 +68,7 @@ internal static class HoleCalloutPlanner
     public const double FacingCosine = 0.999;
 
     /// <summary>圆柱面半径与圆边半径的相对容差。</summary>
-    private const double RadiusTolerance = 1e-4;
+    internal const double RadiusTolerance = 1e-4;
 
     /// <summary>
     /// 孔的轴线（已变换到视图空间）是否正对图纸。长度不必归一。

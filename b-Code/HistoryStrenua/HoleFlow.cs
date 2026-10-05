@@ -34,7 +34,7 @@ internal static class HoleFlow
         ("销孔标注", DowelFit.Run),
     ];
 
-    private static QuickOutcome Run(QuickCommandContext context)
+    internal static QuickOutcome Run(QuickCommandContext context)
     {
         var api = context.Api;
         var document = HoleScan.ActiveDrawing(context);

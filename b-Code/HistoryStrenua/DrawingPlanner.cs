@@ -239,12 +239,13 @@ internal static class DrawingPlanner
     public const double Gap = 0.004;
 
     /// <summary>
-    /// 一个视图左边、上边要给尺寸留多宽（孔位尺寸与外轮廓尺寸都排在左边和上边）：普通模式第一层 8 mm、每种孔一层 6 mm、
-    /// 外轮廓再一层，最少 16 mm、最多 80 mm（底层1 九种孔真机叠了约 65 mm，首版封顶 50 mm 时尺寸顶到了图框）；
-    /// 尺寸链模式文字一列离直边 14 mm，留 26 mm。
+    /// 一个视图左边、上边要给尺寸留多宽（孔位尺寸与外轮廓尺寸都排在左边和上边）：第一层 8 mm、每种孔一层 6 mm、
+    /// 外轮廓再一层，最少 16 mm、最多 80 mm（底层1 九种孔真机叠了约 65 mm，首版封顶 50 mm 时尺寸顶到了图框）。
+    /// 尺寸链模式同样留：坐标尺寸只占 26 mm，但孔标注往左上引出、带 H7 后更宽，首版尺寸链模式只留 26 mm 时
+    /// 移动安装版2 靠左的销孔标注伸出了图框（<paramref name="chain"/> 因此不再影响结果，留作调用方说明用途）。
     /// </summary>
     public static double AnnotationMargin(int holeKinds, bool chain)
-        => chain ? 0.026 : Math.Clamp(0.010 + 0.006 * holeKinds + 0.006, 0.016, 0.080);
+        => Math.Clamp(0.010 + 0.006 * holeKinds + 0.006, chain ? 0.026 : 0.016, 0.080);
 
     /// <summary>沿某个视线方向的孔有几种（这些孔在那个视图里是圆，各要一层位置尺寸）。</summary>
     public static int HoleKinds(PartGeometry part, ModelDirection normal)

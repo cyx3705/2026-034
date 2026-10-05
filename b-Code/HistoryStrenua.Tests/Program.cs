@@ -1613,6 +1613,12 @@ static void TestDrawingScales()
     Equal(5.0, DrawingPlanner.Scales(tiny)[0]);
     // 轴测图可缩成：原比例、再往下两档（1:2 → 1:3、1:5）。
     Equal("1,0.667,0.4", string.Join(",", DrawingPlanner.IsoFactors(plate, 0.5).Select(f => f.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture))));
+    // 尺寸空间：一种孔一层；尺寸链模式也按种数留（孔标注往左上引出），只是最少 26 mm。
+    Near(0.034, DrawingPlanner.AnnotationMargin(3, chain: false));
+    Near(0.034, DrawingPlanner.AnnotationMargin(3, chain: true));
+    Near(0.026, DrawingPlanner.AnnotationMargin(0, chain: true));
+    Near(0.016, DrawingPlanner.AnnotationMargin(0, chain: false));
+    Near(0.080, DrawingPlanner.AnnotationMargin(20, chain: false));
     // 标准视图的朝向（真机读回）：右手系、图纸 X × 图纸 Y = 朝看图的人。
     foreach (var view in StandardView.All)
     {

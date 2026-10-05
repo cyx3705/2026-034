@@ -4,7 +4,8 @@ using HistoryVulcan.Core.Modules;
 namespace HistoryStrenua;
 
 /// <summary>
-/// 模块装配入口：登记页面协议两条指令、每条快捷指令一条总线指令，外加列表、按 key 执行、取消与两个页面开关。
+/// 模块装配入口：登记页面协议三条指令（描述、动作、技术要求模板表格取数）、每条快捷指令一条总线指令，外加列表、按 key 执行、取消、
+/// 按名字插技术要求模板与两个页面开关。
 /// </summary>
 /// <remarks>
 /// 判断一段代码该不该进这个仓，用这条：它是否作用于用户**正在用**的 SolidWorks、
@@ -87,6 +88,42 @@ public sealed class HistoryStrenuaModule : IModuleContextAware
             Summary = "取消正在执行的 PowerSW 快捷指令（包括正在等你点视图的那一条）",
             Example = StrenuaIdentity.Domain + ".quick.cancel",
             Handler = CommandDescriptor.Sync(_ => runner.Cancel()),
+        });
+
+        registry.Register(new CommandDescriptor
+        {
+            Name = TechApply.CommandName,
+            Domain = StrenuaIdentity.Domain,
+            CommandClass = StrenuaPage.TechClass,
+            Summary = "PowerSW「技术要求」模板：" + TechApply.Summary,
+            Example = TechApply.CommandName + " name=机加件-钢材",
+            Level = CommandLevel.Run,
+            Parameters =
+            [
+                new ParameterSpec
+                {
+                    Name = "name",
+                    Description = "模板名（「通用技术要求」目录里的文件名去掉 " + TechTemplates.Extension + "，页面模板表格「技术要求」列）",
+                    Required = true,
+                    Position = 0,
+                },
+            ],
+            Handler = context => runner.RunAsync(TechApply.Command(context.RequireString("name").Trim()), context),
+        });
+
+        registry.Register(new CommandDescriptor
+        {
+            Name = StrenuaPage.DataCommand,
+            Domain = StrenuaIdentity.Domain,
+            CommandClass = "ui",
+            Summary = "返回 PowerSW 技术要求模板表格的行（view=tech）",
+            Readonly = true,
+            HiddenReason = Hidden,
+            AllowUnspecifiedParameters = true,
+            Handler = CommandDescriptor.Sync(context =>
+                context.GetString("view")?.Trim().ToLowerInvariant() is null or StrenuaPage.TechView
+                    ? CommandResult.Ok("PowerSW 技术要求模板", TechApply.Rows())
+                    : CommandResult.Fail("未知 view；支持 " + StrenuaPage.TechView)),
         });
 
         registry.Register(Internal("describe", "返回 PowerSW 页面描述", _ => Json(StrenuaPage.Describe(runner.Options))));

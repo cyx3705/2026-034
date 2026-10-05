@@ -123,14 +123,29 @@ internal sealed record DrawingSheet(
     public SheetSpace Space(QuickCommandContext context, string? exclude = null)
     {
         var space = SheetSpace.Standard(Width, Height);
-        var inner = space.Frame.Inflate(-0.001);
-        var found = Annotations(context.Api, Drawing)
-            .Where(item => item.Name != Note?.Name && item.Name != exclude && inner.Overlaps(item.Rect)
-                           && item.Rect.Center.X > inner.Left && item.Rect.Center.X < inner.Right
-                           && item.Rect.Center.Y > inner.Bottom && item.Rect.Center.Y < inner.Top)
-            .Select(item => item.Rect.Inflate(0.001));
+        var excluded = new List<string>();
+        if (Note is not null)
+            excluded.Add(Note.Name);
+        if (exclude is not null)
+            excluded.Add(exclude);
+        var found = FormatKeepOuts(context.Api, Drawing, space, excluded);
         var views = Others.SelectMany(view => DrawingPlanner.Occupied(Outline(context.Api, view).Center, Box(context, view)));
         return space.With(found.Concat(views));
+    }
+
+    /// <summary>
+    /// 图框里的图纸注解（标题栏各格、修改栏、「其余」粗糙度、公司名……）各占的地方，往外放 1 mm；中心在图框外的（模板备用的技术要求、
+    /// 分区字母）不算，<paramref name="exclude"/> 里的名字不算。
+    /// </summary>
+    public static List<SheetRect> FormatKeepOuts(SolidWorksApi api, object drawing, SheetSpace space, IReadOnlyCollection<string> exclude)
+    {
+        var inner = space.Frame.Inflate(-0.001);
+        return Annotations(api, drawing)
+            .Where(item => !exclude.Contains(item.Name) && inner.Overlaps(item.Rect)
+                           && item.Rect.Center.X > inner.Left && item.Rect.Center.X < inner.Right
+                           && item.Rect.Center.Y > inner.Bottom && item.Rect.Center.Y < inner.Top)
+            .Select(item => item.Rect.Inflate(0.001))
+            .ToList();
     }
 
     /// <summary>主视图、投影视图现在连同标注空间占的地方，加上轴测图的外框：新加东西找空地时躲开它们（「其他」视图在 <see cref="Space"/> 里）。</summary>
@@ -314,7 +329,7 @@ internal sealed record DrawingSheet(
     }
 
     /// <summary>注解显示数据里线与文字框的外框；什么都没有（或读不到）返回 null。</summary>
-    private static SheetRect? Footprint(SolidWorksApi api, object annotation)
+    internal static SheetRect? Footprint(SolidWorksApi api, object annotation)
     {
         List<SheetPoint> points;
         try

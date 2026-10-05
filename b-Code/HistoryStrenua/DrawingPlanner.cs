@@ -350,7 +350,7 @@ internal static class DrawingPlanner
 
     /// <summary>
     /// 排版：主视图连同左右、上下投影视图从图框左上角排起（左边、上边留标注空间），轴测图放进剩下的空地（离主视图右侧最近处），
-    /// 放不下就缩成一半；技术要求先试标题栏正上方、再试左下角、再找任何空地，都没有就把轴测图再缩一档重放。不碰图框外、标题栏等禁区。
+    /// 放不下就缩成一半；技术要求只放标题栏正上方或左侧（1.13.0），放不下就把轴测图再缩一档重放、再不行先钉技术要求后放轴测图。不碰图框外、标题栏等禁区。
     /// </summary>
     public static LayoutResult Layout(SheetSpace sheet, LayoutRequest request)
     {
@@ -389,18 +389,42 @@ internal static class DrawingPlanner
             first ??= result;
         }
 
+        // 1.13.0：技术要求只许标题栏上方、左侧，轴测图先放常把这两处占掉——先把技术要求钉上，轴测图再找剩下的空地。
+        if (request.NoteWidth > 0 && request.Iso.Width > 0)
+        {
+            var noteFirst = Extras(sheet, request, mainCenter, centers, occupied, factors, noteFirst: true);
+            if (noteFirst.Problem.Length == 0)
+                return noteFirst;
+        }
+
         return first!;
     }
 
     /// <summary>视图组排好后放轴测图与技术要求；<paramref name="factors"/> 是这一轮轴测图依次试的缩放。</summary>
     private static LayoutResult Extras(SheetSpace sheet, LayoutRequest request, SheetPoint mainCenter, IReadOnlyDictionary<ViewSlot, SheetPoint> centers,
-        IReadOnlyList<SheetRect> views, IReadOnlyList<double> factors)
+        IReadOnlyList<SheetRect> views, IReadOnlyList<double> factors, bool noteFirst = false)
     {
         var frame = sheet.Frame;
         var occupied = views.ToList();
+        var crowded = new List<string>();
+
+        // 技术要求（见 NotePlace）。没有技术要求（宽为 0）就不放。
+        SheetPoint? note = null;
+        void PlaceNote()
+        {
+            if (request.NoteWidth <= 0)
+                return;
+            var (topLeft, free) = NotePlace(sheet, request.NoteWidth, request.NoteHeight, occupied);
+            note = topLeft;
+            if (!free)
+                crowded.Add("技术要求");
+            occupied.Add(new SheetRect(topLeft.X, topLeft.Y - request.NoteHeight, topLeft.X + request.NoteWidth, topLeft.Y));
+        }
+
+        if (noteFirst)
+            PlaceNote();
 
         // 轴测图：离「视图组右边那一片的中间、主视图那一行」最近的空地（见 IsoSpot）。没有轴测图（宽为 0）就不放。
-        var crowded = new List<string>();
         SheetPoint? iso = null;
         var shrink = 1.0;
         if (request.Iso.Width > 0)
@@ -413,15 +437,8 @@ internal static class DrawingPlanner
             occupied.Add(SheetRect.Around(center, request.Iso.Width * shrink, request.Iso.Height * shrink));
         }
 
-        // 技术要求（见 NotePlace）。没有技术要求（宽为 0）就不放。
-        SheetPoint? note = null;
-        if (request.NoteWidth > 0)
-        {
-            var (topLeft, free) = NotePlace(sheet, request.NoteWidth, request.NoteHeight, occupied);
-            note = topLeft;
-            if (!free)
-                crowded.Add("技术要求");
-        }
+        if (!noteFirst)
+            PlaceNote();
 
         var crowding = crowded.Count == 0 ? string.Empty : $"{string.Join("、", crowded)}找不到完全空的地方，放在了压得最少处";
         return new LayoutResult(true, mainCenter, centers, iso, shrink, note, crowding);
@@ -443,15 +460,18 @@ internal static class DrawingPlanner
     }
 
     /// <summary>
-    /// 技术要求放哪（返回左上角）：标题栏正上方靠右 → 左下角 → 任何空地（靠下靠右）→ 都没有就放到压得最少的地方（靠右下），<c>Free</c> 为 false。
+    /// 技术要求放哪（返回左上角）：只许标题栏正上方或标题栏左侧（1.13.0，用户定硬性要求，见 <see cref="TechNotePlanner"/>），先上方后左侧；
+    /// 两处都压着就取压得最少的那处，<c>Free</c> 为 false（真放的时候「避障」开着会挪视图让开）。
     /// </summary>
     public static (SheetPoint TopLeft, bool Free) NotePlace(SheetSpace sheet, double width, double height, IReadOnlyList<SheetRect> occupied)
     {
         if (NoteSpot(sheet, width, height, occupied) is { } spot)
             return (spot, true);
-        var frame = sheet.Frame;
-        var center = LeastCrowded(frame, width, height, sheet.KeepOuts, occupied, new SheetPoint(frame.Right, frame.Bottom));
-        return (new SheetPoint(center.X - width / 2, center.Y + height / 2), false);
+        var rects = new[] { NoteSlot.AboveTitle, NoteSlot.LeftOfTitle }
+            .Select(slot => TechNotePlanner.Spot(sheet, slot, width, height) ?? TechNotePlanner.Anchor(sheet, slot, width, height))
+            .ToList();
+        var best = rects.OrderBy(rect => occupied.Sum(other => Overlap(rect, other)) + 4 * sheet.KeepOuts.Sum(other => Overlap(rect, other))).First();
+        return (new SheetPoint(best.Left, best.Top), false);
     }
 
     /// <summary>
@@ -459,8 +479,8 @@ internal static class DrawingPlanner
     /// </summary>
     public static SheetPoint NoteDefault(SheetSpace sheet, double width, double height)
     {
-        var title = sheet.TitleBlock;
-        return new SheetPoint(title.Right - Gap - width, title.Top + Gap + height);
+        var anchor = TechNotePlanner.Anchor(sheet, NoteSlot.AboveTitle, width, height);
+        return new SheetPoint(anchor.Left, anchor.Top);
     }
 
     /// <summary>投影视图往外让一步挪多远（图纸 2.5 mm，与找空地的网格一样）。</summary>
@@ -646,23 +666,13 @@ internal static class DrawingPlanner
         return best;
     }
 
-    /// <summary>技术要求放哪（返回左上角，注释以左上角定位）：标题栏正上方靠右、左下角、再找空地（越靠下越靠右越好）。</summary>
+    /// <summary>技术要求放哪（返回左上角，注释以左上角定位）：标题栏正上方、标题栏左侧，哪处空放哪处（1.13.0 起别处不放）。</summary>
     private static SheetPoint? NoteSpot(SheetSpace sheet, double width, double height, IReadOnlyList<SheetRect> occupied)
     {
-        var frame = sheet.Frame;
-        var blocked = sheet.KeepOuts.Concat(occupied).ToList();
-        var title = sheet.TitleBlock;
-        SheetRect[] preferred =
-        [
-            new(title.Right - Gap - width, title.Top + Gap, title.Right - Gap, title.Top + Gap + height),
-            new(frame.Left + 2 * Gap, frame.Bottom + 2 * Gap, frame.Left + 2 * Gap + width, frame.Bottom + 2 * Gap + height),
-        ];
-        foreach (var rect in preferred)
-            if (rect.Within(frame) && !blocked.Any(rect.Inflate(Gap / 2).Overlaps))
+        foreach (var slot in new[] { NoteSlot.AboveTitle, NoteSlot.LeftOfTitle })
+            if (TechNotePlanner.Spot(sheet, slot, width, height) is { } rect && !occupied.Any(rect.Inflate(Gap / 2).Overlaps))
                 return new SheetPoint(rect.Left, rect.Top);
-
-        var spot = FreeSpot(frame, width, height, blocked, Gap / 2, new SheetPoint(frame.Right, frame.Bottom));
-        return spot is { } c ? new SheetPoint(c.X - width / 2, c.Y + height / 2) : null;
+        return null;
     }
 
     /// <summary>主视图长边在图纸上至少这么长（图纸 40 mm）。</summary>

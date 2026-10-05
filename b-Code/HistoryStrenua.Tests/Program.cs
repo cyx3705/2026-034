@@ -76,6 +76,11 @@ var tests = new (string Name, Action Run)[]
     ("check: overlapping annotations", TestOverlapCheck),
     ("clearance switch: fillet, chamfer, note, side views", TestClearanceSwitch),
     ("snapshot: file name", TestSnapshotName),
+    ("tech templates: note text out of the SW note style file", TestTechTemplateParse),
+    ("tech templates: the user's general technical requirements", TestTechTemplateFolder),
+    ("tech note: only above or left of the title block", TestTechNoteSlots),
+    ("tech note: views move out of the way", TestTechNoteMakeRoom),
+    ("tech note: replacing keeps the old slot", TestTechNoteReplace),
 };
 
 var failed = 0;
@@ -124,6 +129,7 @@ static void TestCommandRegistration()
         "strenua.drawing.fillet",
         "strenua.drawing.chamfer",
         "strenua.tech.note",
+        "strenua.tech.apply",
         "strenua.check.dimension",
         "strenua.check.dangling",
         "strenua.check.overlap",
@@ -133,6 +139,7 @@ static void TestCommandRegistration()
         "strenua.quick.cancel",
         "strenua.ui.describe",
         "strenua.ui.actions",
+        "strenua.ui.data",
         "strenua.option.clearance",
         "strenua.option.chain",
     ];
@@ -156,11 +163,13 @@ static void TestCommandRegistration()
     True(registry.TryGet("strenua.quick.run", out var run) && !run!.Readonly, "按 key 执行会改工程图，不是只读");
     var keys = run!.Parameters!.Single(p => p.Name == "key").AllowedValues!;
     True(QuickCommands.All.All(command => keys.Contains(command.Key)), "quick.run 的 key 候选应覆盖全部快捷指令");
-    True(!registry.TryGet("strenua.ui.data", out _), "1.7.0 起没有指令表，不该再有取数指令");
+    // 1.13.0：技术要求模板表格取数（界面内部）；点表格插模板的指令要能在控制台敲。
+    True(registry.TryGet("strenua.tech.apply", out var apply) && !apply!.Readonly && apply.HiddenReason is null, "tech.apply 改工程图、要能在控制台敲");
+    True(apply!.Parameters!.Single(p => p.Name == "name").Required, "tech.apply 必须给模板名");
     foreach (var method in new[] { "clearance", "chain" })
         True(registry.TryGet("strenua.option." + method, out var option) && option!.HiddenReason is null && !option.Readonly,
             $"strenua.option.{method} 改设置，要能在控制台敲");
-    foreach (var method in new[] { "describe", "actions" })
+    foreach (var method in new[] { "describe", "actions", "data" })
     {
         True(registry.TryGet("strenua.ui." + method, out var ui), $"缺少 strenua.ui.{method}");
         True(ui!.HiddenReason is not null, $"strenua.ui.{method} 是界面内部协议，必须 HiddenReason");
@@ -214,10 +223,20 @@ static void TestPageWiring()
     foreach (var action in bound)
         True(declared.ContainsKey(action), $"页面绑定了未声明的动作 {action}");
 
-    // 1.7.0：没有表格、也没有取数。
-    True(!Descendants(description.RootElement).Any(node => node.TryGetProperty("type", out var type) && type.GetString() == "table"),
-        "页面不该再有表格");
-    True(!Descendants(description.RootElement).Any(node => node.TryGetProperty("dataSource", out _)), "页面不该再取数");
+    // 1.7.0 起没有指令表；1.13.0 唯一的表格是「技术要求」类里的模板表格：取数指令已注册，「技术要求」列点了按那一行的名字插模板。
+    var tables = Descendants(description.RootElement).Where(node => node.TryGetProperty("type", out var type) && type.GetString() == "table").ToList();
+    Equal(1, tables.Count);
+    Equal(StrenuaPage.TechTableId, tables[0].GetProperty("id").GetString()!);
+    var source = tables[0].GetProperty("dataSource");
+    True(registry.TryGet(source.GetProperty("command").GetString()!, out _), "表格取数指令要已注册");
+    Equal("tech", source.GetProperty("args").GetProperty("view").GetString()!);
+    var columns = tables[0].GetProperty("columns").EnumerateArray().ToList();
+    Equal("name,items,content", string.Join(",", columns.Select(c => c.GetProperty("key").GetString())));
+    Equal(TechApply.ActionId, columns[0].GetProperty("cellAction").GetString()!);
+    Equal("button", columns[0].GetProperty("cellStyle").GetString()!);
+    Equal(TechApply.CommandName, declared[TechApply.ActionId]);
+    var applyAction = actions.RootElement.GetProperty("actions").EnumerateArray().Single(a => a.GetProperty("id").GetString() == TechApply.ActionId);
+    Equal("{name}", applyAction.GetProperty("args").GetProperty("name").GetString()!);
 }
 
 static void TestListRows()
@@ -291,9 +310,10 @@ static void TestClassPanels()
         string.Join(",", branches.Select(branch => branch.GetProperty("case").GetString())));
 
     // 1.12.0（用户定）：每类面板只有一行，这一类的按钮全排进去；放不下由 Aurora 折行，浮窗拖宽拖窄时均匀伸缩。
+    var panels = branches.SelectMany(Descendants).Where(node => node.TryGetProperty("type", out var type) && type.GetString() == "panel").ToList();
     string Row(string commandClass)
     {
-        var panel = branches.Single(branch => branch.GetProperty("id").GetString() == StrenuaPage.ClassPanelId(commandClass));
+        var panel = panels.Single(branch => branch.GetProperty("id").GetString() == StrenuaPage.ClassPanelId(commandClass));
         Equal(1, panel.GetProperty("rows").GetArrayLength());
         var row = panel.GetProperty("rows")[0];
         Equal("even", row.GetProperty("mode").GetString()!);
@@ -304,13 +324,19 @@ static void TestClassPanels()
         Equal(string.Join(",", group.Select(c => c.Title)), Row(group.Key));
     Equal("孔标注全流程,销钉符号,中心符号线,孔位尺寸,孔标注,销孔标注,外轮廓", Row("hole"));
     Equal("一键出图,新建工程图,投影视图,轴测图,排版,全图圆角,全图倒角,圆角标注,倒角标注", Row("drawing"));
-    // 1.12.0 新开「技术要求」类：出图的「技术要求」挪过来（一键出图照旧调它），下一步在这里接 SW 技术要求模板。
+    // 1.12.0 新开「技术要求」类：出图的「技术要求」挪过来（一键出图照旧调它）；1.13.0 这一支是按钮面板下面接模板表格。
     Equal("技术要求", Row("tech"));
+    var tech = branches.Single(branch => branch.GetProperty("case").GetString() == "技术要求");
+    Equal("stack", tech.GetProperty("type").GetString()!);
+    Equal(StrenuaPage.TechBranchId, tech.GetProperty("id").GetString()!);
+    var techChildren = tech.GetProperty("children").EnumerateArray().ToList();
+    Equal("panel,table", string.Join(",", techChildren.Select(c => c.GetProperty("type").GetString())));
+    True(!techChildren[0].TryGetProperty("case", out _), "分支里的面板不再带 case");
     // 检查类 1.12.0 加「悬空标注」「注解重叠」。
     Equal("未标尺寸,悬空标注,注解重叠,图纸截图", Row("check"));
     Equal("孔,出图,技术要求,检查", string.Join(",", StrenuaPage.ClassOptions(QuickCommands.All)));
     // 类面板里只有按钮，没有开关（1.11.0 开关挪到窗口最下面）。
-    True(branches.SelectMany(branch => branch.GetProperty("rows").EnumerateArray())
+    True(panels.SelectMany(branch => branch.GetProperty("rows").EnumerateArray())
         .SelectMany(row => row.GetProperty("widgets").EnumerateArray())
         .All(w => w.GetProperty("kind").GetString() == "button"), "类面板里应只有按钮");
 }
@@ -2054,6 +2080,194 @@ static PartGeometry Bracket()
 }
 
 /// <summary>全部后代里的对象节点（含自身）。只有对象才有属性可查。</summary>
+static byte[] NoteStyleBytes(string text, bool shortLength = false)
+{
+    // 照真文件的样子：前面一段缩略图与别的对象，注释文字是 MFC Unicode CString（FF FE FF + 长度 + UTF-16LE），后面还有东西。
+    var body = System.Text.Encoding.Unicode.GetBytes(text);
+    var length = text.Length;
+    var bytes = new List<byte>();
+    bytes.AddRange(Enumerable.Range(0, 300).Select(i => (byte)(i * 7)));
+    bytes.AddRange([0xFF, 0xFE, 0xFF, 0x03]);
+    bytes.AddRange(System.Text.Encoding.Unicode.GetBytes("abc"));
+    bytes.AddRange([0xFF, 0xFE, 0xFF]);
+    if (shortLength)
+        bytes.Add((byte)length);
+    else
+        bytes.AddRange([0xFF, (byte)(length & 0xFF), (byte)(length >> 8)]);
+    bytes.AddRange(body);
+    bytes.AddRange([0x00, 0x00, 0x12, 0x34]);
+    return bytes.ToArray();
+}
+
+static void TestTechTemplateParse()
+{
+    var text = "        技术要求\r\n<PARA  indent=0 findent=0 indentStep=10 number=off bullet=off paraSpace=0.001 lineSpace=0.001>1、未注倒角C1；\r\n2、去毛刺±0.02。\r\n";
+    var parsed = TechTemplates.ParseNote(NoteStyleBytes(text));
+    Equal("        技术要求\n<PARA  indent=0 findent=0 indentStep=10 number=off bullet=off paraSpace=0.001 lineSpace=0.001>1、未注倒角C1；\n2、去毛刺±0.02。", parsed);
+    Equal(2, TechTemplates.CountItems(parsed!));
+    Equal("1、未注倒角C1； 2、去毛刺±0.02。", TechTemplates.Summary(parsed!));
+    // 一个字节的长度（短文字）也认。
+    Equal("技术要求\n1、甲", TechTemplates.ParseNote(NoteStyleBytes("技术要求\r\n1、甲", shortLength: true)));
+    // 没有「技术要求」的不是技术要求。
+    Equal<string?>(null, TechTemplates.ParseNote(NoteStyleBytes("1、甲\r\n2、乙")));
+    // 长度坏了（超出文件）不读。
+    var broken = NoteStyleBytes(text);
+    var at = broken.Length - 4 - System.Text.Encoding.Unicode.GetByteCount(text) - 2;
+    broken[at] = 0xFF;
+    broken[at + 1] = 0x7F;
+    Equal<string?>(null, TechTemplates.ParseNote(broken));
+
+    var directory = Path.Combine(Path.GetTempPath(), "strenua-tech-" + Guid.NewGuid().ToString("N"));
+    try
+    {
+        Directory.CreateDirectory(directory);
+        File.WriteAllBytes(Path.Combine(directory, "钣金.sldnotestl"), NoteStyleBytes(text));
+        File.WriteAllBytes(Path.Combine(directory, "坏的.sldnotestl"), [1, 2, 3]);
+        File.WriteAllBytes(Path.Combine(directory, "别的.sldnotefvt"), NoteStyleBytes(text));
+        var all = TechTemplates.Load(directory);
+        Equal("钣金", string.Join(",", all.Select(t => t.Name)));
+        Equal(2, all[0].Items);
+        var row = TechApply.Rows(directory).Single();
+        Equal("钣金", row["name"]);
+        Equal("2", row["items"]);
+        Equal("1、未注倒角C1； 2、去毛刺±0.02。", row["content"]);
+        True(TechTemplates.Find(" 钣金 ", directory) is not null && TechTemplates.Find("没有", directory) is null, "按名字找");
+        Equal(0, TechTemplates.Load(Path.Combine(directory, "不存在")).Count);
+    }
+    finally
+    {
+        Directory.Delete(directory, recursive: true);
+    }
+}
+
+static void TestTechTemplateFolder()
+{
+    // 用户 z 级目录里的「通用技术要求」10 份（z 级目录长期存在；不在本机就跳过这一条的实际文件部分）。
+    if (!Directory.Exists(TechTemplates.Folder))
+    {
+        Console.WriteLine($"  （跳过：本机没有 {TechTemplates.Folder}）");
+        return;
+    }
+
+    var all = TechTemplates.Load();
+    Equal(10, all.Count);
+    Equal(Directory.GetFiles(TechTemplates.Folder, "*" + TechTemplates.Extension).Length, all.Count);
+    True(all.All(t => t.Text.Contains("技术要求", StringComparison.Ordinal) && t.Items >= 5), "每份都读出了技术要求正文");
+    var steel = all.Single(t => t.Name == "机加件-钢材");
+    Equal(9, steel.Items);
+    True(steel.Text.StartsWith("        技术要求\n<PARA", StringComparison.Ordinal) && steel.Text.EndsWith("9、未注尺寸参考3D数模。", StringComparison.Ordinal), steel.Text);
+    Equal(14, all.Single(t => t.Name == "焊接基座-带门").Items);
+    Equal(6, all.Single(t => t.Name == "装配图技术要求").Items);
+    True(all.Single(t => t.Name == "铝型材-防护网").Text.Contains("30×30喷塑防护网", StringComparison.Ordinal), "× 这类非 ASCII 字符照原样");
+}
+
+static void TestTechNoteSlots()
+{
+    var a3 = SheetSpace.Standard(0.420, 0.297);
+    var title = a3.TitleBlock;
+    var gap = DrawingPlanner.Gap;
+    var above = TechNotePlanner.Anchor(a3, NoteSlot.AboveTitle, 0.100, 0.050);
+    Near(title.Right - gap, above.Right);
+    Near(title.Top + gap, above.Bottom);
+    var left = TechNotePlanner.Anchor(a3, NoteSlot.LeftOfTitle, 0.100, 0.050);
+    Near(title.Left - gap, left.Right);
+    Near(a3.Frame.Bottom + gap, left.Bottom);
+
+    // 空图：放标题栏正上方，不挪任何东西。
+    var empty = TechNotePlanner.Place(a3, [], 0.100, 0.050, null, avoid: true);
+    True(empty.Free && empty.Slot == NoteSlot.AboveTitle && empty.Moves.Count == 0, "空图放上方");
+    Equal(new SheetPoint(above.Left, above.Top), empty.TopLeft);
+
+    // 上方压着视图、左侧空着：新加的先找空着的那处，不挪视图。
+    var overAbove = new PlanView("主视图", null, ViewAxis.Free, [new SheetRect(0.300, 0.060, 0.400, 0.140)]);
+    var plan = TechNotePlanner.Place(a3, [overAbove], 0.100, 0.050, null, avoid: true);
+    True(plan.Free && plan.Slot == NoteSlot.LeftOfTitle && plan.Moves.Count == 0, "上方压着就放左侧");
+
+    // 避障关：直接放上方，不躲不挪。
+    var off = TechNotePlanner.Place(a3, [overAbove], 0.100, 0.050, null, avoid: false);
+    True(off.Slot == NoteSlot.AboveTitle && off.Moves.Count == 0, "避障关直接放上方");
+    Equal(new SheetPoint(above.Left, above.Top), off.TopLeft);
+
+    // 图纸格式注解（「其余」粗糙度）压着上方：在上方这一处往上让，不跑到别处。
+    var roughness = a3.With([new SheetRect(0.380, 0.050, 0.410, 0.060)]);
+    var shifted = TechNotePlanner.Spot(roughness, NoteSlot.AboveTitle, 0.100, 0.050)!.Value;
+    True(shifted.Bottom > 0.060 && Math.Abs(shifted.Right - above.Right) < 1e-12, "躲图纸格式注解只在本处往上让");
+
+    // 已有的技术要求在哪一处。
+    Equal(NoteSlot.LeftOfTitle, TechNotePlanner.SlotOf(a3, TechNotePlanner.Anchor(a3, NoteSlot.LeftOfTitle, 0.080, 0.030)));
+    Equal(NoteSlot.AboveTitle, TechNotePlanner.SlotOf(a3, TechNotePlanner.Anchor(a3, NoteSlot.AboveTitle, 0.120, 0.060)));
+
+    // 建图、排版估位置也只用这两处：上方压着给左侧；两处都压着说明不空，位置仍是两处之一（不跑到左下角之类的地方）。
+    var (topLeft, free) = DrawingPlanner.NotePlace(a3, 0.100, 0.050, [overAbove.Rects[0]]);
+    True(free && Math.Abs(topLeft.X - left.Left) < 1e-12 && Math.Abs(topLeft.Y - left.Top) < 1e-12, "估位置：上方压着给左侧");
+    var (crowdedAt, crowdedFree) = DrawingPlanner.NotePlace(a3, 0.100, 0.050, [a3.Frame]);
+    True(!crowdedFree && (crowdedAt == new SheetPoint(above.Left, above.Top) || crowdedAt == new SheetPoint(left.Left, left.Top)), "估位置：满了也只在两处之一");
+}
+
+static void TestTechNoteMakeRoom()
+{
+    var a3 = SheetSpace.Standard(0.420, 0.297);
+    var keep = TechNotePlanner.Anchor(a3, NoteSlot.AboveTitle, 0.100, 0.050).Inflate(DrawingPlanner.Gap / 2);
+    var left = TechNotePlanner.Anchor(a3, NoteSlot.LeftOfTitle, 0.100, 0.050).Inflate(DrawingPlanner.Gap / 2);
+
+    // 两处都压着：上方那个视图往上挪（比往左挪得少），连同它的尺寸一起；挪完不压技术要求、不压别的视图。
+    var main = new PlanView("主视图", null, ViewAxis.Free, [new SheetRect(0.300, 0.060, 0.400, 0.140), new SheetRect(0.290, 0.060, 0.300, 0.140)]);
+    var other = new PlanView("左视图", null, ViewAxis.Free, [new SheetRect(0.050, 0.030, 0.200, 0.120)]);
+    var plan = TechNotePlanner.Place(a3, [main, other], 0.100, 0.050, null, avoid: true);
+    True(plan.Free && plan.Slot == NoteSlot.AboveTitle, plan.Problem);
+    Equal(1, plan.Moves.Count);
+    Equal("主视图", plan.Moves[0].Name);
+    True(plan.Moves[0].Dx == 0 && plan.Moves[0].Dy > 0.044 && plan.Moves[0].Dy < 0.048, $"往上挪约 45 mm，实际 {plan.Moves[0].Dy}");
+    var moved = main.Rects.Select(r => new SheetRect(r.Left, r.Bottom + plan.Moves[0].Dy, r.Right, r.Top + plan.Moves[0].Dy)).ToList();
+    True(!moved.Any(keep.Overlaps) && !moved.Any(other.Rects[0].Overlaps) && moved.All(r => r.Within(a3.Frame)), "挪完不压");
+
+    // 对齐的下视图压着上方：自己只能上下挪（往上撞主视图），就挪它的父视图（主视图带着它往左）。
+    var parent = new PlanView("主视图", null, ViewAxis.Free, [new SheetRect(0.250, 0.140, 0.410, 0.250)]);
+    var below = new PlanView("下视图", "主视图", ViewAxis.Vertical, [new SheetRect(0.300, 0.060, 0.400, 0.130)]);
+    var blocker = new PlanView("局部", null, ViewAxis.Free, [new SheetRect(0.120, 0.010, 0.230, 0.060)]);
+    var aligned = TechNotePlanner.Place(a3, [parent, below, blocker], 0.100, 0.050, NoteSlot.AboveTitle, avoid: true);
+    True(aligned.Free && aligned.Slot == NoteSlot.AboveTitle, aligned.Problem);
+    Equal("主视图", string.Join(",", aligned.Moves.Select(m => m.Name)));
+    True(aligned.Moves[0].Dy == 0 && aligned.Moves[0].Dx < 0, "主视图带着下视图往左挪");
+    var belowMoved = below.Rects[0];
+    belowMoved = new SheetRect(belowMoved.Left + aligned.Moves[0].Dx, belowMoved.Bottom, belowMoved.Right + aligned.Moves[0].Dx, belowMoved.Top);
+    True(!belowMoved.Overlaps(keep), "跟着走的下视图让开了");
+
+    // 只能左右挪的右视图挡着、往左会撞主视图：不能往上（对齐约束），挪父视图。
+    var mainRow = new PlanView("主视图", null, ViewAxis.Free, [new SheetRect(0.150, 0.060, 0.280, 0.140)]);
+    var right = new PlanView("右视图", "主视图", ViewAxis.Horizontal, [new SheetRect(0.300, 0.060, 0.360, 0.140)]);
+    var rowPlan = TechNotePlanner.Place(a3, [mainRow, right, blocker], 0.100, 0.050, NoteSlot.AboveTitle, avoid: true);
+    True(rowPlan.Free && rowPlan.Moves.All(m => m.Name == "主视图" || m.Dy == 0), "对齐子视图不往对齐以外的方向挪");
+
+    // 整页都是视图、挪不开：放原处（上方），说明压着谁。
+    var full = new PlanView("大视图", null, ViewAxis.Free, [new SheetRect(0.006, 0.006, 0.414, 0.291)]);
+    var stuck = TechNotePlanner.Place(a3, [full], 0.100, 0.050, null, avoid: true);
+    True(!stuck.Free && stuck.Slot == NoteSlot.AboveTitle && stuck.Moves.Count == 0 && stuck.Problem.Contains("大视图", StringComparison.Ordinal), stuck.Problem);
+    True(!left.Overlaps(keep), "两处本身不重叠");
+}
+
+static void TestTechNoteReplace()
+{
+    var a3 = SheetSpace.Standard(0.420, 0.297);
+    // 原来在左侧：换一份（更大）仍放左侧，即使上方空着。
+    var bigger = TechNotePlanner.Place(a3, [], 0.140, 0.070, NoteSlot.LeftOfTitle, avoid: true);
+    True(bigger.Free && bigger.Slot == NoteSlot.LeftOfTitle && bigger.Moves.Count == 0, "原处空着就放原处");
+    var rect = new SheetRect(bigger.TopLeft.X, bigger.TopLeft.Y - 0.070, bigger.TopLeft.X + 0.140, bigger.TopLeft.Y);
+    Near(a3.TitleBlock.Left - DrawingPlanner.Gap, rect.Right);
+
+    // 原处被视图压着：先在原处挪视图，不跑去另一处。
+    var view = new PlanView("主视图", null, ViewAxis.Free, [new SheetRect(0.150, 0.050, 0.220, 0.120)]);
+    var moved = TechNotePlanner.Place(a3, [view], 0.140, 0.070, NoteSlot.LeftOfTitle, avoid: true);
+    True(moved.Free && moved.Slot == NoteSlot.LeftOfTitle && moved.Moves.Count == 1, "原处挪得开就在原处");
+    // 新加的同样情况：上方空着就放上方，不挪视图。
+    var fresh = TechNotePlanner.Place(a3, [view], 0.140, 0.070, null, avoid: true);
+    True(fresh.Free && fresh.Slot == NoteSlot.AboveTitle && fresh.Moves.Count == 0, "新加的先找空着的");
+
+    // 原处太宽放不下（比标题栏左边的空还宽）：换到上方。
+    var wide = TechNotePlanner.Place(a3, [], 0.240, 0.040, NoteSlot.LeftOfTitle, avoid: true);
+    True(wide.Free && wide.Slot == NoteSlot.AboveTitle, wide.Problem);
+}
+
 static IEnumerable<JsonElement> Descendants(JsonElement element)
 {
     if (element.ValueKind == JsonValueKind.Object)

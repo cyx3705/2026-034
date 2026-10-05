@@ -2,7 +2,7 @@ namespace HistoryStrenua;
 
 /// <summary>
 /// 快捷指令「排版」（1.9.0，出图类，从「新建工程图」拆出）：当前图纸页按实际大小重新排开——主视图连同左右上下投影视图从图框左上角排起、
-/// 给尺寸留地方，轴测图进右边的空地，技术要求放标题栏正上方；整页排不下就把图纸比例降一档再排。
+/// 给尺寸留地方，轴测图进右边的空地，技术要求放标题栏上方或左侧；整页排不下就把图纸比例降一档再排。
 /// </summary>
 /// <remarks>
 /// <para>谁是主视图、谁摆哪边见 <see cref="DrawingSheet"/>；怎么排见 <see cref="DrawingPlanner.Layout"/>。认不出位置的视图（剖视、局部、后视……）
@@ -16,7 +16,7 @@ internal static class DrawingArrange
         CommandName: StrenuaIdentity.Domain + ".drawing.arrange",
         Title: "排版",
         Summary: "当前图纸页的主视图、投影视图、轴测图、技术要求按实际大小重新排开不重叠、给尺寸留地方；排不下就把图纸比例降一档。",
-        Usage: "不用点视图：认出当前图纸页的主视图、摆在它四边的投影视图、轴测图和图框里的技术要求，按实际大小重新排——主视图连同投影视图从图框左上角排起，视图左边、上边按孔的种数留出尺寸的地方；轴测图放右边的空地（放不下缩一两档比例）；技术要求先放标题栏正上方。躲开标题栏、修改栏、图号框与图框里的其他注释。整页排不下就把图纸比例降一档再排。剖视、局部等认不出位置的视图原地不动、当障碍躲开；已标的尺寸跟着视图走。",
+        Usage: "不用点视图：认出当前图纸页的主视图、摆在它四边的投影视图、轴测图和图框里的技术要求，按实际大小重新排——主视图连同投影视图从图框左上角排起，视图左边、上边按孔的种数留出尺寸的地方；轴测图放右边的空地（放不下缩一两档比例）；技术要求只放标题栏正上方或左侧（避障开时压到视图就把视图挪开）。躲开标题栏、修改栏、图号框与图框里的其他注释。整页排不下就把图纸比例降一档再排。剖视、局部等认不出位置的视图原地不动、当障碍躲开；已标的尺寸跟着视图走。",
         Run: context => Run(context, DrawingSheet.Read(context, HoleScan.ActiveDrawing(context), "排版")));
 
     internal static QuickOutcome Run(QuickCommandContext context, DrawingSheet sheet)
@@ -65,13 +65,19 @@ internal static class DrawingArrange
             DrawingSheet.SetPosition(api, sheet.Iso, isoCenter);
         }
 
+        var noteWhere = string.Empty;
         if (sheet.Note is not null)
         {
-            // 视图组排不下时排版不给技术要求的位置：至少挪到图框左下角。
-            var (_, noteHeight) = DrawingSheet.NoteSize(api, sheet.Note.Note);
-            var frame = SheetSpace.Standard(sheet.Width, sheet.Height).Frame;
-            var topLeft = layout.NoteTopLeft ?? new SheetPoint(frame.Left + 2 * DrawingPlanner.Gap, frame.Bottom + 2 * DrawingPlanner.Gap + noteHeight);
-            api.Call(sheet.Note.Annotation, "IAnnotation", "SetPosition2", topLeft.X, topLeft.Y, 0.0);
+            // 1.13.0：技术要求只许标题栏上方或左侧——排版估的是哪一处就先放哪一处，视图排好后还压着就照避障开关挪视图（与模板表格同一套）。
+            NoteSlot? slot = null;
+            if (layout.NoteTopLeft is { } topLeft)
+            {
+                var (noteWidth, noteHeight) = DrawingSheet.NoteSize(api, sheet.Note.Note);
+                var space = SheetSpace.Standard(sheet.Width, sheet.Height);
+                slot = TechNotePlanner.SlotOf(space, new SheetRect(topLeft.X, topLeft.Y - noteHeight, topLeft.X + noteWidth, topLeft.Y));
+            }
+
+            (noteWhere, _) = TechNotePlacement.Place(context, sheet.Drawing, sheet.Note.Note, sheet.Note.Annotation, slot);
         }
 
         api.Call(sheet.Drawing, "IModelDoc2", "EditRebuild3");
@@ -94,6 +100,8 @@ internal static class DrawingArrange
             lines.Add($"· 轴测图比例缩成 {DrawingPlanner.ScaleText(actual * isoFactor)}。");
         if (sheet.Others.Count > 0)
             lines.Add($"· {sheet.Others.Count} 个视图（{string.Join("、", sheet.Others.Select(view => "「" + DrawingSheet.Name(api, view) + "」"))}）不是从主视图投影到四边的，没有挪它（与父视图对齐的跟着父视图走），当障碍躲开。");
+        if (noteWhere.Length > 0)
+            lines.Add($"· 技术要求{noteWhere}。");
         if (!layout.Fits)
             lines.Add($"· {layout.Problem}，比例已降到底，请手工挪一下或换大图幅。");
         else if (layout.Problem.Length > 0)

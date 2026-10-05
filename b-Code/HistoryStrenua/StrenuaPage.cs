@@ -9,7 +9,8 @@ namespace HistoryStrenua;
 /// <remarks>
 /// <para>
 /// 1.7.0 起没有指令表（用户定）：表格和宿主的命令集页面完全重叠、信息又杂，删掉；每条快捷指令直接是控制面板上的一个按钮，
-/// 执行过程与结果照旧进控制台。
+/// 执行过程与结果照旧进控制台。1.13.0 起页面上唯一的表格是「技术要求」类里的模板表格（用户要的「点一下就选出技术要求」），
+/// 取数走 <see cref="DataCommand"/>。
 /// </para>
 /// <para>
 /// 工具条从左到右：浮动、占位、类、取消。「浮动」是普通按钮，动作指向 Aurora 的 <c>aurora.ui.float</c>（1.30.1 起）。
@@ -65,6 +66,19 @@ internal static class StrenuaPage
         Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
     };
 
+    /// <summary>「技术要求」类的命令类名。</summary>
+    public const string TechClass = "tech";
+
+    /// <summary>「技术要求」那一支（面板 + 模板表格）与表格的 id。</summary>
+    public const string TechBranchId = "class-tech-branch";
+
+    public const string TechTableId = "tech-templates";
+
+    /// <summary>表格取数指令（1.13.0 起只有技术要求模板这一张表）。</summary>
+    public const string DataCommand = StrenuaIdentity.Domain + ".ui.data";
+
+    public const string TechView = "tech";
+
     /// <summary>一类控制面板的 id。</summary>
     public static string ClassPanelId(string commandClass) => "class-" + commandClass;
 
@@ -103,7 +117,7 @@ internal static class StrenuaPage
                             fill = true,
                             source = "{selection." + ClassChannel + ".value}",
                             children = Classes(commands)
-                                .Select(group => ClassPanel(group.Key, group.ToList()))
+                                .Select(group => ClassBranch(group.Key, group.ToList()))
                                 .ToArray(),
                         },
                         new
@@ -132,6 +146,14 @@ internal static class StrenuaPage
                 title = command.Title,
                 command = command.CommandName,
                 summary = command.Usage,
+            })
+            .Append(new
+            {
+                id = TechApply.ActionId,
+                title = "插入技术要求",
+                command = TechApply.CommandName,
+                args = new { name = "{name}" },
+                summary = TechApply.Summary,
             })
             .Append(new
             {
@@ -202,20 +224,48 @@ internal static class StrenuaPage
         },
     };
 
-    /// <summary>一类的控制面板：只有一行（1.12.0）——按钮按登记顺序排，放不下由 Aurora 折行。</summary>
-    private static object ClassPanel(string commandClass, IReadOnlyList<QuickCommand> commands)
+    /// <summary>
+    /// 切换容器的一支：一类的控制面板；「技术要求」类（1.13.0）是面板下面再接一张模板表格，点「技术要求」列的名字就插那一份。
+    /// </summary>
+    private static object ClassBranch(string commandClass, IReadOnlyList<QuickCommand> commands)
     {
-        var widgets = commands.Select(command => (object)new { kind = "button", action = command.ActionId, text = command.Title }).ToArray();
-
+        if (commandClass != TechClass)
+            return ClassPanel(commandClass, commands, @case: true);
         return new
         {
-            type = "panel",
-            id = ClassPanelId(commandClass),
+            type = "stack",
+            id = TechBranchId,
             @case = commands[0].ClassTitle,
-            text = commands[0].ClassTitle,
-            rows = new object[] { new { mode = "even", widgets } },
+            gap = "tight",
+            children = new object[] { ClassPanel(commandClass, commands, @case: false), TechTable() },
         };
     }
+
+    /// <summary>一类的控制面板：只有一行（1.12.0）——按钮按登记顺序排，放不下由 Aurora 折行。</summary>
+    private static object ClassPanel(string commandClass, IReadOnlyList<QuickCommand> commands, bool @case)
+    {
+        var widgets = commands.Select(command => (object)new { kind = "button", action = command.ActionId, text = command.Title }).ToArray();
+        var rows = new object[] { new { mode = "even", widgets } };
+        var id = ClassPanelId(commandClass);
+        var text = commands[0].ClassTitle;
+        return @case
+            ? new { type = "panel", id, @case = commands[0].ClassTitle, text, rows }
+            : new { type = "panel", id, text, rows };
+    }
+
+    /// <summary>技术要求模板表格（1.13.0）：一份「通用技术要求」一行；「技术要求」列是按钮，点了插那一份（换掉图上原有的）。</summary>
+    private static object TechTable() => new
+    {
+        type = "table",
+        id = TechTableId,
+        dataSource = new { command = DataCommand, args = new { view = TechView } },
+        columns = new object[]
+        {
+            new { key = "name", title = "技术要求", width = "110", cellAction = TechApply.ActionId, cellStyle = "button" },
+            new { key = "items", title = "条数", width = "34" },
+            new { key = "content", title = "内容", width = "*" },
+        },
+    };
 
     private static object Switch(string id, string label, bool value, string action)
         => new { kind = "switch", id, label, value = value ? "true" : "false", action };

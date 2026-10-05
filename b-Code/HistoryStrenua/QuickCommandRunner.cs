@@ -20,6 +20,7 @@ internal sealed class QuickCommandRunner(StrenuaOptions options)
     private readonly Dictionary<string, QuickCommandStatus> _status = new(StringComparer.Ordinal);
     private CancellationTokenSource? _running;
     private string? _runningKey;
+    private string? _runningTitle;
 
     /// <summary>一条指令的状态。</summary>
     internal sealed record QuickCommandStatus(string State, string Result, DateTime? FinishedAt);
@@ -37,13 +38,13 @@ internal sealed class QuickCommandRunner(StrenuaOptions options)
         {
             if (_runningKey is not null)
             {
-                var busy = QuickCommands.All.FirstOrDefault(item => item.Key == _runningKey)?.Title ?? _runningKey;
-                return CommandResult.Fail($"「{busy}」还在执行，等它结束或先按取消。");
+                return CommandResult.Fail($"「{_runningTitle}」还在执行，等它结束或先按取消。");
             }
 
             cancellation = CancellationTokenSource.CreateLinkedTokenSource(context.Cancellation);
             _running = cancellation;
             _runningKey = command.Key;
+            _runningTitle = command.Title;
             _status[command.Key] = new QuickCommandStatus("附着 SolidWorks", string.Empty, null);
         }
 
@@ -80,6 +81,7 @@ internal sealed class QuickCommandRunner(StrenuaOptions options)
             {
                 _running = null;
                 _runningKey = null;
+                _runningTitle = null;
             }
 
             cancellation.Dispose();

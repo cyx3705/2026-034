@@ -10,7 +10,8 @@ var tests = new (string Name, Action Run)[]
     ("page owner follows domain", TestPageOwner),
     ("buttons, actions and commands line up", TestPageWiring),
     ("list rows", TestListRows),
-    ("toolbar: float, drag area, class, cancel; switches for every class", TestToolbar),
+    ("toolbar: float, drag area, class, cancel", TestToolbar),
+    ("switches: own panel at the bottom of the window, for every class", TestSwitchPanel),
     ("class panels: buttons only", TestClassPanels),
     ("options: defaults, persistence, commands", TestOptions),
     ("cancel when idle", TestCancelWhenIdle),
@@ -227,24 +228,39 @@ static void TestListRows()
         True(new[] { "id", "title", "class", "usage", "state", "result", "time" }.All(row.ContainsKey), "列表行缺列");
 }
 
-static void TestToolbar()
+static void TestSwitchPanel()
 {
     var options = new StrenuaOptions();
     options.Set(StrenuaOption.Clearance, false);
     options.Set(StrenuaOption.Chain, true);
     using var description = JsonDocument.Parse(StrenuaPage.Describe(options));
+    // 1.11.0（用户定）：开关不在任何类面板里，单独一块面板排在页面最后；中间的切换容器 fill，把它推到窗口最下面。
+    var children = description.RootElement.GetProperty("pages")[0].GetProperty("content").GetProperty("children").EnumerateArray().ToList();
+    Equal(3, children.Count);
+    Equal(StrenuaPage.PanelId, children[0].GetProperty("id").GetString()!);
+    Equal(StrenuaPage.ClassSwitchId, children[1].GetProperty("id").GetString()!);
+    True(children[1].GetProperty("fill").GetBoolean(), "切换容器应占住剩余高度");
+    True(!children[0].TryGetProperty("fill", out _) && !children[2].TryGetProperty("fill", out _), "只有中间一格 fill");
+    Equal(StrenuaPage.SwitchPanelId, children[2].GetProperty("id").GetString()!);
+    var rows = children[2].GetProperty("rows").EnumerateArray().ToList();
+    Equal(1, rows.Count);
+    var switches = rows[0].GetProperty("widgets").EnumerateArray().ToList();
+    Equal("避障,尺寸链", string.Join(",", switches.Select(w => w.GetProperty("label").GetString())));
+    True(switches.All(w => w.GetProperty("kind").GetString() == "switch"), "开关面板应全是开关");
+    Equal(StrenuaPage.ClearanceActionId, switches[0].GetProperty("action").GetString()!);
+    Equal(StrenuaPage.ChainActionId, switches[1].GetProperty("action").GetString()!);
+    // 初值取当前设置。
+    Equal("false", switches[0].GetProperty("value").GetString()!);
+    Equal("true", switches[1].GetProperty("value").GetString()!);
+}
+
+static void TestToolbar()
+{
+    using var description = JsonDocument.Parse(StrenuaPage.Describe(new StrenuaOptions()));
     var panel = Descendants(description.RootElement)
         .First(node => node.TryGetProperty("id", out var id) && id.GetString() == StrenuaPage.PanelId);
     var rows = panel.GetProperty("rows").EnumerateArray().ToList();
-    // 1.11.0：开关从「孔」面板挪到工具条第二行，切到哪一类都在（用户定）；初值取当前设置。
-    Equal(2, rows.Count);
-    var switches = rows[1].GetProperty("widgets").EnumerateArray().ToList();
-    Equal("避障,尺寸链", string.Join(",", switches.Select(w => w.GetProperty("label").GetString())));
-    True(switches.All(w => w.GetProperty("kind").GetString() == "switch"), "第二行应全是开关");
-    Equal(StrenuaPage.ClearanceActionId, switches[0].GetProperty("action").GetString()!);
-    Equal(StrenuaPage.ChainActionId, switches[1].GetProperty("action").GetString()!);
-    Equal("false", switches[0].GetProperty("value").GetString()!);
-    Equal("true", switches[1].GetProperty("value").GetString()!);
+    Equal(1, rows.Count);
     var widgets = rows[0].GetProperty("widgets").EnumerateArray().ToList();
     Equal(4, widgets.Count);
     Equal(StrenuaPage.FloatActionId, widgets[0].GetProperty("action").GetString()!);
@@ -283,14 +299,14 @@ static void TestClassPanels()
     Equal("检查", check.GetProperty("case").GetString()!);
     Equal(1, check.GetProperty("rows").GetArrayLength());
     Equal("未标尺寸,图纸截图", string.Join(",", check.GetProperty("rows")[0].GetProperty("widgets").EnumerateArray().Select(w => w.GetProperty("text").GetString())));
-    // 1.9.0 出图类：一键出图与它拆出的各步（用户定），1.10.0 加全图倒角、倒角标注，三行按钮；开关在工具条上（1.11.0）。
+    // 1.9.0 出图类：一键出图与它拆出的各步（用户定），1.10.0 加全图倒角、倒角标注，三行按钮；开关在窗口最下面（1.11.0）。
     var drawing = branches.Single(branch => branch.GetProperty("id").GetString() == StrenuaPage.ClassPanelId("drawing"));
     Equal("出图", drawing.GetProperty("case").GetString()!);
     Equal(3, drawing.GetProperty("rows").GetArrayLength());
     Equal("一键出图,新建工程图,投影视图,轴测图|技术要求,排版,全图圆角,全图倒角|圆角标注,倒角标注", string.Join("|", drawing.GetProperty("rows").EnumerateArray()
         .Select(row => string.Join(",", row.GetProperty("widgets").EnumerateArray().Select(w => w.GetProperty("text").GetString())))));
     Equal("孔,出图,检查", string.Join(",", StrenuaPage.ClassOptions(QuickCommands.All)));
-    // 类面板里只有按钮，没有开关（1.11.0 开关挪到工具条）。
+    // 类面板里只有按钮，没有开关（1.11.0 开关挪到窗口最下面）。
     True(branches.SelectMany(branch => branch.GetProperty("rows").EnumerateArray())
         .SelectMany(row => row.GetProperty("widgets").EnumerateArray())
         .All(w => w.GetProperty("kind").GetString() == "button"), "类面板里应只有按钮");

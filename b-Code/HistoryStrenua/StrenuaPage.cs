@@ -12,14 +12,15 @@ namespace HistoryStrenua;
 /// 执行过程与结果照旧进控制台。
 /// </para>
 /// <para>
-/// 工具条第一行从左到右：浮动、占位、类、取消；第二行是两个开关。「浮动」是普通按钮，动作指向 Aurora 的 <c>aurora.ui.float</c>（1.30.1 起）。
+/// 工具条从左到右：浮动、占位、类、取消。「浮动」是普通按钮，动作指向 Aurora 的 <c>aurora.ui.float</c>（1.30.1 起）。
 /// 占位是一段占满余宽的说明文字，浮成小窗后按住它就能拖动整窗（按钮、选择框会吃掉按下，拖不动）。
 /// 「类」选择框把值发上 <see cref="ClassChannel"/>，下面的切换容器跟着它换成那一类的控制面板——将来加别的类，
 /// 加一块面板即可，工具条不变。
 /// </para>
 /// <para>
-/// 每类面板只有按钮（每 4 个一行，1.8.0）。两个开关——避障（默认开）、尺寸链（默认关）——1.11.0 起从「孔」面板挪到工具条第二行，
-/// 切到哪一类都看得到、都管用（用户定：出图类标圆角、倒角时也要能选）。开关拨动即生效并记到本机（<see cref="StrenuaOptions"/>），
+/// 每类面板只有按钮（每 4 个一行，1.8.0）。两个开关——避障（默认开）、尺寸链（默认关）——1.11.0 起从「孔」面板挪出来，
+/// 单独一块面板 <see cref="SwitchPanelId"/> 固定在整个窗口最下面（用户定：不连着上方）：切换容器标 Aurora 1.30.2 的 <c>fill</c>
+/// 占住中间的剩余高度，开关面板就被推到底。切到哪一类都看得到、都管用（用户定：出图类标圆角、倒角时也要能选）。开关拨动即生效并记到本机（<see cref="StrenuaOptions"/>），
 /// 页面描述里的初值取当前值。
 /// </para>
 /// <para>按钮、类选项、动作声明全部从 <see cref="QuickCommands.All"/> 生成——加指令不改这里。</para>
@@ -29,6 +30,9 @@ internal static class StrenuaPage
     public const string PageId = "powersw";
     public const string PanelId = "quick-toolbar";
     public const string ClassSwitchId = "class-panels";
+
+    /// <summary>窗口最下面的开关面板（1.11.0）。</summary>
+    public const string SwitchPanelId = "option-switches";
     public const string CancelActionId = StrenuaIdentity.Domain + ".quick.cancel";
 
     /// <summary>工具条「浮动」按钮的动作：调 Aurora 把本页浮出 / 还原。</summary>
@@ -88,16 +92,25 @@ internal static class StrenuaPage
                             type = "panel",
                             id = PanelId,
                             text = "PowerSW 工具条",
-                            rows = new object[] { Toolbar(commands), Switches(options) },
+                            rows = new object[] { Toolbar(commands) },
                         },
                         new
                         {
                             type = "switch",
                             id = ClassSwitchId,
+                            // 占住中间剩余高度，下面的开关面板被推到窗口最下面（Aurora 1.30.2；旧 Aurora 忽略，开关紧跟在面板下面）。
+                            fill = true,
                             source = "{selection." + ClassChannel + ".value}",
                             children = Classes(commands)
                                 .Select(group => ClassPanel(group.Key, group.ToList()))
                                 .ToArray(),
+                        },
+                        new
+                        {
+                            type = "panel",
+                            id = SwitchPanelId,
+                            text = "开关",
+                            rows = new object[] { Switches(options) },
                         },
                     },
                 },
@@ -180,7 +193,7 @@ internal static class StrenuaPage
     /// <summary>一行最多几个按钮（1.8.0：孔类到了 7 个，一行挤不下，按 4 个一行折）。</summary>
     public const int ButtonsPerRow = 4;
 
-    /// <summary>工具条第二行：两个开关，所有类共用（1.11.0）。</summary>
+    /// <summary>窗口最下面的一行：两个开关，所有类共用（1.11.0）。</summary>
     private static object Switches(StrenuaOptions options) => new
     {
         mode = "even",

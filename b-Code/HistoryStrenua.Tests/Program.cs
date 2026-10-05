@@ -72,6 +72,8 @@ var tests = new (string Name, Action Run)[]
     ("chamfer: which chamfers, grouping, which leg and where", TestChamferPlan),
     ("chamfer: side views and margins", TestChamferViews),
     ("fillet: which arcs, grouping and text side", TestFilletPlan),
+    ("fillet: circles and hole arcs are not fillets", TestFilletCircles),
+    ("check: overlapping annotations", TestOverlapCheck),
     ("clearance switch: fillet, chamfer, note, side views", TestClearanceSwitch),
     ("snapshot: file name", TestSnapshotName),
 };
@@ -116,13 +118,15 @@ static void TestCommandRegistration()
         "strenua.drawing.create",
         "strenua.drawing.project",
         "strenua.drawing.iso",
-        "strenua.drawing.note",
         "strenua.drawing.arrange",
         "strenua.drawing.filletall",
         "strenua.drawing.chamferall",
         "strenua.drawing.fillet",
         "strenua.drawing.chamfer",
+        "strenua.tech.note",
         "strenua.check.dimension",
+        "strenua.check.dangling",
+        "strenua.check.overlap",
         "strenua.check.snapshot",
         "strenua.quick.list",
         "strenua.quick.run",
@@ -145,7 +149,7 @@ static void TestCommandRegistration()
     True(hole.HiddenReason is null, "快捷指令要能在控制台直接敲");
     True(registry.TryGet("strenua.hole.centermark", out var centerMark) && !centerMark!.Readonly, "中心符号线会改工程图，不是只读");
     True(registry.TryGet("strenua.quick.list", out var list) && list!.Readonly, "列表是只读的");
-    foreach (var name in new[] { "strenua.drawing.create", "strenua.drawing.auto", "strenua.drawing.project", "strenua.drawing.iso", "strenua.drawing.note",
+    foreach (var name in new[] { "strenua.drawing.create", "strenua.drawing.auto", "strenua.drawing.project", "strenua.drawing.iso", "strenua.tech.note",
                  "strenua.drawing.arrange", "strenua.drawing.filletall", "strenua.drawing.chamferall", "strenua.drawing.fillet", "strenua.drawing.chamfer",
                  "strenua.check.snapshot" })
         True(registry.TryGet(name, out var drawing) && !drawing!.Readonly && drawing.HiddenReason is null, $"{name} 要能在控制台直接敲（建图、加尺寸、写图片都不是只读）");
@@ -286,26 +290,25 @@ static void TestClassPanels()
     Equal(string.Join(",", StrenuaPage.ClassOptions(QuickCommands.All)),
         string.Join(",", branches.Select(branch => branch.GetProperty("case").GetString())));
 
-    var hole = branches.Single(branch => branch.GetProperty("id").GetString() == StrenuaPage.ClassPanelId("hole"));
-    var rows = hole.GetProperty("rows").EnumerateArray().ToList();
-    var holeTitles = QuickCommands.All.Where(c => c.CommandClass == "hole").Select(c => c.Title).ToList();
-    var buttonRows = (holeTitles.Count + StrenuaPage.ButtonsPerRow - 1) / StrenuaPage.ButtonsPerRow;
-    Equal(buttonRows, rows.Count);
-    var buttons = rows.Take(buttonRows).SelectMany(row => row.GetProperty("widgets").EnumerateArray()).ToList();
-    True(rows.Take(buttonRows).All(row => row.GetProperty("widgets").GetArrayLength() <= StrenuaPage.ButtonsPerRow), "一行最多 4 个按钮");
-    Equal(string.Join(",", holeTitles), string.Join(",", buttons.Select(button => button.GetProperty("text").GetString())));
-    // 检查类一块面板、只有按钮没有开关（1.9.0 多了「图纸截图」）。
-    var check = branches.Single(branch => branch.GetProperty("id").GetString() == StrenuaPage.ClassPanelId("check"));
-    Equal("检查", check.GetProperty("case").GetString()!);
-    Equal(1, check.GetProperty("rows").GetArrayLength());
-    Equal("未标尺寸,图纸截图", string.Join(",", check.GetProperty("rows")[0].GetProperty("widgets").EnumerateArray().Select(w => w.GetProperty("text").GetString())));
-    // 1.9.0 出图类：一键出图与它拆出的各步（用户定），1.10.0 加全图倒角、倒角标注，三行按钮；开关在窗口最下面（1.11.0）。
-    var drawing = branches.Single(branch => branch.GetProperty("id").GetString() == StrenuaPage.ClassPanelId("drawing"));
-    Equal("出图", drawing.GetProperty("case").GetString()!);
-    Equal(3, drawing.GetProperty("rows").GetArrayLength());
-    Equal("一键出图,新建工程图,投影视图,轴测图|技术要求,排版,全图圆角,全图倒角|圆角标注,倒角标注", string.Join("|", drawing.GetProperty("rows").EnumerateArray()
-        .Select(row => string.Join(",", row.GetProperty("widgets").EnumerateArray().Select(w => w.GetProperty("text").GetString())))));
-    Equal("孔,出图,检查", string.Join(",", StrenuaPage.ClassOptions(QuickCommands.All)));
+    // 1.12.0（用户定）：每类面板只有一行，这一类的按钮全排进去；放不下由 Aurora 折行，浮窗拖宽拖窄时均匀伸缩。
+    string Row(string commandClass)
+    {
+        var panel = branches.Single(branch => branch.GetProperty("id").GetString() == StrenuaPage.ClassPanelId(commandClass));
+        Equal(1, panel.GetProperty("rows").GetArrayLength());
+        var row = panel.GetProperty("rows")[0];
+        Equal("even", row.GetProperty("mode").GetString()!);
+        return string.Join(",", row.GetProperty("widgets").EnumerateArray().Select(w => w.GetProperty("text").GetString()));
+    }
+
+    foreach (var group in QuickCommands.All.GroupBy(c => c.CommandClass))
+        Equal(string.Join(",", group.Select(c => c.Title)), Row(group.Key));
+    Equal("孔标注全流程,销钉符号,中心符号线,孔位尺寸,孔标注,销孔标注,外轮廓", Row("hole"));
+    Equal("一键出图,新建工程图,投影视图,轴测图,排版,全图圆角,全图倒角,圆角标注,倒角标注", Row("drawing"));
+    // 1.12.0 新开「技术要求」类：出图的「技术要求」挪过来（一键出图照旧调它），下一步在这里接 SW 技术要求模板。
+    Equal("技术要求", Row("tech"));
+    // 检查类 1.12.0 加「悬空标注」「注解重叠」。
+    Equal("未标尺寸,悬空标注,注解重叠,图纸截图", Row("check"));
+    Equal("孔,出图,技术要求,检查", string.Join(",", StrenuaPage.ClassOptions(QuickCommands.All)));
     // 类面板里只有按钮，没有开关（1.11.0 开关挪到窗口最下面）。
     True(branches.SelectMany(branch => branch.GetProperty("rows").EnumerateArray())
         .SelectMany(row => row.GetProperty("widgets").EnumerateArray())
@@ -991,7 +994,7 @@ static void TestFlowCommand()
         && usage.IndexOf("→ 孔标注", StringComparison.Ordinal) < usage.IndexOf("→ 销孔标注", StringComparison.Ordinal), "步骤顺序");
     True(usage.Contains("当前图纸页", StringComparison.Ordinal), "范围是当前图纸页");
     Equal("hole-flow,dowel-symbol,center-mark,hole-position,hole-callout,dowel-fit,outline,"
-        + "drawing-auto,drawing-create,drawing-project,drawing-iso,drawing-note,drawing-arrange,fillet-all,chamfer-all,fillet,chamfer,check-dimension,snapshot",
+        + "drawing-auto,drawing-create,drawing-project,drawing-iso,drawing-arrange,fillet-all,chamfer-all,fillet,chamfer,tech-note,check-dimension,check-dangling,check-overlap,snapshot",
         string.Join(",", QuickCommands.All.Select(command => command.Key)));
 }
 
@@ -2090,6 +2093,67 @@ static void Near(double expected, double actual)
 /// 模块登记口的测试替身：只记下登记了哪些指令。宿主 6.0.0 起注册表是宿主内部类，
 /// 登记口 ICommandRegistrar 就是模块能看到的全部；来源由宿主盖章，这里不再核对。
 /// </summary>
+static void TestFilletCircles()
+{
+    // 圆心角：起点到弧中点夹角的两倍；起终点重合（带一个端点的整圈）是 2π。
+    var c = new SheetPoint(0, 0);
+    True(Math.Abs(FilletPlanner.SweepOf(c, new SheetPoint(1, 0), new SheetPoint(0, 1), new SheetPoint(Math.Sqrt(0.5), Math.Sqrt(0.5))) - Math.PI / 2) < 1e-9, "四分之一圆");
+    True(Math.Abs(FilletPlanner.SweepOf(c, new SheetPoint(1, 0), new SheetPoint(0, 1), new SheetPoint(-Math.Sqrt(0.5), -Math.Sqrt(0.5))) - 1.5 * Math.PI) < 1e-9, "四分之三圆");
+    True(Math.Abs(FilletPlanner.SweepOf(c, new SheetPoint(1, 0), new SheetPoint(1, 0), new SheetPoint(1, 0)) - 2 * Math.PI) < 1e-9, "带一个端点的整圈");
+
+    FilletArc Arc(int index, double cx, double cy, double r, bool concave, double sweep)
+        => new(index, new SheetPoint(cx, cy), r, r * 2, new SheetPoint(cx + r, cy), concave, sweep);
+
+    var arcs = new List<FilletArc>
+    {
+        Arc(0, 0.050, 0.050, 0.005, false, Math.PI / 2),          // 外圆角 R：留
+        Arc(1, 0.100, 0.050, 0.003, true, Math.PI / 2),           // 内圆角：留
+        Arc(2, 0.150, 0.050, 0.004, true, 2 * Math.PI),           // 带一个端点的整圆孔：去
+        Arc(3, 0.200, 0.050, 0.004, true, 0.6 * Math.PI),         // 被切成两段的孔（0.6π + 1.4π）：两段都去
+        Arc(4, 0.200, 0.050, 0.004, true, 1.4 * Math.PI),
+        Arc(5, 0.250, 0.050, 0.004, true, 1.2 * Math.PI),         // 被零件边切掉一截的孔口（内凹过半圈）：去
+        Arc(6, 0.300, 0.050, 0.010, false, 1.2 * Math.PI),        // 外凸过半圈（耳板端头）：留
+        Arc(7, 0.350, 0.050, 0.004, true, Math.PI / 3),           // 与认出的孔同圆：去
+        Arc(8, 0.350, 0.050, 0.008, false, Math.PI),              // 与孔同心、半径不同的外凸端头 R：留
+        Arc(9, 0.400, 0.050, 0.006, false, 2 * Math.PI),          // 外凸整圆（凸台）：去
+        Arc(10, 0.450, 0.050, 0.005, true, 0),                    // 圆心角没量（0）：不参与整圆判定
+    };
+    var (kept, excluded) = FilletPlanner.WithoutCircles(arcs, [new HoleEdge(0, 0.350, 0.050, 0.004)]);
+    Equal("0,1,6,8,10", string.Join(",", kept.Select(arc => arc.Index)));
+    Equal(6, excluded);
+}
+
+static void TestOverlapCheck()
+{
+    // 两个尺寸：A 的数字压在 B 的数字上、也压在 B 的尺寸界线上；C 压视图轮廓线；D 出了图框；E 干净；A 自己的尺寸线不算。
+    CheckedAnnotation Note(int index, string name, double x, double y, params SheetSegment[] lines)
+        => new(index, "工程图视图1", name, "尺寸", lines, [new TextBox(x, y, 0.006, 0.0035)]);
+
+    var a = Note(0, "D1", 0.100, 0.100, new SheetSegment(0.095, 0.0995, 0.110, 0.0995));
+    var b = Note(1, "D2", 0.103, 0.101, new SheetSegment(0.104, 0.090, 0.104, 0.110));
+    var c = Note(2, "D3", 0.150, 0.100);
+    var d = Note(3, "D4", 0.410, 0.100);
+    var e = Note(4, "D5", 0.200, 0.200);
+    var issues = AnnotationCheckPlanner.Overlaps([a, b, c, d, e],
+        [new SheetSegment(0.153, 0.090, 0.153, 0.110)], [], [], new SheetRect(0.005, 0.005, 0.415, 0.292));
+
+    True(issues.Count(i => i.Index == 0 && i.Other == 1 && i.Reason.Contains("文字重叠", StringComparison.Ordinal)) == 1, "A 与 B 文字重叠报一次");
+    True(!issues.Any(i => i.Index == 1 && i.Other == 0 && i.Reason.Contains("文字重叠", StringComparison.Ordinal)), "一对只报一次");
+    True(issues.Any(i => i.Index == 0 && i.Other == 1 && i.Reason.Contains("线上", StringComparison.Ordinal)), "A 压 B 的尺寸界线");
+    True(!issues.Any(i => i.Index == 1 && i.Other == 0 && i.Reason.Contains("线上", StringComparison.Ordinal)), "B 没压 A 的尺寸线");
+    True(!issues.Any(i => i.Index == i.Other), "自己的线不算");
+    True(issues.Any(i => i.Index == 2 && i.Reason.Contains("视图轮廓线", StringComparison.Ordinal)), "C 压视图线");
+    True(issues.Any(i => i.Index == 3 && i.Reason.Contains("出了图框", StringComparison.Ordinal)), "D 出图框");
+    True(!issues.Any(i => i.Index == 4), "E 干净");
+
+    // 压图纸上的注释（技术要求、标题栏的字）与图框 / 标题栏线。
+    var f = Note(0, "D6", 0.300, 0.040);
+    var sheet = AnnotationCheckPlanner.Overlaps([f], [], [new SheetSegment(0.290, 0.042, 0.320, 0.042)], [("技术要求", new SheetRect(0.302, 0.030, 0.340, 0.060))], null);
+    True(sheet.Any(i => i.Reason.Contains("图纸注释「技术要求」", StringComparison.Ordinal)), "压技术要求");
+    True(sheet.Any(i => i.Reason.Contains("图框 / 标题栏线", StringComparison.Ordinal)), "压标题栏线");
+    Equal("中心符号线", AnnotationCheckPlanner.KindName(13));
+}
+
 sealed class Registrar : ICommandRegistrar
 {
     private readonly Dictionary<string, CommandDescriptor> _commands = new(StringComparer.OrdinalIgnoreCase);

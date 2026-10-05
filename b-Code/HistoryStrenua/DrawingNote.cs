@@ -12,8 +12,9 @@ namespace HistoryStrenua;
 internal static class DrawingNote
 {
     public static QuickCommand Command { get; } = new(
-        Key: "drawing-note",
-        CommandName: StrenuaIdentity.Domain + ".drawing.note",
+        // 1.12.0 挪进新开的「技术要求」类（用户定；下一步在这一类里接 SolidWorks 的技术要求模板做选择），一键出图照旧调它。
+        Key: "tech-note",
+        CommandName: StrenuaIdentity.Domain + ".tech.note",
         Title: "技术要求",
         Summary: "把技术要求放进当前工程图的图框（标题栏正上方优先，躲开视图），内容取「技术要求.txt」，图框里已有就不再加。",
         Usage: "在工程图里按：插一条技术要求注释（内容取模块数据目录的「技术要求.txt」，没有就用默认那 8 条并写出这个文件，改它就能换内容；字体字高随模板），先放标题栏正上方靠右，放不下就放左下角、再找别的空地，躲开现有视图连同尺寸空间（「避障」关着时不躲，直接放标题栏正上方）。图框里已经有带「技术要求」的注释就不再加（模板摆在图框外备用的那条不算）。别的不动；整页重排按「排版」。",

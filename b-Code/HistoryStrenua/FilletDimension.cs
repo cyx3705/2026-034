@@ -84,6 +84,7 @@ internal static class FilletDimension
         }
 
         var message = $"视图「{viewName}」：{plan.ArcCount} 个圆角，新加 {added} 个 R 尺寸{skipped}"
+            + (scan.CircleArcs > 0 ? $"，{scan.CircleArcs} 段是圆 / 孔上的弧不算圆角（孔归孔类指令）" : string.Empty)
             + (failed > 0 ? $"，{failed} 个 SolidWorks 没有接受" : string.Empty) + "。";
         return added == 0 ? QuickOutcome.Fail(message) : QuickOutcome.Ok(message);
     }

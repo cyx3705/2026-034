@@ -9,7 +9,8 @@ namespace HistoryStrenua;
 /// <param name="ModelRadius">模型半径（尺寸值）。</param>
 /// <param name="Middle">弧中点。</param>
 /// <param name="Concave">内凹（内圆角、凹弧：圆心在零件外）；外圆角为 false。</param>
-internal readonly record struct FilletArc(int Index, SheetPoint Center, double Radius, double ModelRadius, SheetPoint Middle, bool Concave);
+/// <param name="Sweep">圆心角（弧度，1.12.0）：带一个端点的整圈为 2π；0 = 没量（不参与整圆判定）。</param>
+internal readonly record struct FilletArc(int Index, SheetPoint Center, double Radius, double ModelRadius, SheetPoint Middle, bool Concave, double Sweep = 0);
 
 /// <summary>要加的一个 R 尺寸：标哪段弧、文字放哪、前缀（几段同半径的合标时「N x 」）。</summary>
 internal readonly record struct FilletTarget(int Index, SheetPoint TextAt, int Count)
@@ -145,6 +146,50 @@ internal static class FilletPlanner
 
         return (best.At, best.Box);
     }
+
+    /// <summary>判整圆的余量：同一圆上的弧合起来差这么多（弧度，约 3°）就算整圈。</summary>
+    private const double SweepTolerance = 0.05;
+
+    /// <summary>
+    /// 去掉其实是圆（孔）的弧（1.12.0，用户报「圆角标注把圆也标了」，孔由孔类指令管，这里必须排除）。三种都不算圆角：
+    /// <list type="bullet">
+    /// <item>同圆心同半径的几段合起来是整圈：带一个端点的整圆边、被别的特征的边切成几段的孔或凸台（<see cref="HoleScan.ViewGeometry.TryReadHole"/>
+    /// 只认没有端点的整圈和恰好半圈，这些漏到了这里）；</item>
+    /// <item>内凹且超过半圈：被零件边切掉一截的孔口（圆角最多半圈）；</item>
+    /// <item>与认出的孔（含腰型孔端头）同圆心同半径：孔的另一部分。</item>
+    /// </list>
+    /// 外凸的半圈以内的弧（耳板端头 R10 之类，即使与孔同心）照旧是圆角。
+    /// </summary>
+    /// <returns>留下的圆角弧与去掉的段数。</returns>
+    public static (List<FilletArc> Arcs, int Excluded) WithoutCircles(IReadOnlyList<FilletArc> arcs, IReadOnlyList<HoleEdge> holes)
+    {
+        var kept = new List<FilletArc>();
+        foreach (var arc in arcs)
+        {
+            var circle = arcs.Where(other => Same(other.Center, other.Radius, arc.Center, arc.Radius)).ToList();
+            var sweep = circle.Sum(other => other.Sweep);
+            var isHole = sweep >= 2 * Math.PI - SweepTolerance
+                || (arc.Concave && sweep > Math.PI + SweepTolerance)
+                || holes.Any(hole => Same(new SheetPoint(hole.X, hole.Y), hole.Radius, arc.Center, arc.Radius));
+            if (!isHole)
+                kept.Add(arc);
+        }
+
+        return (kept, arcs.Count - kept.Count);
+    }
+
+    /// <summary>圆弧的圆心角（弧度）：起点、终点重合（带一个端点的整圈）为 2π；否则是起点到弧中点夹角的两倍。</summary>
+    public static double SweepOf(SheetPoint center, SheetPoint start, SheetPoint end, SheetPoint middle)
+    {
+        var radius = Math.Max(Distance(center, start), 1e-12);
+        if (Distance(start, end) <= radius * 1e-6)
+            return 2 * Math.PI;
+        var (sx, sy) = (start.X - center.X, start.Y - center.Y);
+        var (mx, my) = (middle.X - center.X, middle.Y - center.Y);
+        return 2 * Math.Abs(Math.Atan2(sx * my - sy * mx, sx * mx + sy * my));
+    }
+
+    private static double Distance(SheetPoint a, SheetPoint b) => Math.Sqrt((a.X - b.X) * (a.X - b.X) + (a.Y - b.Y) * (a.Y - b.Y));
 
     private static bool Same(SheetPoint a, double ra, SheetPoint b, double rb)
         => Math.Abs(a.X - b.X) <= SameTolerance && Math.Abs(a.Y - b.Y) <= SameTolerance && Math.Abs(ra - rb) <= SameTolerance;

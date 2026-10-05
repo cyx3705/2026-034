@@ -90,13 +90,15 @@ internal static class QuickCommands
         DrawingCreate.Command,
         DrawingProject.Command,
         DrawingIso.Command,
-        DrawingNote.Command,
         DrawingArrange.Command,
         FilletAll.Command,
         ChamferAll.Command,
         FilletDimension.Command,
         ChamferDimension.Command,
+        DrawingNote.Command,
         DimensionCheck.Command,
+        DanglingCheck.Command,
+        OverlapCheck.Command,
         DrawingSnapshot.Command,
     ];
 
@@ -106,6 +108,7 @@ internal static class QuickCommands
         {
             ["hole"] = "孔",
             ["drawing"] = "出图",
+            ["tech"] = "技术要求",
             ["check"] = "检查",
         };
 

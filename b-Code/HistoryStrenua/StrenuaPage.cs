@@ -18,7 +18,8 @@ namespace HistoryStrenua;
 /// 加一块面板即可，工具条不变。
 /// </para>
 /// <para>
-/// 每类面板只有按钮（每 4 个一行，1.8.0）。两个开关——避障（默认开）、尺寸链（默认关）——1.11.0 起从「孔」面板挪出来，
+/// 每类面板只有一行（1.12.0，用户定）：这一类的按钮全排进去，放不下由 Aurora 自己折行（折出来仍是同一行、按母行 even 分宽），
+/// 浮窗拖宽拖窄时按钮跟着均匀伸缩，不再按固定 4 个一行切。两个开关——避障（默认开）、尺寸链（默认关）——1.11.0 起从「孔」面板挪出来，
 /// 单独一块面板 <see cref="SwitchPanelId"/> 固定在整个窗口最下面（用户定：不连着上方）：切换容器标 Aurora 1.30.2 的 <c>fill</c>
 /// 占住中间的剩余高度，开关面板就被推到底。切到哪一类都看得到、都管用（用户定：出图类标圆角、倒角时也要能选）。开关拨动即生效并记到本机（<see cref="StrenuaOptions"/>），
 /// 页面描述里的初值取当前值。
@@ -190,9 +191,6 @@ internal static class StrenuaPage
         };
     }
 
-    /// <summary>一行最多几个按钮（1.8.0：孔类到了 7 个，一行挤不下，按 4 个一行折）。</summary>
-    public const int ButtonsPerRow = 4;
-
     /// <summary>窗口最下面的一行：两个开关，所有类共用（1.11.0）。</summary>
     private static object Switches(StrenuaOptions options) => new
     {
@@ -204,17 +202,10 @@ internal static class StrenuaPage
         },
     };
 
-    /// <summary>一类的控制面板：按钮每 <see cref="ButtonsPerRow"/> 个一行。</summary>
+    /// <summary>一类的控制面板：只有一行（1.12.0）——按钮按登记顺序排，放不下由 Aurora 折行。</summary>
     private static object ClassPanel(string commandClass, IReadOnlyList<QuickCommand> commands)
     {
-        var rows = commands
-            .Chunk(ButtonsPerRow)
-            .Select(chunk => (object)new
-            {
-                mode = "even",
-                widgets = chunk.Select(command => (object)new { kind = "button", action = command.ActionId, text = command.Title }).ToArray(),
-            })
-            .ToList();
+        var widgets = commands.Select(command => (object)new { kind = "button", action = command.ActionId, text = command.Title }).ToArray();
 
         return new
         {
@@ -222,7 +213,7 @@ internal static class StrenuaPage
             id = ClassPanelId(commandClass),
             @case = commands[0].ClassTitle,
             text = commands[0].ClassTitle,
-            rows,
+            rows = new object[] { new { mode = "even", widgets } },
         };
     }
 

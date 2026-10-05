@@ -20,6 +20,7 @@ namespace HistoryStrenua;
 /// <param name="FilletArcs">圆角弧在图纸上的样子，与 <paramref name="ArcEdges"/> 一一对应。</param>
 /// <param name="ChamferEdges">倒角斜边本身（只在要求收集倒角时有，1.10.0）；它们同时也在直边里。</param>
 /// <param name="ChamferItems">倒角斜边在图纸上的样子，与 <paramref name="ChamferEdges"/> 一一对应。</param>
+/// <param name="CircleArcs">收集圆角时去掉的「其实是圆 / 孔」的弧段数（1.12.0，见 <see cref="FilletPlanner.WithoutCircles"/>）。</param>
 internal sealed record ScannedView(
     object Document,
     object View,
@@ -33,7 +34,8 @@ internal sealed record ScannedView(
     IReadOnlyList<object>? ArcEdges = null,
     IReadOnlyList<FilletArc>? FilletArcs = null,
     IReadOnlyList<object>? ChamferEdges = null,
-    IReadOnlyList<ChamferEdge>? ChamferItems = null)
+    IReadOnlyList<ChamferEdge>? ChamferItems = null,
+    int CircleArcs = 0)
 {
     /// <summary>倒角斜边（只在要求收集倒角时有，1.10.0），<see cref="ChamferEdge.Index"/> 是 <see cref="ChamferEdges"/> 的下标。</summary>
     public IReadOnlyList<ChamferEdge> Chamfers => ChamferItems ?? [];
@@ -136,7 +138,9 @@ internal static class HoleScan
             }
         }
 
-        return new ScannedView(document, view, viewName, geometry, edges, candidates, lineEdges, lines, curves, arcEdges, arcs, chamferEdges, chamfers);
+        // 1.12.0：整圆、孔口残弧、与孔同圆的弧不是圆角（孔由孔类指令标），在这里就去掉。下标仍指 arcEdges。
+        var (fillets, circleArcs) = FilletPlanner.WithoutCircles(arcs, candidates);
+        return new ScannedView(document, view, viewName, geometry, edges, candidates, lineEdges, lines, curves, arcEdges, fillets, chamferEdges, chamfers, circleArcs);
     }
 
     /// <summary>活动文档，必须是工程图。</summary>
@@ -408,7 +412,10 @@ internal static class HoleScan
                     return null;
                 var center = ToSheet(transforms, "CreatePoint", "IMathPoint", circle[0], circle[1], circle[2]);
                 var mid = ToSheet(transforms, "CreatePoint", "IMathPoint", middle[0], middle[1], middle[2]);
-                return new FilletArc(index, new SheetPoint(center[0], center[1]), circle[6] * Scale, circle[6], new SheetPoint(mid[0], mid[1]), concave);
+                var from = ToSheet(transforms, "CreatePoint", "IMathPoint", s[0], s[1], s[2]);
+                var to = ToSheet(transforms, "CreatePoint", "IMathPoint", e[0], e[1], e[2]);
+                var sweep = FilletPlanner.SweepOf(new SheetPoint(center[0], center[1]), new SheetPoint(from[0], from[1]), new SheetPoint(to[0], to[1]), new SheetPoint(mid[0], mid[1]));
+                return new FilletArc(index, new SheetPoint(center[0], center[1]), circle[6] * Scale, circle[6], new SheetPoint(mid[0], mid[1]), concave, sweep);
             }
             catch (Exception ex) when (ex is System.Runtime.InteropServices.COMException or InvalidCastException or System.Reflection.TargetException)
             {

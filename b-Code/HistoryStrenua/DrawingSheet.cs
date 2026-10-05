@@ -276,7 +276,8 @@ internal sealed record DrawingSheet(
 
     /// <summary>
     /// 图纸（含图纸格式）上的注解：名字、占的地方、注释文字、<c>IAnnotation</c>，是注释的再带 <c>INote</c>。
-    /// 注释取它的外框，别的取位置前后 6 mm。
+    /// 注释取它的外框；别的取显示数据里线与文字的外框（1.10.0：「其余 6.3」粗糙度的定位点在符号上，「其余」两个字在左边 10 mm，
+    /// 按定位点前后 6 mm 估时技术要求贴着「其余」放），读不到再取位置前后 6 mm。
     /// </summary>
     public static List<(string Name, SheetRect Rect, string Text, object Annotation, object? Note)> Annotations(SolidWorksApi api, object drawing)
     {
@@ -302,6 +303,7 @@ internal sealed record DrawingSheet(
                     rect = new SheetRect(extent[0], extent[1], extent[3], extent[4]);
             }
 
+            rect ??= Footprint(api, annotation);
             if (rect is null && position.Length >= 2)
                 rect = new SheetRect(position[0] - 0.006, position[1] - 0.006, position[0] + 0.006, position[1] + 0.006);
             if (rect is { } r)
@@ -309,5 +311,26 @@ internal sealed record DrawingSheet(
         }
 
         return result;
+    }
+
+    /// <summary>注解显示数据里线与文字框的外框；什么都没有（或读不到）返回 null。</summary>
+    private static SheetRect? Footprint(SolidWorksApi api, object annotation)
+    {
+        List<SheetPoint> points;
+        try
+        {
+            var (lines, texts) = Clearance.DisplayGeometry(api, annotation);
+            points = lines.SelectMany(line => new[] { new SheetPoint(line.X1, line.Y1), new SheetPoint(line.X2, line.Y2) })
+                .Concat(texts.SelectMany(text => text.Corners()))
+                .ToList();
+        }
+        catch (Exception ex) when (ex is System.Runtime.InteropServices.COMException or InvalidCastException or System.Reflection.TargetException)
+        {
+            return null;
+        }
+
+        return points.Count == 0
+            ? null
+            : new SheetRect(points.Min(p => p.X), points.Min(p => p.Y), points.Max(p => p.X), points.Max(p => p.Y));
     }
 }

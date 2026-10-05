@@ -197,7 +197,7 @@ internal static class Clearance
     }
 
     /// <summary>注解显示数据里的直线与文字框（图纸坐标）。</summary>
-    private static (List<SheetSegment> Lines, List<TextBox> Texts) DisplayGeometry(SolidWorksApi api, object annotation)
+    internal static (List<SheetSegment> Lines, List<TextBox> Texts) DisplayGeometry(SolidWorksApi api, object annotation)
     {
         var lines = new List<SheetSegment>();
         var texts = new List<TextBox>();

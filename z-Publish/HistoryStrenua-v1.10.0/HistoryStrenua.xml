@@ -1563,8 +1563,12 @@
         <member name="M:HistoryStrenua.DrawingSheet.Annotations(HistoryStrenua.SolidWorks.SolidWorksApi,System.Object)">
             <summary>
             图纸（含图纸格式）上的注解：名字、占的地方、注释文字、<c>IAnnotation</c>，是注释的再带 <c>INote</c>。
-            注释取它的外框，别的取位置前后 6 mm。
+            注释取它的外框；别的取显示数据里线与文字的外框（1.10.0：「其余 6.3」粗糙度的定位点在符号上，「其余」两个字在左边 10 mm，
+            按定位点前后 6 mm 估时技术要求贴着「其余」放），读不到再取位置前后 6 mm。
             </summary>
+        </member>
+        <member name="M:HistoryStrenua.DrawingSheet.Footprint(HistoryStrenua.SolidWorks.SolidWorksApi,System.Object)">
+            <summary>注解显示数据里线与文字框的外框；什么都没有（或读不到）返回 null。</summary>
         </member>
         <member name="T:HistoryStrenua.DrawingSnapshot">
             <summary>

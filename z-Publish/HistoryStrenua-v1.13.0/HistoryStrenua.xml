@@ -1140,7 +1140,7 @@
             <summary>
             快捷指令「新建工程图」（1.9.0，出图类）：给当前零件（或装配体里选中的零件）按用户的工程图模板建一张图——
             选图幅与比例、放主视图。不保存。投影视图、轴测图、技术要求、排版各是一条指令（<see cref="T:HistoryStrenua.DrawingProject"/>、<see cref="T:HistoryStrenua.DrawingIso"/>、
-            <see cref="T:HistoryStrenua.DrawingNote"/>、<see cref="T:HistoryStrenua.DrawingArrange"/>），「一键出图」（<see cref="T:HistoryStrenua.DrawingAuto"/>）依次全做。
+            <see cref="T:HistoryStrenua.TechApply"/>、<see cref="T:HistoryStrenua.DrawingArrange"/>），「一键出图」（<see cref="T:HistoryStrenua.DrawingAuto"/>）依次全做。
             </summary>
             <remarks>
             <para>依据是用户 2026-025 台面2机器 15 张手工图的共同做法（DEC-021）：标题栏由模板的属性链接带出（图号、名称、材料、表面处理、
@@ -1181,26 +1181,6 @@
             用户 15 张手工图每张都有一个从主视图斜投影出来的轴测图（真机：摆在主视图右上方投影出来的就是）。放哪见 <see cref="M:HistoryStrenua.DrawingPlanner.IsoSpot(HistoryStrenua.SheetSpace,System.Collections.Generic.IReadOnlyList{HistoryStrenua.SheetRect},HistoryStrenua.ViewBox,System.Collections.Generic.IReadOnlyList{System.Double},HistoryStrenua.SheetPoint)"/>，
             只躲现有的视图（连同标注空间）、标题栏等，别的不动；整页重排是「排版」的事。「避障」关着时（1.11.0）不找空地也不缩，原比例放在主视图那一行右边。
             </remarks>
-        </member>
-        <member name="T:HistoryStrenua.DrawingNote">
-            <summary>
-            快捷指令「技术要求」（1.9.0，出图类，从「新建工程图」拆出）：把技术要求注释放进当前工程图的图框里，
-            先放标题栏正上方、再左下角、再找空地；图框里已经有了就不再加。
-            </summary>
-            <remarks>
-            内容取模块数据目录的 <see cref="F:HistoryStrenua.DrawingNote.TechnicalNoteFile"/>，没有就用用户手工图上的那 8 条（<see cref="F:HistoryStrenua.DrawingNote.DefaultTechnicalNote"/>）并写出这个文件方便改；
-            字体字高随模板（<c>InsertNote</c> 用文档的注释样式）。放哪见 <see cref="T:HistoryStrenua.TechNotePlacement"/>（1.13.0）：只许标题栏上方或左侧，
-            「避障」开时压到视图就挪视图让地方，关着直接放标题栏正上方。要换成 SW 模板里的某一份，用「技术要求」类的模板表格（<see cref="T:HistoryStrenua.TechApply"/>）。
-            </remarks>
-        </member>
-        <member name="F:HistoryStrenua.DrawingNote.TechnicalNoteFile">
-            <summary>技术要求的文件名（模块数据目录里，用户可改，UTF-8）。</summary>
-        </member>
-        <member name="F:HistoryStrenua.DrawingNote.DefaultTechnicalNote">
-            <summary>用户的标准技术要求（2026-025 台面2机器手工图原文，含 SolidWorks 段落格式标记，字体字高随模板）。</summary>
-        </member>
-        <member name="M:HistoryStrenua.DrawingNote.TechnicalNoteText(System.String)">
-            <summary>技术要求的内容与出处说明。</summary>
         </member>
         <member name="T:HistoryStrenua.StandardView">
             <summary>
@@ -1922,6 +1902,11 @@
         </member>
         <member name="M:HistoryStrenua.HistoryStrenuaModule.Attach(HistoryVulcan.Core.Modules.IModuleContext)">
             <summary>宿主在装载时注入权威指令总线与命令注册器。</summary>
+        </member>
+        <member name="M:HistoryStrenua.HistoryStrenuaModule.Register(HistoryVulcan.Core.Commands.ICommandRegistrar,HistoryStrenua.QuickCommandRunner,HistoryVulcan.Core.Commands.ICommandBus)">
+            <param name="registry">注册器。</param>
+            <param name="runner">执行器（带页面开关与默认技术要求）。</param>
+            <param name="bus">命令总线：设默认技术要求后让 Aurora 刷新模板表格；离线测试为 null。</param>
         </member>
         <member name="M:HistoryStrenua.HistoryStrenuaModule.Option(HistoryStrenua.StrenuaOption,System.String,System.String,System.String,HistoryStrenua.StrenuaOptions)">
             <summary>
@@ -3468,6 +3453,12 @@
         <member name="T:HistoryStrenua.QuickCommands">
             <summary>快捷指令登记表。顺序就是页面上按钮的顺序。</summary>
         </member>
+        <member name="P:HistoryStrenua.QuickCommands.ClassOrder">
+            <summary>
+            页面上类的顺序（1.13.0）。「技术要求」类没有按钮（旧「技术要求」按钮已删，用户定），只有模板表格，不能再从登记表里分组推出来，所以顺序单独写；
+            登记表里出现了这里没有的类就排在最后。
+            </summary>
+        </member>
         <member name="F:HistoryStrenua.QuickCommands.ClassTitles">
             <summary>命令类 → 页面上的类名。新类不登记也能用，只是显示成英文类名。</summary>
         </member>
@@ -3661,7 +3652,7 @@
         </member>
         <member name="T:HistoryStrenua.StrenuaOptions">
             <summary>
-            PowerSW 页面上的两个开关（1.7.0，用户定）：避障（默认开）、尺寸链模式（默认关）。
+            PowerSW 页面上的两个开关（1.7.0，用户定）：避障（默认开）、尺寸链模式（默认关）；1.13.0 加默认技术要求模板（表格「设置」列）。
             记在模块数据目录的 <see cref="F:HistoryStrenua.StrenuaOptions.FileName"/> 里，重启后保持上次。
             </summary>
             <remarks>
@@ -3677,8 +3668,15 @@
         <member name="P:HistoryStrenua.StrenuaOptions.Chain">
             <summary>尺寸链模式：孔位尺寸每个方向一组 SolidWorks 尺寸链（坐标尺寸，0 点在零件左侧 / 上侧直边），不分种、不用阵列写法。</summary>
         </member>
+        <member name="P:HistoryStrenua.StrenuaOptions.TechDefault">
+            <summary>默认技术要求模板的名字（1.13.0）：「一键出图」插这份。</summary>
+        </member>
         <member name="M:HistoryStrenua.StrenuaOptions.Set(HistoryStrenua.StrenuaOption,System.Boolean)">
             <summary>改一个开关并存档。</summary>
+            <returns>存档失败时的原因；成功为 null。</returns>
+        </member>
+        <member name="M:HistoryStrenua.StrenuaOptions.SetTechDefault(System.String)">
+            <summary>改默认技术要求模板并存档。</summary>
             <returns>存档失败时的原因；成功为 null。</returns>
         </member>
         <member name="P:HistoryStrenua.StrenuaOptions.DataDirectory">
@@ -3687,7 +3685,7 @@
         <member name="T:HistoryStrenua.StrenuaOptions.Saved">
             <summary>缺的项按默认值：将来加开关时旧存档照样读。</summary>
         </member>
-        <member name="M:HistoryStrenua.StrenuaOptions.Saved.#ctor(System.Boolean,System.Boolean)">
+        <member name="M:HistoryStrenua.StrenuaOptions.Saved.#ctor(System.Boolean,System.Boolean,System.String)">
             <summary>缺的项按默认值：将来加开关时旧存档照样读。</summary>
         </member>
         <member name="T:HistoryStrenua.StrenuaOption">
@@ -3743,8 +3741,8 @@
         <member name="F:HistoryStrenua.StrenuaPage.TechClass">
             <summary>「技术要求」类的命令类名。</summary>
         </member>
-        <member name="F:HistoryStrenua.StrenuaPage.TechBranchId">
-            <summary>「技术要求」那一支（面板 + 模板表格）与表格的 id。</summary>
+        <member name="F:HistoryStrenua.StrenuaPage.TechTableId">
+            <summary>「技术要求」那一支就是这张模板表格（1.13.0）。</summary>
         </member>
         <member name="F:HistoryStrenua.StrenuaPage.DataCommand">
             <summary>表格取数指令（1.13.0 起只有技术要求模板这一张表）。</summary>
@@ -3753,10 +3751,12 @@
             <summary>一类控制面板的 id。</summary>
         </member>
         <member name="M:HistoryStrenua.StrenuaPage.ClassOptions(System.Collections.Generic.IReadOnlyList{HistoryStrenua.QuickCommand})">
-            <summary>类选项框的候选：按登记顺序去重。</summary>
+            <summary>类选项框的候选：按 <see cref="P:HistoryStrenua.QuickCommands.ClassOrder"/>。</summary>
         </member>
         <member name="M:HistoryStrenua.StrenuaPage.Classes(System.Collections.Generic.IReadOnlyList{HistoryStrenua.QuickCommand})">
-            <summary>按命令类分组，保持登记顺序。</summary>
+            <summary>
+            各类与它的按钮：先按 <see cref="P:HistoryStrenua.QuickCommands.ClassOrder"/>（没有按钮的只留「技术要求」——它有模板表格），再接登记表里多出来的类，类内保持登记顺序。
+            </summary>
         </member>
         <member name="M:HistoryStrenua.StrenuaPage.Toolbar(System.Collections.Generic.IReadOnlyList{HistoryStrenua.QuickCommand})">
             <summary>工具条：浮动 | 占位（占余宽，浮出后拖这里） | 类 | 取消。</summary>
@@ -3766,30 +3766,49 @@
         </member>
         <member name="M:HistoryStrenua.StrenuaPage.ClassBranch(System.String,System.Collections.Generic.IReadOnlyList{HistoryStrenua.QuickCommand})">
             <summary>
-            切换容器的一支：一类的控制面板；「技术要求」类（1.13.0）是面板下面再接一张模板表格，点「技术要求」列的名字就插那一份。
+            切换容器的一支：一类的控制面板；「技术要求」类（1.13.0）没有按钮（旧「技术要求」按钮已删），整支就是模板表格，点「技术要求」列的名字就插那一份。
             </summary>
         </member>
-        <member name="M:HistoryStrenua.StrenuaPage.ClassPanel(System.String,System.Collections.Generic.IReadOnlyList{HistoryStrenua.QuickCommand},System.Boolean)">
+        <member name="M:HistoryStrenua.StrenuaPage.ClassPanel(System.String,System.Collections.Generic.IReadOnlyList{HistoryStrenua.QuickCommand})">
             <summary>一类的控制面板：只有一行（1.12.0）——按钮按登记顺序排，放不下由 Aurora 折行。</summary>
         </member>
-        <member name="M:HistoryStrenua.StrenuaPage.TechTable">
-            <summary>技术要求模板表格（1.13.0）：一份「通用技术要求」一行；「技术要求」列是按钮，点了插那一份（换掉图上原有的）。</summary>
+        <member name="M:HistoryStrenua.StrenuaPage.TechTable(System.String)">
+            <summary>技术要求模板表格（1.13.0）：一份「通用技术要求」一行；「技术要求」列是按钮，点了插那一份（换掉图上原有的）；「设置」列设默认。</summary>
         </member>
         <member name="T:HistoryStrenua.TechApply">
             <summary>
             「技术要求」类的模板表格（1.13.0，用户定）：点一行就把那份技术要求插进当前工程图；图框里已有技术要求就先删掉，在原来那一处放新的。
             放哪只许标题栏上方或左侧，「避障」开时压到视图就挪视图让地方（<see cref="T:HistoryStrenua.TechNotePlacement"/>）。
+            表格「设置」列把一份设为默认（记到本机），「一键出图」的「技术要求」一步插的就是默认那份。
             </summary>
             <remarks>
             带参数（模板名），所以不进 <see cref="P:HistoryStrenua.QuickCommands.All"/>（那里是无参按钮）；指令 <see cref="F:HistoryStrenua.TechApply.CommandName"/> 单独注册，
             每次按名字现做一条 <see cref="T:HistoryStrenua.QuickCommand"/> 交给同一个执行器——仍是一次只跑一条、可取消。
+            1.13.0 起原「技术要求」按钮、<c>strenua.tech.note</c> 与「技术要求.txt」都删了（用户定），技术要求只从这里来。
             </remarks>
         </member>
         <member name="F:HistoryStrenua.TechApply.ActionId">
             <summary>表格「技术要求」列的单元格动作。</summary>
         </member>
-        <member name="M:HistoryStrenua.TechApply.Rows(System.String)">
-            <summary>表格的行：一份模板一行（name 是单元格按钮的字，也是动作参数）。</summary>
+        <member name="F:HistoryStrenua.TechApply.DefaultCommandName">
+            <summary>设默认模板的指令，也是表格「设置」列的单元格动作。</summary>
+        </member>
+        <member name="F:HistoryStrenua.TechApply.InitialDefault">
+            <summary>没设过默认时用这份（与 1.9.0 起一键出图用的用户手工图那 8 条最接近）。</summary>
+        </member>
+        <member name="F:HistoryStrenua.TechApply.IsDefaultText">
+            <summary>表格「设置」列：默认那一行与其余行按钮上的字。</summary>
+        </member>
+        <member name="M:HistoryStrenua.TechApply.Run(HistoryStrenua.QuickCommandContext,System.String,System.Object)">
+            <param name="context">快捷指令上下文。</param>
+            <param name="name">模板名。</param>
+            <param name="drawing">工程图；null 时取活动工程图（「一键出图」传刚建的那张）。</param>
+        </member>
+        <member name="M:HistoryStrenua.TechApply.SetDefaultAsync(HistoryStrenua.StrenuaOptions,System.String,HistoryVulcan.Core.Commands.ICommandBus)">
+            <summary><c>strenua.tech.default</c>：带 name 就设默认、记到本机并刷新表格；不带就报当前默认。</summary>
+        </member>
+        <member name="M:HistoryStrenua.TechApply.Rows(System.String,System.String)">
+            <summary>表格的行：一份模板一行（name 是「技术要求」列按钮的字，也是两个动作的参数；setting 是「设置」列按钮的字）。</summary>
         </member>
         <member name="T:HistoryStrenua.TechNoteOnSheet">
             <summary>图框里的一条技术要求注释（带「技术要求」字样）：注解、注释、名字、外框。</summary>

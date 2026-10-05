@@ -21,10 +21,13 @@ public sealed class HistoryStrenuaModule : IModuleContextAware
         ArgumentNullException.ThrowIfNull(context);
         var options = new StrenuaOptions(Path.Combine(context.Environment.DataDirectory, StrenuaOptions.FileName));
         var runner = new QuickCommandRunner(options);
-        context.RegisterCommands(registry => Register(registry, runner));
+        context.RegisterCommands(registry => Register(registry, runner, context.Bus));
     }
 
-    internal static void Register(ICommandRegistrar registry, QuickCommandRunner runner)
+    /// <param name="registry">注册器。</param>
+    /// <param name="runner">执行器（带页面开关与默认技术要求）。</param>
+    /// <param name="bus">命令总线：设默认技术要求后让 Aurora 刷新模板表格；离线测试为 null。</param>
+    internal static void Register(ICommandRegistrar registry, QuickCommandRunner runner, ICommandBus? bus = null)
     {
         foreach (var command in QuickCommands.All)
         {
@@ -113,6 +116,26 @@ public sealed class HistoryStrenuaModule : IModuleContextAware
 
         registry.Register(new CommandDescriptor
         {
+            Name = TechApply.DefaultCommandName,
+            Domain = StrenuaIdentity.Domain,
+            CommandClass = StrenuaPage.TechClass,
+            Summary = "PowerSW「技术要求」默认模板：" + TechApply.DefaultSummary,
+            Example = TechApply.DefaultCommandName + " name=机加件-钢材",
+            Parameters =
+            [
+                new ParameterSpec
+                {
+                    Name = "name",
+                    Description = "模板名（页面模板表格「技术要求」列）；省略时只报当前默认",
+                    Required = false,
+                    Position = 0,
+                },
+            ],
+            Handler = context => TechApply.SetDefaultAsync(runner.Options, context.GetString("name"), bus),
+        });
+
+        registry.Register(new CommandDescriptor
+        {
             Name = StrenuaPage.DataCommand,
             Domain = StrenuaIdentity.Domain,
             CommandClass = "ui",
@@ -122,7 +145,7 @@ public sealed class HistoryStrenuaModule : IModuleContextAware
             AllowUnspecifiedParameters = true,
             Handler = CommandDescriptor.Sync(context =>
                 context.GetString("view")?.Trim().ToLowerInvariant() is null or StrenuaPage.TechView
-                    ? CommandResult.Ok("PowerSW 技术要求模板", TechApply.Rows())
+                    ? CommandResult.Ok("PowerSW 技术要求模板", TechApply.Rows(runner.Options.TechDefault))
                     : CommandResult.Fail("未知 view；支持 " + StrenuaPage.TechView)),
         });
 
@@ -197,7 +220,7 @@ public sealed class HistoryStrenuaModule : IModuleContextAware
                 var result = status.Result.Length == 0 ? string.Empty : " — " + status.Result;
                 return $"{command.CommandName}  {command.Title}  [{status.State}]{result}";
             })
-            .Append($"避障：{(runner.Options.Clearance ? "开" : "关")}；尺寸链：{(runner.Options.Chain ? "开" : "关")}"));
+            .Append($"避障：{(runner.Options.Clearance ? "开" : "关")}；尺寸链：{(runner.Options.Chain ? "开" : "关")}；默认技术要求：{runner.Options.TechDefault}"));
 
     private static CommandResult Json(string json) => CommandResult.Ok(json, json);
 

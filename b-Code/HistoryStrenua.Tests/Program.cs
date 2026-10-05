@@ -63,7 +63,6 @@ var tests = new (string Name, Action Run)[]
     ("drawing: side views by hole openings", TestDrawingSideViews),
     ("drawing: layout avoids frame contents", TestDrawingLayout),
     ("drawing: scales, ratios and iso factors", TestDrawingScales),
-    ("drawing: technical note text", TestTechnicalNote),
     ("drawing steps: existing views by direction", TestDrawingSlotOf),
     ("drawing steps: side view beside the main view", TestDrawingBeside),
     ("drawing steps: flexible side on the current sheet", TestDrawingChooseSlots),
@@ -128,8 +127,8 @@ static void TestCommandRegistration()
         "strenua.drawing.chamferall",
         "strenua.drawing.fillet",
         "strenua.drawing.chamfer",
-        "strenua.tech.note",
         "strenua.tech.apply",
+        "strenua.tech.default",
         "strenua.check.dimension",
         "strenua.check.dangling",
         "strenua.check.overlap",
@@ -156,16 +155,20 @@ static void TestCommandRegistration()
     True(hole.HiddenReason is null, "快捷指令要能在控制台直接敲");
     True(registry.TryGet("strenua.hole.centermark", out var centerMark) && !centerMark!.Readonly, "中心符号线会改工程图，不是只读");
     True(registry.TryGet("strenua.quick.list", out var list) && list!.Readonly, "列表是只读的");
-    foreach (var name in new[] { "strenua.drawing.create", "strenua.drawing.auto", "strenua.drawing.project", "strenua.drawing.iso", "strenua.tech.note",
+    foreach (var name in new[] { "strenua.drawing.create", "strenua.drawing.auto", "strenua.drawing.project", "strenua.drawing.iso", "strenua.tech.apply",
                  "strenua.drawing.arrange", "strenua.drawing.filletall", "strenua.drawing.chamferall", "strenua.drawing.fillet", "strenua.drawing.chamfer",
                  "strenua.check.snapshot" })
         True(registry.TryGet(name, out var drawing) && !drawing!.Readonly && drawing.HiddenReason is null, $"{name} 要能在控制台直接敲（建图、加尺寸、写图片都不是只读）");
     True(registry.TryGet("strenua.quick.run", out var run) && !run!.Readonly, "按 key 执行会改工程图，不是只读");
     var keys = run!.Parameters!.Single(p => p.Name == "key").AllowedValues!;
     True(QuickCommands.All.All(command => keys.Contains(command.Key)), "quick.run 的 key 候选应覆盖全部快捷指令");
+    // 1.13.0：旧「技术要求」按钮连同 strenua.tech.note 删掉（用户定），单独放技术要求只走模板表格。
+    True(!registry.TryGet("strenua.tech.note", out _), "旧的技术要求指令应已删除");
     // 1.13.0：技术要求模板表格取数（界面内部）；点表格插模板的指令要能在控制台敲。
     True(registry.TryGet("strenua.tech.apply", out var apply) && !apply!.Readonly && apply.HiddenReason is null, "tech.apply 改工程图、要能在控制台敲");
     True(apply!.Parameters!.Single(p => p.Name == "name").Required, "tech.apply 必须给模板名");
+    True(registry.TryGet("strenua.tech.default", out var techDefault) && !techDefault!.Readonly && techDefault.HiddenReason is null
+        && !techDefault.Parameters!.Single(p => p.Name == "name").Required, "tech.default 改设置、要能在控制台敲，省略 name 报当前值");
     foreach (var method in new[] { "clearance", "chain" })
         True(registry.TryGet("strenua.option." + method, out var option) && option!.HiddenReason is null && !option.Readonly,
             $"strenua.option.{method} 改设置，要能在控制台敲");
@@ -231,9 +234,15 @@ static void TestPageWiring()
     True(registry.TryGet(source.GetProperty("command").GetString()!, out _), "表格取数指令要已注册");
     Equal("tech", source.GetProperty("args").GetProperty("view").GetString()!);
     var columns = tables[0].GetProperty("columns").EnumerateArray().ToList();
-    Equal("name,items,content", string.Join(",", columns.Select(c => c.GetProperty("key").GetString())));
+    // 1.13.0（用户定）：「条数」列换成「设置」按钮列（设为默认）。
+    Equal("name,setting,content", string.Join(",", columns.Select(c => c.GetProperty("key").GetString())));
+    Equal("技术要求,设置,内容", string.Join(",", columns.Select(c => c.GetProperty("title").GetString())));
     Equal(TechApply.ActionId, columns[0].GetProperty("cellAction").GetString()!);
-    Equal("button", columns[0].GetProperty("cellStyle").GetString()!);
+    Equal(TechApply.DefaultActionId, columns[1].GetProperty("cellAction").GetString()!);
+    True(columns.Take(2).All(c => c.GetProperty("cellStyle").GetString() == "button"), "前两列是按钮");
+    Equal(TechApply.DefaultCommandName, declared[TechApply.DefaultActionId]);
+    var defaultAction = actions.RootElement.GetProperty("actions").EnumerateArray().Single(a => a.GetProperty("id").GetString() == TechApply.DefaultActionId);
+    Equal("{name}", defaultAction.GetProperty("args").GetProperty("name").GetString()!);
     Equal(TechApply.CommandName, declared[TechApply.ActionId]);
     var applyAction = actions.RootElement.GetProperty("actions").EnumerateArray().Single(a => a.GetProperty("id").GetString() == TechApply.ActionId);
     Equal("{name}", applyAction.GetProperty("args").GetProperty("name").GetString()!);
@@ -324,14 +333,12 @@ static void TestClassPanels()
         Equal(string.Join(",", group.Select(c => c.Title)), Row(group.Key));
     Equal("孔标注全流程,销钉符号,中心符号线,孔位尺寸,孔标注,销孔标注,外轮廓", Row("hole"));
     Equal("一键出图,新建工程图,投影视图,轴测图,排版,全图圆角,全图倒角,圆角标注,倒角标注", Row("drawing"));
-    // 1.12.0 新开「技术要求」类：出图的「技术要求」挪过来（一键出图照旧调它）；1.13.0 这一支是按钮面板下面接模板表格。
-    Equal("技术要求", Row("tech"));
+    // 1.13.0（用户定）：旧「技术要求」按钮删掉，「技术要求」类整支就是模板表格，没有按钮面板。
     var tech = branches.Single(branch => branch.GetProperty("case").GetString() == "技术要求");
-    Equal("stack", tech.GetProperty("type").GetString()!);
-    Equal(StrenuaPage.TechBranchId, tech.GetProperty("id").GetString()!);
-    var techChildren = tech.GetProperty("children").EnumerateArray().ToList();
-    Equal("panel,table", string.Join(",", techChildren.Select(c => c.GetProperty("type").GetString())));
-    True(!techChildren[0].TryGetProperty("case", out _), "分支里的面板不再带 case");
+    Equal("table", tech.GetProperty("type").GetString()!);
+    Equal(StrenuaPage.TechTableId, tech.GetProperty("id").GetString()!);
+    True(!panels.Any(panel => panel.GetProperty("id").GetString() == StrenuaPage.ClassPanelId("tech")), "技术要求类不该再有按钮面板");
+    True(QuickCommands.All.All(command => command.Title != "技术要求"), "技术要求按钮已删");
     // 检查类 1.12.0 加「悬空标注」「注解重叠」。
     Equal("未标尺寸,悬空标注,注解重叠,图纸截图", Row("check"));
     Equal("孔,出图,技术要求,检查", string.Join(",", StrenuaPage.ClassOptions(QuickCommands.All)));
@@ -346,6 +353,7 @@ static void TestOptions()
     var defaults = new StrenuaOptions();
     True(defaults.Clearance, "避障默认开");
     True(!defaults.Chain, "尺寸链默认关");
+    Equal("机加件-钢材", defaults.TechDefault);
 
     var dir = Path.Combine(Path.GetTempPath(), "strenua-options-" + Guid.NewGuid().ToString("N"));
     var path = Path.Combine(dir, StrenuaOptions.FileName);
@@ -355,8 +363,13 @@ static void TestOptions()
         var options = new StrenuaOptions(path);
         Equal<string?>(null, options.Set(StrenuaOption.Clearance, false));
         Equal<string?>(null, options.Set(StrenuaOption.Chain, true));
+        Equal<string?>(null, options.SetTechDefault("钣金-焊接"));
         var reopened = new StrenuaOptions(path);
         True(!reopened.Clearance && reopened.Chain, "重启后应保持上次的开关");
+        Equal("钣金-焊接", reopened.TechDefault);
+        // 改开关不丢默认技术要求。
+        reopened.Set(StrenuaOption.Clearance, true);
+        Equal("钣金-焊接", new StrenuaOptions(path).TechDefault);
 
         // 存档坏了、缺项：回默认值，不拦指令。
         File.WriteAllText(path, "{ 坏的");
@@ -364,7 +377,7 @@ static void TestOptions()
         True(broken.Clearance && !broken.Chain, "存档坏了应回默认值");
         File.WriteAllText(path, "{\"Chain\":true}");
         var partial = new StrenuaOptions(path);
-        True(partial.Clearance && partial.Chain, "缺的项按默认值");
+        True(partial.Clearance && partial.Chain && partial.TechDefault == "机加件-钢材", "缺的项按默认值（含旧存档没有默认技术要求）");
     }
     finally
     {
@@ -384,6 +397,21 @@ static void TestOptions()
     True(query.Success && query.Message.Contains("开"), "不带 value 应报当前值");
     var bad = Run(new() { ["value"] = "maybe" });
     True(!bad.Success && runner.Options.Chain, "乱写的 value 应拒绝且不改设置");
+
+    // 默认技术要求：不带 name 报当前；不存在的模板拒绝且不改；存在的（用户 z 级目录在本机时）改掉。
+    True(registry.TryGet("strenua.tech.default", out var techDefault), "缺少默认技术要求指令");
+    CommandResult Default(Dictionary<string, string> values)
+        => techDefault!.Handler(new CommandContext(techDefault, values, "test", null, default)).GetAwaiter().GetResult();
+    var current = Default(new());
+    True(current.Success && current.Message.Contains("机加件-钢材", StringComparison.Ordinal), current.Message);
+    var missing = Default(new() { ["name"] = "没有这份" });
+    True(!missing.Success && runner.Options.TechDefault == "机加件-钢材", "不存在的模板应拒绝且不改");
+    if (Directory.Exists(TechTemplates.Folder))
+    {
+        var changed = Default(new() { ["name"] = "钣金-焊接" });
+        True(changed.Success && runner.Options.TechDefault == "钣金-焊接", changed.Message);
+        Equal("默认", TechApply.Rows(runner.Options.TechDefault).Single(r => r["name"] == "钣金-焊接")["setting"]);
+    }
 }
 
 static void TestCancelWhenIdle()
@@ -1020,7 +1048,7 @@ static void TestFlowCommand()
         && usage.IndexOf("→ 孔标注", StringComparison.Ordinal) < usage.IndexOf("→ 销孔标注", StringComparison.Ordinal), "步骤顺序");
     True(usage.Contains("当前图纸页", StringComparison.Ordinal), "范围是当前图纸页");
     Equal("hole-flow,dowel-symbol,center-mark,hole-position,hole-callout,dowel-fit,outline,"
-        + "drawing-auto,drawing-create,drawing-project,drawing-iso,drawing-arrange,fillet-all,chamfer-all,fillet,chamfer,tech-note,check-dimension,check-dangling,check-overlap,snapshot",
+        + "drawing-auto,drawing-create,drawing-project,drawing-iso,drawing-arrange,fillet-all,chamfer-all,fillet,chamfer,check-dimension,check-dangling,check-overlap,snapshot",
         string.Join(",", QuickCommands.All.Select(command => command.Key)));
 }
 
@@ -1705,31 +1733,6 @@ static void TestDrawingScales()
     }
 }
 
-static void TestTechnicalNote()
-{
-    var (text, source) = DrawingNote.TechnicalNoteText(null);
-    Equal(DrawingNote.DefaultTechnicalNote, text);
-    True(text.StartsWith("        技术要求\n", StringComparison.Ordinal) && text.Contains("8、未注尺寸参考3D数模。", StringComparison.Ordinal), "默认就是用户那 8 条");
-    True(source.Contains("默认", StringComparison.Ordinal), source);
-
-    var directory = Path.Combine(Path.GetTempPath(), "strenua-test-" + Guid.NewGuid().ToString("N"));
-    try
-    {
-        var (first, firstSource) = DrawingNote.TechnicalNoteText(directory);
-        Equal(DrawingNote.DefaultTechnicalNote, first);
-        var file = Path.Combine(directory, DrawingNote.TechnicalNoteFile);
-        True(File.Exists(file) && firstSource.Contains("已写到", StringComparison.Ordinal), "第一次用时把默认内容写出来，方便用户改");
-        File.WriteAllText(file, "技术要求\r\n1、去毛刺。\r\n", new System.Text.UTF8Encoding(false));
-        var (custom, customSource) = DrawingNote.TechnicalNoteText(directory);
-        Equal("技术要求\n1、去毛刺。", custom);
-        True(customSource.Contains("取自", StringComparison.Ordinal), customSource);
-    }
-    finally
-    {
-        Directory.Delete(directory, recursive: true);
-    }
-}
-
 static void TestFilletPlan()
 {
     FilletArc Arc(int index, double cx, double cy, double radius, double mx, double my, bool concave)
@@ -1941,7 +1944,9 @@ static void TestDrawingSteps()
     var positions = steps.Select(step => auto.Usage.IndexOf(step, StringComparison.Ordinal)).ToList();
     True(positions.All(index => index >= 0) && positions.Zip(positions.Skip(1)).All(pair => pair.First < pair.Second), "一键出图用法里的步骤顺序：" + auto.Usage);
     var titles = QuickCommands.All.Select(command => command.Title).ToHashSet();
-    True(steps.All(titles.Contains), "每一步都要有自己的按钮与指令");
+    // 1.13.0：「技术要求」这一步没有自己的按钮了（用户删掉旧按钮，单独放走模板表格），一键出图里照旧有这一步。
+    True(steps.Where(step => step != "技术要求").All(titles.Contains), "除技术要求外每一步都要有自己的按钮与指令");
+    True(!titles.Contains("技术要求"), "技术要求按钮已删");
     Equal("hole", QuickCommands.All.Single(command => command.Title == "孔标注全流程").CommandClass);
     True(QuickCommands.All.Where(command => command.CommandClass == "drawing").All(command => command.Title != "孔标注全流程"), "孔标注全流程留在孔类，不拆进出图类");
 }
@@ -2127,8 +2132,10 @@ static void TestTechTemplateParse()
         var all = TechTemplates.Load(directory);
         Equal("钣金", string.Join(",", all.Select(t => t.Name)));
         Equal(2, all[0].Items);
-        var row = TechApply.Rows(directory).Single();
+        var row = TechApply.Rows("别的", directory).Single();
         Equal("钣金", row["name"]);
+        Equal("设为默认", row["setting"]);
+        Equal("默认", TechApply.Rows("钣金", directory).Single()["setting"]);
         Equal("2", row["items"]);
         Equal("1、未注倒角C1； 2、去毛刺±0.02。", row["content"]);
         True(TechTemplates.Find(" 钣金 ", directory) is not null && TechTemplates.Find("没有", directory) is null, "按名字找");

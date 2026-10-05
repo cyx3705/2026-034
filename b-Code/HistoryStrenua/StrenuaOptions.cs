@@ -3,7 +3,7 @@ using System.Text.Json;
 namespace HistoryStrenua;
 
 /// <summary>
-/// PowerSW 页面上的两个开关（1.7.0，用户定）：避障（默认开）、尺寸链模式（默认关）。
+/// PowerSW 页面上的两个开关（1.7.0，用户定）：避障（默认开）、尺寸链模式（默认关）；1.13.0 加默认技术要求模板（表格「设置」列）。
 /// 记在模块数据目录的 <see cref="FileName"/> 里，重启后保持上次。
 /// </summary>
 /// <remarks>
@@ -17,6 +17,7 @@ internal sealed class StrenuaOptions
     private readonly string? _path;
     private bool _clearance = true;
     private bool _chain;
+    private string _techDefault = TechApply.InitialDefault;
 
     /// <param name="path">存档文件；null 表示只在内存里（离线测试用）。</param>
     public StrenuaOptions(string? path = null)
@@ -28,7 +29,8 @@ internal sealed class StrenuaOptions
         {
             var saved = JsonSerializer.Deserialize<Saved>(File.ReadAllText(path));
             if (saved is not null)
-                (_clearance, _chain) = (saved.Clearance, saved.Chain);
+                (_clearance, _chain, _techDefault) = (saved.Clearance, saved.Chain,
+                    string.IsNullOrWhiteSpace(saved.TechDefault) ? TechApply.InitialDefault : saved.TechDefault);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
         {
@@ -47,6 +49,12 @@ internal sealed class StrenuaOptions
         get { lock (_gate) return _chain; }
     }
 
+    /// <summary>默认技术要求模板的名字（1.13.0）：「一键出图」插这份。</summary>
+    public string TechDefault
+    {
+        get { lock (_gate) return _techDefault; }
+    }
+
     /// <summary>改一个开关并存档。</summary>
     /// <returns>存档失败时的原因；成功为 null。</returns>
     public string? Set(StrenuaOption option, bool value)
@@ -58,9 +66,28 @@ internal sealed class StrenuaOptions
                 _clearance = value;
             else
                 _chain = value;
-            snapshot = new Saved(_clearance, _chain);
+            snapshot = new Saved(_clearance, _chain, _techDefault);
         }
 
+        return Save(snapshot);
+    }
+
+    /// <summary>改默认技术要求模板并存档。</summary>
+    /// <returns>存档失败时的原因；成功为 null。</returns>
+    public string? SetTechDefault(string name)
+    {
+        Saved snapshot;
+        lock (_gate)
+        {
+            _techDefault = name;
+            snapshot = new Saved(_clearance, _chain, _techDefault);
+        }
+
+        return Save(snapshot);
+    }
+
+    private string? Save(Saved snapshot)
+    {
         if (_path is null)
             return null;
         try
@@ -81,7 +108,7 @@ internal sealed class StrenuaOptions
     public string? DataDirectory => _path is null ? null : Path.GetDirectoryName(_path);
 
     /// <summary>缺的项按默认值：将来加开关时旧存档照样读。</summary>
-    private sealed record Saved(bool Clearance = true, bool Chain = false);
+    private sealed record Saved(bool Clearance = true, bool Chain = false, string? TechDefault = null);
 }
 
 /// <summary>页面开关。</summary>

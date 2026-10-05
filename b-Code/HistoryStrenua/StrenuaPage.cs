@@ -69,9 +69,7 @@ internal static class StrenuaPage
     /// <summary>「技术要求」类的命令类名。</summary>
     public const string TechClass = "tech";
 
-    /// <summary>「技术要求」那一支（面板 + 模板表格）与表格的 id。</summary>
-    public const string TechBranchId = "class-tech-branch";
-
+    /// <summary>「技术要求」那一支就是这张模板表格（1.13.0）。</summary>
     public const string TechTableId = "tech-templates";
 
     /// <summary>表格取数指令（1.13.0 起只有技术要求模板这一张表）。</summary>
@@ -117,7 +115,7 @@ internal static class StrenuaPage
                             fill = true,
                             source = "{selection." + ClassChannel + ".value}",
                             children = Classes(commands)
-                                .Select(group => ClassBranch(group.Key, group.ToList()))
+                                .Select(group => ClassBranch(group.Class, group.Commands))
                                 .ToArray(),
                         },
                         new
@@ -157,6 +155,14 @@ internal static class StrenuaPage
             })
             .Append(new
             {
+                id = TechApply.DefaultActionId,
+                title = "设为默认技术要求",
+                command = TechApply.DefaultCommandName,
+                args = new { name = "{name}" },
+                summary = "把这一份设为默认（记到本机），「一键出图」插的就是它",
+            })
+            .Append(new
+            {
                 id = ClearanceActionId,
                 title = "避障",
                 command = ClearanceActionId,
@@ -189,13 +195,29 @@ internal static class StrenuaPage
             .ToArray(),
     }, Options);
 
-    /// <summary>类选项框的候选：按登记顺序去重。</summary>
+    /// <summary>类选项框的候选：按 <see cref="QuickCommands.ClassOrder"/>。</summary>
     internal static IReadOnlyList<string> ClassOptions(IReadOnlyList<QuickCommand> commands)
-        => Classes(commands).Select(group => group.First().ClassTitle).ToList();
+        => Classes(commands).Select(group => QuickCommands.ClassTitle(group.Class)).ToList();
 
-    /// <summary>按命令类分组，保持登记顺序。</summary>
-    private static IEnumerable<IGrouping<string, QuickCommand>> Classes(IReadOnlyList<QuickCommand> commands)
-        => commands.GroupBy(command => command.CommandClass, StringComparer.Ordinal);
+    /// <summary>
+    /// 各类与它的按钮：先按 <see cref="QuickCommands.ClassOrder"/>（没有按钮的只留「技术要求」——它有模板表格），再接登记表里多出来的类，类内保持登记顺序。
+    /// </summary>
+    private static IEnumerable<(string Class, IReadOnlyList<QuickCommand> Commands)> Classes(IReadOnlyList<QuickCommand> commands)
+    {
+        var grouped = commands.GroupBy(command => command.CommandClass, StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, group => (IReadOnlyList<QuickCommand>)group.ToList(), StringComparer.Ordinal);
+        foreach (var commandClass in QuickCommands.ClassOrder)
+        {
+            if (grouped.TryGetValue(commandClass, out var members))
+                yield return (commandClass, members);
+            else if (commandClass == TechClass)
+                yield return (commandClass, []);
+        }
+
+        foreach (var (commandClass, members) in grouped)
+            if (!QuickCommands.ClassOrder.Contains(commandClass))
+                yield return (commandClass, members);
+    }
 
     /// <summary>工具条：浮动 | 占位（占余宽，浮出后拖这里） | 类 | 取消。</summary>
     private static object Toolbar(IReadOnlyList<QuickCommand> commands)
@@ -225,44 +247,38 @@ internal static class StrenuaPage
     };
 
     /// <summary>
-    /// 切换容器的一支：一类的控制面板；「技术要求」类（1.13.0）是面板下面再接一张模板表格，点「技术要求」列的名字就插那一份。
+    /// 切换容器的一支：一类的控制面板；「技术要求」类（1.13.0）没有按钮（旧「技术要求」按钮已删），整支就是模板表格，点「技术要求」列的名字就插那一份。
     /// </summary>
     private static object ClassBranch(string commandClass, IReadOnlyList<QuickCommand> commands)
+        => commandClass == TechClass ? TechTable(QuickCommands.ClassTitle(commandClass)) : ClassPanel(commandClass, commands);
+
+    /// <summary>一类的控制面板：只有一行（1.12.0）——按钮按登记顺序排，放不下由 Aurora 折行。</summary>
+    private static object ClassPanel(string commandClass, IReadOnlyList<QuickCommand> commands)
     {
-        if (commandClass != TechClass)
-            return ClassPanel(commandClass, commands, @case: true);
+        var widgets = commands.Select(command => (object)new { kind = "button", action = command.ActionId, text = command.Title }).ToArray();
+
         return new
         {
-            type = "stack",
-            id = TechBranchId,
-            @case = commands[0].ClassTitle,
-            gap = "tight",
-            children = new object[] { ClassPanel(commandClass, commands, @case: false), TechTable() },
+            type = "panel",
+            id = ClassPanelId(commandClass),
+            @case = QuickCommands.ClassTitle(commandClass),
+            text = QuickCommands.ClassTitle(commandClass),
+            rows = new object[] { new { mode = "even", widgets } },
         };
     }
 
-    /// <summary>一类的控制面板：只有一行（1.12.0）——按钮按登记顺序排，放不下由 Aurora 折行。</summary>
-    private static object ClassPanel(string commandClass, IReadOnlyList<QuickCommand> commands, bool @case)
-    {
-        var widgets = commands.Select(command => (object)new { kind = "button", action = command.ActionId, text = command.Title }).ToArray();
-        var rows = new object[] { new { mode = "even", widgets } };
-        var id = ClassPanelId(commandClass);
-        var text = commands[0].ClassTitle;
-        return @case
-            ? new { type = "panel", id, @case = commands[0].ClassTitle, text, rows }
-            : new { type = "panel", id, text, rows };
-    }
-
-    /// <summary>技术要求模板表格（1.13.0）：一份「通用技术要求」一行；「技术要求」列是按钮，点了插那一份（换掉图上原有的）。</summary>
-    private static object TechTable() => new
+    /// <summary>技术要求模板表格（1.13.0）：一份「通用技术要求」一行；「技术要求」列是按钮，点了插那一份（换掉图上原有的）；「设置」列设默认。</summary>
+    private static object TechTable(string @case) => new
     {
         type = "table",
         id = TechTableId,
+        @case,
         dataSource = new { command = DataCommand, args = new { view = TechView } },
         columns = new object[]
         {
             new { key = "name", title = "技术要求", width = "110", cellAction = TechApply.ActionId, cellStyle = "button" },
-            new { key = "items", title = "条数", width = "34" },
+            // 1.13.0（用户定）：「条数」列换成「设置」——默认那份显示「默认」，其余「设为默认」，点了就改默认（一键出图插它）。
+            new { key = "setting", title = "设置", width = "50", cellAction = TechApply.DefaultActionId, cellStyle = "button" },
             new { key = "content", title = "内容", width = "*" },
         },
     };

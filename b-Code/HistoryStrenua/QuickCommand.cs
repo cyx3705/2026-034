@@ -95,12 +95,17 @@ internal static class QuickCommands
         ChamferAll.Command,
         FilletDimension.Command,
         ChamferDimension.Command,
-        DrawingNote.Command,
         DimensionCheck.Command,
         DanglingCheck.Command,
         OverlapCheck.Command,
         DrawingSnapshot.Command,
     ];
+
+    /// <summary>
+    /// 页面上类的顺序（1.13.0）。「技术要求」类没有按钮（旧「技术要求」按钮已删，用户定），只有模板表格，不能再从登记表里分组推出来，所以顺序单独写；
+    /// 登记表里出现了这里没有的类就排在最后。
+    /// </summary>
+    public static IReadOnlyList<string> ClassOrder { get; } = ["hole", "drawing", "tech", "check"];
 
     /// <summary>命令类 → 页面上的类名。新类不登记也能用，只是显示成英文类名。</summary>
     private static readonly IReadOnlyDictionary<string, string> ClassTitles =

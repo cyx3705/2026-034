@@ -6,7 +6,7 @@ namespace HistoryStrenua;
 /// <summary>
 /// 快捷指令「新建工程图」（1.9.0，出图类）：给当前零件（或装配体里选中的零件）按用户的工程图模板建一张图——
 /// 选图幅与比例、放主视图。不保存。投影视图、轴测图、技术要求、排版各是一条指令（<see cref="DrawingProject"/>、<see cref="DrawingIso"/>、
-/// <see cref="DrawingNote"/>、<see cref="DrawingArrange"/>），「一键出图」（<see cref="DrawingAuto"/>）依次全做。
+/// <see cref="TechApply"/>、<see cref="DrawingArrange"/>），「一键出图」（<see cref="DrawingAuto"/>）依次全做。
 /// </summary>
 /// <remarks>
 /// <para>依据是用户 2026-025 台面2机器 15 张手工图的共同做法（DEC-021）：标题栏由模板的属性链接带出（图号、名称、材料、表面处理、

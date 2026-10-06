@@ -363,14 +363,14 @@ static void TestClassPanels()
         Equal(string.Join(",", group.Select(c => c.Title)), Row(group.Key));
     Equal("孔标注全流程,销钉符号,中心符号线,孔位尺寸,孔标注,销孔标注,外轮廓", Row("hole"));
     Equal("一键出图,新建工程图,投影视图,轴测图,排版,全图圆角,全图倒角,圆角标注,倒角标注", Row("drawing"));
-    // 1.13.0（用户定）：旧「技术要求」按钮删掉；1.14.0 这一支是「AI 填写技术要求」按钮在上、模板表格在下（stack，case 写在 stack 上）。
+    // 1.13.0（用户定）：旧「技术要求」按钮删掉；1.14.0 这一支是模板表格在上、「写入」（AI 填写技术要求）按钮下沉到表格下面（stack，case 写在 stack 上）。
     var tech = branches.Single(branch => branch.GetProperty("case").GetString() == "技术要求");
     Equal("stack", tech.GetProperty("type").GetString()!);
     var techChildren = tech.GetProperty("children").EnumerateArray().ToList();
-    Equal("panel,table", string.Join(",", techChildren.Select(child => child.GetProperty("type").GetString())));
-    Equal(StrenuaPage.TechTableId, techChildren[1].GetProperty("id").GetString()!);
+    Equal("table,panel", string.Join(",", techChildren.Select(child => child.GetProperty("type").GetString())));
+    Equal(StrenuaPage.TechTableId, techChildren[0].GetProperty("id").GetString()!);
     True(techChildren.All(child => !child.TryGetProperty("case", out _)), "case 只写在切换容器的直接子节点上");
-    Equal("AI填写技术要求", Row("tech"));
+    Equal("写入", Row("tech"));
     True(QuickCommands.All.All(command => command.Title != "技术要求"), "技术要求按钮已删");
     // 检查类 1.12.0 加「悬空标注」「注解重叠」。
     Equal("未标尺寸,悬空标注,注解重叠,图纸截图", Row("check"));

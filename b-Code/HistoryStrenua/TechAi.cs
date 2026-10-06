@@ -26,8 +26,9 @@ internal static class TechAi
     public static QuickCommand Command { get; } = new(
         Key: "tech-ai",
         CommandName: StrenuaIdentity.Domain + ".tech.ai",
-        Title: "AI填写技术要求",
-        Summary: "AI 看当前工程图选一份「通用技术要求」做基础（或判定没有合适的），再克制地增删几条，插到标题栏上方或左侧（换掉原有的）。",
+        // 按钮上的字（用户定「写入」）；做的事见 Summary：AI 填写技术要求。
+        Title: "写入",
+        Summary: "AI 填写技术要求：看当前工程图选一份「通用技术要求」做基础（或判定没有合适的），再克制地增删几条，插到标题栏上方或左侧（换掉原有的）。",
         Usage: "切到要加技术要求的工程图再按：先把当前图纸页截一张图，连同图纸信息（材料、属性、特征类型、图幅比例）和模板标题交给 AI（经 HistoryApollo 的识图供应商）选基础；"
             + $"再让 AI 按这张图在基础上最多删 {TechAiEdit.MaxDelete} 条、加 {TechAiEdit.MaxAdd} 条（已有条目原样保留、不改写），没有合适基础时由 AI 写不超过 {TechAiEdit.MaxFresh} 条。"
             + "插的位置与换法同模板表格：标题栏上方或左侧，图框里已有技术要求就删掉换上。AI 的思考与答复逐轮进控制台。需要先在 HistoryApollo 配好识图供应商密钥（apollo.key.set provider=qwen token=…）。"

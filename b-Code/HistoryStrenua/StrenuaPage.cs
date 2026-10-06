@@ -28,7 +28,7 @@ namespace HistoryStrenua;
 /// 1.14.0（用户定）：「技术要求」类下面的开关不是避障、尺寸链，换成「AI 填写技术要求」。最下面一格因此也是一个跟着「类」走的切换容器
 /// <see cref="OptionSwitchId"/>：第一支（不写 case，别的类都落到它）是避障 + 尺寸链，「技术要求」那一支是 <see cref="TechSwitchPanelId"/>。
 /// 避障、尺寸链仍对所有类生效（出图类标圆角、倒角时也要能选），只是在「技术要求」类下面不显示；「技术要求」类自己插技术要求也照旧吃避障（存的值）。
-/// 「技术要求」那一支（中间）是一行按钮（「AI 填写技术要求」）加模板表格。
+/// 「技术要求」那一支（中间）是模板表格在上、一行按钮（「写入」= AI 填写技术要求）在表格下面（用户定：按钮下沉到技术要求下面）。
 /// </para>
 /// <para>按钮、类选项、动作声明全部从 <see cref="QuickCommands.All"/> 生成——加指令不改这里。</para>
 /// </remarks>
@@ -47,7 +47,7 @@ internal static class StrenuaPage
     /// <summary>「技术要求」类下面的开关面板（1.14.0）：AI 填写技术要求。</summary>
     public const string TechSwitchPanelId = "tech-switches";
 
-    /// <summary>「技术要求」类中间那一支（1.14.0）：按钮面板 + 模板表格竖排。</summary>
+    /// <summary>「技术要求」类中间那一支（1.14.0）：模板表格在上、按钮面板在下竖排。</summary>
     public const string TechStackId = "tech-branch";
     public const string CancelActionId = StrenuaIdentity.Domain + ".quick.cancel";
 
@@ -305,8 +305,8 @@ internal static class StrenuaPage
     };
 
     /// <summary>
-    /// 切换容器的一支：一类的控制面板。「技术要求」类是按钮面板（1.14.0「AI 填写技术要求」）在上、模板表格在下（表格拿剩余高度），
-    /// 点表格「技术要求」列的名字就插那一份；1.13.0 时这一支只有表格。
+    /// 切换容器的一支：一类的控制面板。「技术要求」类是模板表格在上（拿剩余高度，按钮被推到这一支底部）、按钮面板（1.14.0「写入」）在下——
+    /// 用户定：按钮下沉到技术要求表格下面；点表格「技术要求」列的名字就插那一份。1.13.0 时这一支只有表格。
     /// </summary>
     private static object ClassBranch(string commandClass, IReadOnlyList<QuickCommand> commands)
         => commandClass != TechClass
@@ -317,7 +317,7 @@ internal static class StrenuaPage
                 id = TechStackId,
                 @case = QuickCommands.ClassTitle(commandClass),
                 gap = "tight",
-                children = new object[] { ClassPanel(commandClass, commands, withCase: false), TechTable() },
+                children = new object[] { TechTable(), ClassPanel(commandClass, commands, withCase: false) },
             };
 
     /// <summary>一类的控制面板：只有一行（1.12.0）——按钮按登记顺序排，放不下由 Aurora 折行。</summary>

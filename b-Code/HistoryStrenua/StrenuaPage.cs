@@ -28,7 +28,7 @@ namespace HistoryStrenua;
 /// 1.14.0（用户定）：「技术要求」类下面的开关不是避障、尺寸链，换成「AI 填写技术要求」。最下面一格因此也是一个跟着「类」走的切换容器
 /// <see cref="OptionSwitchId"/>：第一支（不写 case，别的类都落到它）是避障 + 尺寸链，「技术要求」那一支是 <see cref="TechSwitchPanelId"/>。
 /// 避障、尺寸链仍对所有类生效（出图类标圆角、倒角时也要能选），只是在「技术要求」类下面不显示；「技术要求」类自己插技术要求也照旧吃避障（存的值）。
-/// 「技术要求」那一支（中间）是模板表格在上、一行按钮（「写入」= AI 填写技术要求）在表格下面（用户定：按钮下沉到技术要求下面）。
+/// 「技术要求」类的按钮（「写入」= AI 填写技术要求）不单占一行，和这个开关并排在最下面一行（用户定：并排空间更大），中间那一支只有模板表格。
 /// </para>
 /// <para>按钮、类选项、动作声明全部从 <see cref="QuickCommands.All"/> 生成——加指令不改这里。</para>
 /// </remarks>
@@ -44,11 +44,8 @@ internal static class StrenuaPage
     /// <summary>窗口最下面一格（1.14.0）：跟着「类」切换的开关区。</summary>
     public const string OptionSwitchId = "option-area";
 
-    /// <summary>「技术要求」类下面的开关面板（1.14.0）：AI 填写技术要求。</summary>
+    /// <summary>「技术要求」类最下面一行（1.14.0）：这一类的按钮（「写入」）与「AI 填写技术要求」开关并排。</summary>
     public const string TechSwitchPanelId = "tech-switches";
-
-    /// <summary>「技术要求」类中间那一支（1.14.0）：模板表格在上、按钮面板在下竖排。</summary>
-    public const string TechStackId = "tech-branch";
     public const string CancelActionId = StrenuaIdentity.Domain + ".quick.cancel";
 
     /// <summary>工具条「浮动」按钮的动作：调 Aurora 把本页浮出 / 还原。</summary>
@@ -138,7 +135,7 @@ internal static class StrenuaPage
                                 .Select(group => ClassBranch(group.Class, group.Commands))
                                 .ToArray(),
                         },
-                        OptionArea(options),
+                        OptionArea(commands, options),
                     },
                 },
             },
@@ -259,9 +256,9 @@ internal static class StrenuaPage
 
     /// <summary>
     /// 窗口最下面一格（1.14.0）：跟着「类」切换。第一支不写 case——「技术要求」以外的类都落到它（Aurora：没有一支匹配时显示第一支）——
-    /// 是避障 + 尺寸链；「技术要求」类是「AI 填写技术要求」。
+    /// 是避障 + 尺寸链；「技术要求」类是这一类的按钮（「写入」）与「AI 填写技术要求」开关并排一行。
     /// </summary>
-    private static object OptionArea(StrenuaOptions options) => new
+    private static object OptionArea(IReadOnlyList<QuickCommand> commands, StrenuaOptions options) => new
     {
         type = "switch",
         id = OptionSwitchId,
@@ -297,7 +294,10 @@ internal static class StrenuaPage
                     new
                     {
                         mode = "even",
-                        widgets = new object[] { Switch("techai", "AI 填写技术要求", options.TechAi, TechAiActionId) },
+                        widgets = commands.Where(command => command.CommandClass == TechClass)
+                            .Select(command => (object)new { kind = "button", action = command.ActionId, text = command.Title })
+                            .Append(Switch("techai", "AI 填写技术要求", options.TechAi, TechAiActionId))
+                            .ToArray(),
                     },
                 },
             },
@@ -305,40 +305,26 @@ internal static class StrenuaPage
     };
 
     /// <summary>
-    /// 切换容器的一支：一类的控制面板。「技术要求」类是模板表格在上（拿剩余高度，按钮被推到这一支底部）、按钮面板（1.14.0「写入」）在下——
-    /// 用户定：按钮下沉到技术要求表格下面；点表格「技术要求」列的名字就插那一份。1.13.0 时这一支只有表格。
+    /// 切换容器的一支：一类的控制面板。「技术要求」类整支是模板表格，点「技术要求」列的名字就插那一份；
+    /// 它的按钮（1.14.0「写入」）不在这里，在最下面一行和「AI 填写技术要求」开关并排（<see cref="OptionArea"/>）。
     /// </summary>
     private static object ClassBranch(string commandClass, IReadOnlyList<QuickCommand> commands)
-        => commandClass != TechClass
-            ? ClassPanel(commandClass, commands)
-            : new
-            {
-                type = "stack",
-                id = TechStackId,
-                @case = QuickCommands.ClassTitle(commandClass),
-                gap = "tight",
-                children = new object[] { TechTable(), ClassPanel(commandClass, commands, withCase: false) },
-            };
+        => commandClass == TechClass ? TechTable(QuickCommands.ClassTitle(commandClass)) : ClassPanel(commandClass, commands);
 
     /// <summary>一类的控制面板：只有一行（1.12.0）——按钮按登记顺序排，放不下由 Aurora 折行。</summary>
-    /// <param name="commandClass">命令类。</param>
-    /// <param name="commands">这一类的按钮。</param>
-    /// <param name="withCase">直接作切换容器的一支时带 case；包在「技术要求」那一支的 stack 里时不带（case 只认切换容器的直接子节点）。</param>
-    private static object ClassPanel(string commandClass, IReadOnlyList<QuickCommand> commands, bool withCase = true)
+    private static object ClassPanel(string commandClass, IReadOnlyList<QuickCommand> commands)
     {
         var widgets = commands.Select(command => (object)new { kind = "button", action = command.ActionId, text = command.Title }).ToArray();
-        var rows = new object[] { new { mode = "even", widgets } };
         var title = QuickCommands.ClassTitle(commandClass);
-        return withCase
-            ? new { type = "panel", id = ClassPanelId(commandClass), @case = title, text = title, rows }
-            : new { type = "panel", id = ClassPanelId(commandClass), text = title, rows };
+        return new { type = "panel", id = ClassPanelId(commandClass), @case = title, text = title, rows = new object[] { new { mode = "even", widgets } } };
     }
 
     /// <summary>技术要求模板表格（1.13.0）：一份「通用技术要求」一行；「技术要求」列是按钮，点了插那一份（换掉图上原有的）；「设置」列设默认。</summary>
-    private static object TechTable() => new
+    private static object TechTable(string @case) => new
     {
         type = "table",
         id = TechTableId,
+        @case,
         dataSource = new { command = DataCommand, args = new { view = TechView } },
         columns = new object[]
         {

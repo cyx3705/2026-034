@@ -292,11 +292,14 @@ static void TestSwitchPanel()
     True(!areas[0].TryGetProperty("case", out _), "第一支不写 case：技术要求以外的类都落到它");
     Equal(StrenuaPage.TechSwitchPanelId, areas[1].GetProperty("id").GetString()!);
     Equal("技术要求", areas[1].GetProperty("case").GetString()!);
+    // 用户定（第三轮）：「写入」按钮与 AI 开关并排一行，空间更大。
     var tech = areas[1].GetProperty("rows")[0].GetProperty("widgets").EnumerateArray().ToList();
-    Equal("AI 填写技术要求", string.Join(",", tech.Select(w => w.GetProperty("label").GetString())));
-    Equal(StrenuaPage.TechAiActionId, tech[0].GetProperty("action").GetString()!);
-    Equal("switch", tech[0].GetProperty("kind").GetString()!);
-    Equal("false", tech[0].GetProperty("value").GetString()!);
+    Equal("button,switch", string.Join(",", tech.Select(w => w.GetProperty("kind").GetString())));
+    Equal("写入", tech[0].GetProperty("text").GetString()!);
+    Equal(TechAi.Command.ActionId, tech[0].GetProperty("action").GetString()!);
+    Equal("AI 填写技术要求", tech[1].GetProperty("label").GetString()!);
+    Equal(StrenuaPage.TechAiActionId, tech[1].GetProperty("action").GetString()!);
+    Equal("false", tech[1].GetProperty("value").GetString()!);
     options.Set(StrenuaOption.TechAi, true);
     using (var on = JsonDocument.Parse(StrenuaPage.Describe(options)))
     {
@@ -359,18 +362,15 @@ static void TestClassPanels()
         return string.Join(",", row.GetProperty("widgets").EnumerateArray().Select(w => w.GetProperty("text").GetString()));
     }
 
-    foreach (var group in QuickCommands.All.GroupBy(c => c.CommandClass))
+    foreach (var group in QuickCommands.All.GroupBy(c => c.CommandClass).Where(g => g.Key != "tech"))
         Equal(string.Join(",", group.Select(c => c.Title)), Row(group.Key));
     Equal("孔标注全流程,销钉符号,中心符号线,孔位尺寸,孔标注,销孔标注,外轮廓", Row("hole"));
     Equal("一键出图,新建工程图,投影视图,轴测图,排版,全图圆角,全图倒角,圆角标注,倒角标注", Row("drawing"));
-    // 1.13.0（用户定）：旧「技术要求」按钮删掉；1.14.0 这一支是模板表格在上、「写入」（AI 填写技术要求）按钮下沉到表格下面（stack，case 写在 stack 上）。
+    // 1.13.0（用户定）：旧「技术要求」按钮删掉，「技术要求」类整支就是模板表格；1.14.0 的「写入」按钮不在这里，在最下面一行和 AI 开关并排（见 switches 那组）。
     var tech = branches.Single(branch => branch.GetProperty("case").GetString() == "技术要求");
-    Equal("stack", tech.GetProperty("type").GetString()!);
-    var techChildren = tech.GetProperty("children").EnumerateArray().ToList();
-    Equal("table,panel", string.Join(",", techChildren.Select(child => child.GetProperty("type").GetString())));
-    Equal(StrenuaPage.TechTableId, techChildren[0].GetProperty("id").GetString()!);
-    True(techChildren.All(child => !child.TryGetProperty("case", out _)), "case 只写在切换容器的直接子节点上");
-    Equal("写入", Row("tech"));
+    Equal("table", tech.GetProperty("type").GetString()!);
+    Equal(StrenuaPage.TechTableId, tech.GetProperty("id").GetString()!);
+    True(!panels.Any(panel => panel.GetProperty("id").GetString() == StrenuaPage.ClassPanelId("tech")), "技术要求类中间没有按钮面板");
     True(QuickCommands.All.All(command => command.Title != "技术要求"), "技术要求按钮已删");
     // 检查类 1.12.0 加「悬空标注」「注解重叠」。
     Equal("未标尺寸,悬空标注,注解重叠,图纸截图", Row("check"));

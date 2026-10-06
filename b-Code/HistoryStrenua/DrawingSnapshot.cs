@@ -29,8 +29,19 @@ internal static class DrawingSnapshot
 
     private static QuickOutcome Run(QuickCommandContext context)
     {
-        var api = context.Api;
         var document = HoleScan.ActiveDrawing(context);
+        var title = context.Api.CallString(document, "IModelDoc2", "GetTitle");
+        var file = Save(context, document);
+        return QuickOutcome.Ok($"图纸截图：「{title}」当前图纸页已存成图片 {file}");
+    }
+
+    /// <summary>
+    /// 把工程图当前图纸页存成 PNG，返回文件路径（1.14.0 起「AI 填写技术要求」也用它给识图模型看图）。
+    /// </summary>
+    /// <exception cref="QuickCommandException">SolidWorks 没存出来。</exception>
+    internal static string Save(QuickCommandContext context, object document)
+    {
+        var api = context.Api;
         var title = api.CallString(document, "IModelDoc2", "GetTitle");
         var directory = Path.Combine(context.Options.DataDirectory ?? Path.GetTempPath(), Folder);
         Directory.CreateDirectory(directory);
@@ -43,10 +54,10 @@ internal static class DrawingSnapshot
         object?[] arguments = [file, CurrentVersion, SilentCopy, null, null, 0, 0];
         var saved = api.CallBool(extension, "IModelDocExtension", "SaveAs3", arguments);
         if (!saved || !File.Exists(file))
-            return QuickOutcome.Fail($"图纸截图：SolidWorks 没能把「{title}」存成图片（错误码 {arguments[5]}）。");
+            throw new QuickCommandException($"图纸截图：SolidWorks 没能把「{title}」存成图片（错误码 {arguments[5]}）。");
 
         Prune(directory);
-        return QuickOutcome.Ok($"图纸截图：「{title}」当前图纸页已存成图片 {file}");
+        return file;
     }
 
     /// <summary>文件名里不能有的字符换成「_」。</summary>

@@ -17,7 +17,7 @@ internal static class DrawingAuto
         CommandName: StrenuaIdentity.Domain + ".drawing.auto",
         Title: "一键出图",
         Summary: "依次做新建工程图、投影视图、轴测图、技术要求、排版、孔标注全流程、全图圆角、全图倒角，一次出一张基本标好的图，不保存。",
-        Usage: "在 SolidWorks 里打开要出图的零件（或在装配体里选中一个零件）再按：依次做「新建工程图 → 投影视图 → 轴测图 → 技术要求 → 排版」，再对新图全部视图（轴测图跳过）做「孔标注全流程」（销钉符号 → 中心符号线 → 孔位尺寸 → 外轮廓 → 孔标注 → 销孔标注，照工具条上的避障、尺寸链开关；技术要求、轴测图、投影视图、圆角、倒角也照避障开关；技术要求插模板表格里设为默认的那份），最后「全图圆角」「全图倒角」。除技术要求外每一步也都能单独按（技术要求在「技术要求」类的表格里点）。某一步没成不中断，最后汇总。新图不保存，请检查、微调后自己保存。",
+        Usage: "在 SolidWorks 里打开要出图的零件（或在装配体里选中一个零件）再按：依次做「新建工程图 → 投影视图 → 轴测图 → 技术要求 → 排版」，再对新图全部视图（轴测图跳过）做「孔标注全流程」（销钉符号 → 中心符号线 → 孔位尺寸 → 外轮廓 → 孔标注 → 销孔标注，照工具条上的避障、尺寸链开关；技术要求、轴测图、投影视图、圆角、倒角也照避障开关；技术要求插模板表格里设为默认的那份，「AI 填写技术要求」开着时由 AI 选基础并微调），最后「全图圆角」「全图倒角」。除技术要求外每一步也都能单独按（技术要求在「技术要求」类的表格里点）。某一步没成不中断，最后汇总。新图不保存，请检查、微调后自己保存。",
         Run: Run);
 
     private static QuickOutcome Run(QuickCommandContext context)
@@ -50,8 +50,11 @@ internal static class DrawingAuto
         DrawingSheet Sheet() => DrawingSheet.Read(context, drawing, "一键出图", main, part);
         Step("投影视图", () => DrawingProject.Run(context, Sheet()));
         Step("轴测图", () => DrawingIso.Run(context, Sheet()));
-        // 1.13.0：插默认技术要求模板（表格「设置」列定的那份），与点模板表格同一条路。
-        Step("技术要求", () => TechApply.Run(context, context.Options.TechDefault, drawing));
+        // 1.13.0：插默认技术要求模板（表格「设置」列定的那份），与点模板表格同一条路；
+        // 1.14.0：「AI 填写技术要求」开着时由 AI 选基础并微调，AI 没成退回默认那份。
+        Step("技术要求", () => context.Options.TechAi
+            ? TechAi.Run(context, drawing, fallback: context.Options.TechDefault)
+            : TechApply.Run(context, context.Options.TechDefault, drawing));
         Step("排版", () => DrawingArrange.Run(context, Sheet()));
         context.Report("一键出图：视图已建好、排好，开始孔标注全流程。");
         Step("孔标注全流程", () => HoleFlow.Run(context));

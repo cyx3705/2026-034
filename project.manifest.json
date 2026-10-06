@@ -15,7 +15,7 @@
       "appshell-module"
     ],
     "status": "active",
-    "version": "1.13.0",
+    "version": "1.14.0",
     "branch": "main"
   },
   "paths": {
@@ -35,7 +35,6 @@
       "z-Publish"
     ],
     "archiveRoots": [
-      "b-Office/history",
       "z-Publish/history"
     ],
     "releaseRoots": [
@@ -48,13 +47,7 @@
     ]
   },
   "documents": {
-    "center": "b-Office/文档中心.md",
-    "structure": "b-Office/文档中心.md",
-    "overview": "b-Office/current/项目概览.md",
-    "technicalContract": "b-Office/current/技术合同.md",
-    "decisions": "b-Office/current/有效决策.md",
-    "verification": "b-Office/current/验证合同.md",
-    "historyBoundary": "b-Office/history/历史资料说明.md"
+    "conventions": "b-Office/current/现行约定.md"
   },
   "commands": {
     "setup": null,
@@ -68,10 +61,10 @@
     "HistoryVulcan 6.0.0 或更新的发布快照：C:\\OneHistory\\HistoryClio\\2026-023-HistoryVulcan\\z-Publish",
     ".NET 8 SDK 与 Windows Desktop Runtime（目标框架 net8.0-windows）",
     "SolidWorks 2025 SP5 COM 自动化（运行时从安装目录 api\\redist 加载官方 Interop；构建不需要）",
-    "HistoryAurora（可选）：PowerSW 页面由它按描述协议渲染；没有它指令照样能在控制台执行"
+    "HistoryAurora（可选）：PowerSW 页面由它按描述协议渲染；没有它指令照样能在控制台执行",
+    "HistoryApollo 0.5.0+（可选）：「AI 填写技术要求」经总线调 apollo.chat.ask images=（识图供应商要配密钥）；没有它这一条失败、其余照常"
   ],
   "contextExclusions": [
-    "b-Office/history/**",
     "z-Publish/**",
     "**/bin/**",
     "**/obj/**",

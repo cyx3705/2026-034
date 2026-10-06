@@ -3,7 +3,7 @@ using HistoryStrenua;
 using HistoryVulcan.Core.Commands;
 
 // 全部离线：不需要 SolidWorks，也不会去碰本机正在运行的那个。
-// 真机验证（附着 SolidWorks、在工程图上加孔标注）见 b-Office/current/验证合同.md 的 VERIFY-LIVE。
+// 真机验证（附着 SolidWorks、在工程图上加孔标注）没有自动化，见 b-Office/current/现行约定.md「真机才知道的」。
 var tests = new (string Name, Action Run)[]
 {
     ("command registration", TestCommandRegistration),
@@ -80,6 +80,10 @@ var tests = new (string Name, Action Run)[]
     ("tech note: only above or left of the title block", TestTechNoteSlots),
     ("tech note: views move out of the way", TestTechNoteMakeRoom),
     ("tech note: replacing keeps the old slot", TestTechNoteReplace),
+    ("tech ai: template items split and rejoined", TestTechAiParse),
+    ("tech ai: restrained edits with limits", TestTechAiApply),
+    ("tech ai: reading the model's answers", TestTechAiAnswers),
+    ("tech ai: apollo command line and receipt", TestTechAiCommand),
 };
 
 var failed = 0;
@@ -129,6 +133,7 @@ static void TestCommandRegistration()
         "strenua.drawing.chamfer",
         "strenua.tech.apply",
         "strenua.tech.default",
+        "strenua.tech.ai",
         "strenua.check.dimension",
         "strenua.check.dangling",
         "strenua.check.overlap",
@@ -141,6 +146,7 @@ static void TestCommandRegistration()
         "strenua.ui.data",
         "strenua.option.clearance",
         "strenua.option.chain",
+        "strenua.option.techai",
     ];
     foreach (var name in expected)
     {
@@ -169,7 +175,9 @@ static void TestCommandRegistration()
     True(apply!.Parameters!.Single(p => p.Name == "name").Required, "tech.apply 必须给模板名");
     True(registry.TryGet("strenua.tech.default", out var techDefault) && !techDefault!.Readonly && techDefault.HiddenReason is null
         && !techDefault.Parameters!.Single(p => p.Name == "name").Required, "tech.default 改设置、要能在控制台敲，省略 name 报当前值");
-    foreach (var method in new[] { "clearance", "chain" })
+    // 1.14.0：AI 填写技术要求是一个普通按钮（改工程图、要能在控制台敲）。
+    True(registry.TryGet("strenua.tech.ai", out var techAi) && !techAi!.Readonly && techAi.HiddenReason is null, "tech.ai 改工程图、要能在控制台敲");
+    foreach (var method in new[] { "clearance", "chain", "techai" })
         True(registry.TryGet("strenua.option." + method, out var option) && option!.HiddenReason is null && !option.Readonly,
             $"strenua.option.{method} 改设置，要能在控制台敲");
     foreach (var method in new[] { "describe", "actions", "data" })
@@ -215,6 +223,7 @@ static void TestPageWiring()
     Equal("aurora.ui.float", declared[StrenuaPage.FloatActionId]);
     Equal("strenua.option.clearance", declared[StrenuaPage.ClearanceActionId]);
     Equal("strenua.option.chain", declared[StrenuaPage.ChainActionId]);
+    Equal("strenua.option.techai", declared[StrenuaPage.TechAiActionId]);
 
     using var description = JsonDocument.Parse(StrenuaPage.Describe(new StrenuaOptions()));
     var bound = Descendants(description.RootElement)
@@ -273,8 +282,29 @@ static void TestSwitchPanel()
     Equal(StrenuaPage.ClassSwitchId, children[1].GetProperty("id").GetString()!);
     True(children[1].GetProperty("fill").GetBoolean(), "切换容器应占住剩余高度");
     True(!children[0].TryGetProperty("fill", out _) && !children[2].TryGetProperty("fill", out _), "只有中间一格 fill");
-    Equal(StrenuaPage.SwitchPanelId, children[2].GetProperty("id").GetString()!);
-    var rows = children[2].GetProperty("rows").EnumerateArray().ToList();
+    // 1.14.0（用户定）：最下面一格跟着「类」切换——「技术要求」类下面是「AI 填写技术要求」，别的类（第一支，不写 case）照旧避障 + 尺寸链。
+    Equal(StrenuaPage.OptionSwitchId, children[2].GetProperty("id").GetString()!);
+    Equal("switch", children[2].GetProperty("type").GetString()!);
+    Equal("{selection." + StrenuaPage.ClassChannel + ".value}", children[2].GetProperty("source").GetString()!);
+    var areas = children[2].GetProperty("children").EnumerateArray().ToList();
+    Equal(2, areas.Count);
+    Equal(StrenuaPage.SwitchPanelId, areas[0].GetProperty("id").GetString()!);
+    True(!areas[0].TryGetProperty("case", out _), "第一支不写 case：技术要求以外的类都落到它");
+    Equal(StrenuaPage.TechSwitchPanelId, areas[1].GetProperty("id").GetString()!);
+    Equal("技术要求", areas[1].GetProperty("case").GetString()!);
+    var tech = areas[1].GetProperty("rows")[0].GetProperty("widgets").EnumerateArray().ToList();
+    Equal("AI 填写技术要求", string.Join(",", tech.Select(w => w.GetProperty("label").GetString())));
+    Equal(StrenuaPage.TechAiActionId, tech[0].GetProperty("action").GetString()!);
+    Equal("switch", tech[0].GetProperty("kind").GetString()!);
+    Equal("false", tech[0].GetProperty("value").GetString()!);
+    options.Set(StrenuaOption.TechAi, true);
+    using (var on = JsonDocument.Parse(StrenuaPage.Describe(options)))
+    {
+        var techSwitch = Descendants(on.RootElement).Single(node => node.TryGetProperty("action", out var a) && a.GetString() == StrenuaPage.TechAiActionId);
+        Equal("true", techSwitch.GetProperty("value").GetString()!);
+    }
+
+    var rows = areas[0].GetProperty("rows").EnumerateArray().ToList();
     Equal(1, rows.Count);
     var switches = rows[0].GetProperty("widgets").EnumerateArray().ToList();
     Equal("避障,尺寸链", string.Join(",", switches.Select(w => w.GetProperty("label").GetString())));
@@ -333,11 +363,14 @@ static void TestClassPanels()
         Equal(string.Join(",", group.Select(c => c.Title)), Row(group.Key));
     Equal("孔标注全流程,销钉符号,中心符号线,孔位尺寸,孔标注,销孔标注,外轮廓", Row("hole"));
     Equal("一键出图,新建工程图,投影视图,轴测图,排版,全图圆角,全图倒角,圆角标注,倒角标注", Row("drawing"));
-    // 1.13.0（用户定）：旧「技术要求」按钮删掉，「技术要求」类整支就是模板表格，没有按钮面板。
+    // 1.13.0（用户定）：旧「技术要求」按钮删掉；1.14.0 这一支是「AI 填写技术要求」按钮在上、模板表格在下（stack，case 写在 stack 上）。
     var tech = branches.Single(branch => branch.GetProperty("case").GetString() == "技术要求");
-    Equal("table", tech.GetProperty("type").GetString()!);
-    Equal(StrenuaPage.TechTableId, tech.GetProperty("id").GetString()!);
-    True(!panels.Any(panel => panel.GetProperty("id").GetString() == StrenuaPage.ClassPanelId("tech")), "技术要求类不该再有按钮面板");
+    Equal("stack", tech.GetProperty("type").GetString()!);
+    var techChildren = tech.GetProperty("children").EnumerateArray().ToList();
+    Equal("panel,table", string.Join(",", techChildren.Select(child => child.GetProperty("type").GetString())));
+    Equal(StrenuaPage.TechTableId, techChildren[1].GetProperty("id").GetString()!);
+    True(techChildren.All(child => !child.TryGetProperty("case", out _)), "case 只写在切换容器的直接子节点上");
+    Equal("AI填写技术要求", Row("tech"));
     True(QuickCommands.All.All(command => command.Title != "技术要求"), "技术要求按钮已删");
     // 检查类 1.12.0 加「悬空标注」「注解重叠」。
     Equal("未标尺寸,悬空标注,注解重叠,图纸截图", Row("check"));
@@ -354,6 +387,7 @@ static void TestOptions()
     True(defaults.Clearance, "避障默认开");
     True(!defaults.Chain, "尺寸链默认关");
     Equal("机加件-钢材", defaults.TechDefault);
+    True(!defaults.TechAi, "AI 填写技术要求默认关");
 
     var dir = Path.Combine(Path.GetTempPath(), "strenua-options-" + Guid.NewGuid().ToString("N"));
     var path = Path.Combine(dir, StrenuaOptions.FileName);
@@ -364,8 +398,9 @@ static void TestOptions()
         Equal<string?>(null, options.Set(StrenuaOption.Clearance, false));
         Equal<string?>(null, options.Set(StrenuaOption.Chain, true));
         Equal<string?>(null, options.SetTechDefault("钣金-焊接"));
+        Equal<string?>(null, options.Set(StrenuaOption.TechAi, true));
         var reopened = new StrenuaOptions(path);
-        True(!reopened.Clearance && reopened.Chain, "重启后应保持上次的开关");
+        True(!reopened.Clearance && reopened.Chain && reopened.TechAi, "重启后应保持上次的开关");
         Equal("钣金-焊接", reopened.TechDefault);
         // 改开关不丢默认技术要求。
         reopened.Set(StrenuaOption.Clearance, true);
@@ -377,7 +412,7 @@ static void TestOptions()
         True(broken.Clearance && !broken.Chain, "存档坏了应回默认值");
         File.WriteAllText(path, "{\"Chain\":true}");
         var partial = new StrenuaOptions(path);
-        True(partial.Clearance && partial.Chain && partial.TechDefault == "机加件-钢材", "缺的项按默认值（含旧存档没有默认技术要求）");
+        True(partial.Clearance && partial.Chain && partial.TechDefault == "机加件-钢材" && !partial.TechAi, "缺的项按默认值（含旧存档没有默认技术要求、没有 AI 开关）");
     }
     finally
     {
@@ -1048,7 +1083,7 @@ static void TestFlowCommand()
         && usage.IndexOf("→ 孔标注", StringComparison.Ordinal) < usage.IndexOf("→ 销孔标注", StringComparison.Ordinal), "步骤顺序");
     True(usage.Contains("当前图纸页", StringComparison.Ordinal), "范围是当前图纸页");
     Equal("hole-flow,dowel-symbol,center-mark,hole-position,hole-callout,dowel-fit,outline,"
-        + "drawing-auto,drawing-create,drawing-project,drawing-iso,drawing-arrange,fillet-all,chamfer-all,fillet,chamfer,check-dimension,check-dangling,check-overlap,snapshot",
+        + "drawing-auto,drawing-create,drawing-project,drawing-iso,drawing-arrange,fillet-all,chamfer-all,fillet,chamfer,check-dimension,check-dangling,check-overlap,snapshot,tech-ai",
         string.Join(",", QuickCommands.All.Select(command => command.Key)));
 }
 
@@ -2102,6 +2137,119 @@ static byte[] NoteStyleBytes(string text, bool shortLength = false)
     bytes.AddRange(body);
     bytes.AddRange([0x00, 0x00, 0x12, 0x34]);
     return bytes.ToArray();
+}
+
+static void TestTechAiParse()
+{
+    // 用户模板的真实形状（机加件-钢材）：缩进的标题、第一条前面一串 PARA 格式标记、「N、」编号、句末中英文分号混用。
+    const string para = "<PARA  indent=0 findent=0 indentStep=10 number=off bullet=off paraSpace=0.001 lineSpace=0.001>";
+    var text = "        技术要求\n" + para + "1、未注公差参照附表执行；\n2、未注沉头孔与螺纹孔位置公差为±0.2mm，定位销孔位置公差±0.02mm;\n3、镀件表面涂防锈油；\n4、未注尺寸参考3D数模。\n";
+    var items = TechAiEdit.Parse(text);
+    Equal("        技术要求", items.Heading);
+    Equal(para, items.Prefix);
+    Equal(4, items.Items.Count);
+    Equal("未注沉头孔与螺纹孔位置公差为±0.2mm，定位销孔位置公差±0.02mm;", items.Items[1]);
+    // 原样拼回：标点、格式标记一个字都不动（克制的前提）。
+    Equal(text.TrimEnd('\n'), items.Text);
+    // 没有格式标记的模板（焊接结构件）、两位数编号、续行接到上一条。
+    var weld = TechAiEdit.Parse("        技术要求\n1、甲；\n2、乙\n  乙的续行\n10、丙。");
+    Equal(string.Empty, weld.Prefix);
+    Equal("甲；,乙\n  乙的续行,丙。", string.Join(",", weld.Items));
+    Equal("        技术要求\n1、甲；\n2、乙\n  乙的续行\n3、丙。", weld.Text);
+    Equal("1：未注公差参照附表执行；", TechAiEdit.Numbered(items)[0]);
+    Equal("乙 乙的续行", TechAiEdit.Plain(weld.Items[1]));
+
+    if (Directory.Exists(TechTemplates.Folder))
+    {
+        foreach (var template in TechTemplates.Load())
+        {
+            var parsed = TechAiEdit.Parse(template.Text);
+            Equal(template.Items, parsed.Items.Count);
+            Equal(template.Text, parsed.Text);
+        }
+    }
+}
+
+static void TestTechAiApply()
+{
+    var based = new TechItems("技术要求", "<P>", ["一", "二", "三", "四", "五"]);
+    // 按原编号删、按原编号插：删 2、4，在原 1 后加「甲」，最前加「乙」，原 4（已删）后加「丙」。
+    var outcome = TechAiEdit.Apply(based, [2, 4], [(1, "甲"), (0, "乙"), (4, "丙")]);
+    Equal("乙,一,甲,三,丙,五", string.Join(",", outcome.Result.Items));
+    Equal("技术要求\n<P>1、乙\n2、一\n3、甲\n4、三\n5、丙\n6、五", outcome.Result.Text);
+    Equal("2:二,4:四", string.Join(",", outcome.Deleted.Select(d => $"{d.Number}:{d.Text}")));
+    Equal(0, outcome.Dropped);
+
+    // 克制：最多删 3、加 3；编号不存在、重复删、空文、与已有重复、自带编号的都处理掉。
+    var greedy = TechAiEdit.Apply(based, [1, 2, 3, 4, 9, 0, 1], [(5, "a"), (5, "b"), (5, "c"), (5, "d"), (5, "  "), (5, "五。")]);
+    Equal(3, greedy.Deleted.Count);
+    Equal(3, greedy.Added.Count);
+    Equal(4 + 3, greedy.Dropped);
+    Equal("四,五,a,b,c", string.Join(",", greedy.Result.Items));
+    var numbered = TechAiEdit.Apply(based, [], [(9, "6、未注倒角C0.5；")]);
+    Equal("未注倒角C0.5；", numbered.Result.Items[^1]);
+    Equal(5, numbered.Added[0].After);
+
+    // 超长的截断（一条一句，长段落多半是模型在解释）。
+    var longText = new string('长', TechAiEdit.MaxItemLength + 20);
+    Equal(TechAiEdit.MaxItemLength, TechAiEdit.Apply(based, [], [(0, longText)]).Result.Items[0].Length);
+}
+
+static void TestTechAiAnswers()
+{
+    string[] names = ["机加件-钢材", "钣金-焊接"];
+    // 选基础：带围栏、带用量脚注也读得出；null 与「无」都是「没有合适的」；不在候选里的算答错。
+    var fenced = "```json\n{\"base\": \"钣金-焊接\", \"reason\": \"折弯件带焊缝\"}\n```\n\n— qwen/qwen-vl-max · 用量 1+2=3 tokens · 1.0s";
+    Equal((true, (string?)"钣金-焊接", "折弯件带焊缝"), TechAiEdit.ReadChoice(fenced, names));
+    Equal((true, (string?)null, "都不合适"), TechAiEdit.ReadChoice("{\"base\": null, \"reason\": \"都不合适\"}", names));
+    Equal(true, TechAiEdit.ReadChoice("{\"base\": \"无\"}", names).Valid);
+    Equal((false, (string?)"焊接结构件", string.Empty), TechAiEdit.ReadChoice("{\"base\": \"焊接结构件\"}", names));
+    Equal(false, TechAiEdit.ReadChoice("我觉得是钣金", names).Valid);
+    Equal("机加件-钢材", TechAiEdit.ReadChoice("{\"base\": \"「机加件-钢材」\"}", names).Base!);
+
+    // 微调：delete / add，编号可能写成字符串；不合规的项计入没采用。
+    var based = new TechItems("技术要求", string.Empty, ["一", "二", "三"]);
+    var read = TechAiEdit.ReadEdit("{\"delete\": [\"3\", \"x\"], \"add\": [{\"after\": 1, \"text\": \"甲\"}, {\"text\": \"乙\"}, 5], \"reason\": \"图上没有螺纹\"}", based, fresh: false);
+    True(read is not null, "应读出微调");
+    Equal("一,甲,二,乙", string.Join(",", read!.Value.Outcome.Result.Items));
+    Equal(2, read.Value.Outcome.Dropped);
+    Equal("图上没有螺纹", read.Value.Reason);
+    // 没有基础：items 是全文条目，最多 MaxFresh 条，标题与格式照模板。
+    var many = string.Join(",", Enumerable.Range(1, TechAiEdit.MaxFresh + 2).Select(i => $"\"第{i}条\""));
+    var fresh = TechAiEdit.ReadEdit($"{{\"items\": [{many}]}}", TechItems.Empty, fresh: true);
+    Equal(TechAiEdit.MaxFresh, fresh!.Value.Outcome.Result.Items.Count);
+    Equal(2, fresh.Value.Outcome.Dropped);
+    True(fresh.Value.Outcome.Result.Text.StartsWith(TechItems.Empty.Heading + "\n" + TechItems.Empty.Prefix + "1、第1条", StringComparison.Ordinal), "没有基础时标题与格式照模板");
+    Equal<object?>(null, TechAiEdit.ReadEdit("没有 JSON", based, fresh: false));
+}
+
+static void TestTechAiCommand()
+{
+    // 经总线发给 Apollo 的那一行：解析回来参数原样（引号、换行、等号都编码过），带图片走识图供应商。
+    var system = "只输出 JSON：{\"base\": \"…\"}";
+    var prompt = "候选：[\"机加件-钢材\"]。\n图纸信息 JSON：{\"图纸\":{\"比例\":\"1:2\"}}";
+    var image = @"C:\Users\x\AppData\Roaming\HistoryVulcan\ModuleData\HistoryStrenua\snapshots\零件 1-20261006.png";
+    var parsed = CommandParser.Parse(TechAi.BuildCommand(system, prompt, image));
+    Equal("apollo.chat.ask", parsed.Name);
+    Equal(image, parsed.Named["images"]);
+    Equal(system, parsed.Named["system"]);
+    Equal(prompt.Replace("\n", " "), parsed.Named["prompt"]);
+    True(!parsed.Named.ContainsKey("provider"), "不写 provider：带图片时 Apollo 自己走识图供应商");
+    Equal("module:HistoryStrenua", TechAi.CommandSource);
+
+    // 回执说明：基础与理由、删了什么、加在哪、没采用几条。
+    var based = new TechItems("技术要求", string.Empty, ["一", "螺纹嵌钢丝牙套；", "三"]);
+    var outcome = TechAiEdit.Apply(based, [2, 7], [(3, "焊后去应力")]);
+    var text = TechAi.Describe("机加件-有色金属", "铝合金机加件", outcome, "图上没有螺纹孔");
+    Equal("以「机加件-有色金属」为基础（铝合金机加件）；删 第 2 条「螺纹嵌钢丝牙套；」；加「焊后去应力」（原第 3 条后）；AI 另给的 1 处超出上限或不合规，没采用；AI 说明：图上没有螺纹孔", text);
+    Equal("以「机加件-钢材」为基础；未增删", TechAi.Describe("机加件-钢材", string.Empty, TechAiEdit.Apply(based, [], []), string.Empty));
+    var fresh = TechAiEdit.Apply(TechItems.Empty, [], [(0, "甲"), (0, "乙")], TechAiEdit.MaxFresh);
+    Equal("没有合适的模板，由 AI 撰写；写了 2 条", TechAi.Describe(null, string.Empty, fresh, string.Empty));
+
+    // 按钮、开关的说明写清上限与退路。
+    True(TechAi.Command.Usage.Contains($"最多删 {TechAiEdit.MaxDelete} 条、加 {TechAiEdit.MaxAdd} 条", StringComparison.Ordinal), TechAi.Command.Usage);
+    True(StrenuaPage.TechAiSummary.Contains("AI 没成退回", StringComparison.Ordinal), StrenuaPage.TechAiSummary);
+    Equal("tech", TechAi.Command.CommandClass);
 }
 
 static void TestTechTemplateParse()

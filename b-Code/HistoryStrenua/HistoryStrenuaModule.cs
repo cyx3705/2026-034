@@ -5,7 +5,7 @@ namespace HistoryStrenua;
 
 /// <summary>
 /// 模块装配入口：登记页面协议三条指令（描述、动作、技术要求模板表格取数）、每条快捷指令一条总线指令，外加列表、按 key 执行、取消、
-/// 按名字插技术要求模板与两个页面开关。
+/// 按名字插技术要求模板与三个页面开关。
 /// </summary>
 /// <remarks>
 /// 判断一段代码该不该进这个仓，用这条：它是否作用于用户**正在用**的 SolidWorks、
@@ -20,7 +20,7 @@ public sealed class HistoryStrenuaModule : IModuleContextAware
     {
         ArgumentNullException.ThrowIfNull(context);
         var options = new StrenuaOptions(Path.Combine(context.Environment.DataDirectory, StrenuaOptions.FileName));
-        var runner = new QuickCommandRunner(options);
+        var runner = new QuickCommandRunner(options, context.Bus);
         context.RegisterCommands(registry => Register(registry, runner, context.Bus));
     }
 
@@ -155,6 +155,8 @@ public sealed class HistoryStrenuaModule : IModuleContextAware
             "页面「避障」开关：" + StrenuaPage.ClearanceSummary, runner.Options));
         registry.Register(Option(StrenuaOption.Chain, "chain", "尺寸链",
             "页面「尺寸链」开关：" + StrenuaPage.ChainSummary, runner.Options));
+        registry.Register(Option(StrenuaOption.TechAi, "techai", "AI 填写技术要求",
+            "页面「AI 填写技术要求」开关：" + StrenuaPage.TechAiSummary, runner.Options));
     }
 
     /// <summary>
@@ -220,7 +222,8 @@ public sealed class HistoryStrenuaModule : IModuleContextAware
                 var result = status.Result.Length == 0 ? string.Empty : " — " + status.Result;
                 return $"{command.CommandName}  {command.Title}  [{status.State}]{result}";
             })
-            .Append($"避障：{(runner.Options.Clearance ? "开" : "关")}；尺寸链：{(runner.Options.Chain ? "开" : "关")}；默认技术要求：{runner.Options.TechDefault}"));
+            .Append($"避障：{(runner.Options.Clearance ? "开" : "关")}；尺寸链：{(runner.Options.Chain ? "开" : "关")}；默认技术要求：{runner.Options.TechDefault}；"
+                + $"AI 填写技术要求：{(runner.Options.TechAi ? "开" : "关")}"));
 
     private static CommandResult Json(string json) => CommandResult.Ok(json, json);
 

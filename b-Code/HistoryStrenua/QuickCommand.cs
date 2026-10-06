@@ -1,4 +1,5 @@
 using HistoryStrenua.SolidWorks;
+using HistoryVulcan.Core.Commands;
 
 namespace HistoryStrenua;
 
@@ -53,7 +54,8 @@ internal sealed class QuickCommandContext(
     StrenuaOptions options,
     Action<string> report,
     Action<string> setState,
-    CancellationToken cancellation)
+    CancellationToken cancellation,
+    ICommandBus? bus = null)
 {
     public SolidWorksSession Session { get; } = session;
 
@@ -69,6 +71,15 @@ internal sealed class QuickCommandContext(
 
     /// <summary>改这条指令的状态（<c>strenua.quick.list</c> 里看得到），如「等待点选视图」。</summary>
     public void SetState(string state) => setState(state);
+
+    /// <summary>
+    /// 经命令总线安静执行一条别的模块的指令（1.14.0，调 HistoryApollo）并等它回来。在 SolidWorks 的 STA 线程上阻塞等待：
+    /// 这条线程没有同步上下文，总线的续体落在线程池，不会互等；等待期间不碰 SolidWorks。没有总线（离线测试）时回失败回执。
+    /// </summary>
+    public CommandResult Invoke(string commandText)
+        => bus is null
+            ? CommandResult.Fail("没有命令总线（离线运行），调不到别的模块。")
+            : bus.InvokeAsync(commandText, TechAi.CommandSource, Cancellation).GetAwaiter().GetResult();
 }
 
 /// <summary>用户能自己纠正的前置条件不满足（SolidWorks 没开、当前不是工程图……）。消息原样给人看。</summary>
@@ -99,11 +110,12 @@ internal static class QuickCommands
         DanglingCheck.Command,
         OverlapCheck.Command,
         DrawingSnapshot.Command,
+        TechAi.Command,
     ];
 
     /// <summary>
-    /// 页面上类的顺序（1.13.0）。「技术要求」类没有按钮（旧「技术要求」按钮已删，用户定），只有模板表格，不能再从登记表里分组推出来，所以顺序单独写；
-    /// 登记表里出现了这里没有的类就排在最后。
+    /// 页面上类的顺序（1.13.0）。「技术要求」类 1.13.0 一度没有按钮、只有模板表格，从登记表里分组推不出它的位置，所以顺序单独写；
+    /// 1.14.0 起它有「AI 填写技术要求」一个按钮。登记表里出现了这里没有的类就排在最后。
     /// </summary>
     public static IReadOnlyList<string> ClassOrder { get; } = ["hole", "drawing", "tech", "check"];
 

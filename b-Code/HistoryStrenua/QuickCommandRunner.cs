@@ -11,7 +11,9 @@ namespace HistoryStrenua;
 /// 一次只跑一条，是因为所有快捷指令都作用在用户同一个 SolidWorks 的同一个选择集上——
 /// 两条同时跑，一条的 ClearSelection 会把另一条正在等的视图选择清掉。
 /// </remarks>
-internal sealed class QuickCommandRunner(StrenuaOptions options)
+/// <param name="options">页面开关与默认技术要求。</param>
+/// <param name="bus">命令总线：「AI 填写技术要求」经它调 HistoryApollo（1.14.0）；离线测试为 null。</param>
+internal sealed class QuickCommandRunner(StrenuaOptions options, ICommandBus? bus = null)
 {
     /// <summary>页面开关（避障、尺寸链模式）。</summary>
     public StrenuaOptions Options { get; } = options;
@@ -57,7 +59,8 @@ internal sealed class QuickCommandRunner(StrenuaOptions options)
                     Options,
                     message => context.Progress?.Report(message),
                     state => SetState(command.Key, state),
-                    cancellation.Token)),
+                    cancellation.Token,
+                    bus)),
                 cancellation.Token).ConfigureAwait(false);
         }
         catch (OperationCanceledException)

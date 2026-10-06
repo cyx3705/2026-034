@@ -34,17 +34,23 @@ internal static class TechApply
 
     public const string SetDefaultText = "设为默认";
 
-    public const string Summary = "把「通用技术要求」里的一份插进当前工程图（标题栏上方或左侧）；图框里已有技术要求就删掉、在原处换成这份，避障开时挪视图让地方。";
+    public const string Summary = "把「通用技术要求」里的一份插进当前工程图（标题栏上方或左侧）；图框里已有技术要求就删掉、在原处换成这份，避障开时挪视图让地方；"
+        + "「AI 填写技术要求」开关开着时改由 AI 选基础并微调（AI 没成才插这份）。";
 
     public const string DefaultSummary = "把「通用技术要求」里的一份设为默认（记到本机），「一键出图」插的就是它；省略 name 只报当前默认。";
 
-    public static QuickCommand Command(string name, object? drawing = null) => new(
+    /// <summary>
+    /// 模板表格点一份：「AI 填写技术要求」开关开着时由 AI 从全部模板里重新选基础再微调（1.14.0，用户选的），AI 没成才插点的这份；关着照旧插这份。
+    /// </summary>
+    public static QuickCommand Command(string name) => new(
         Key: Key,
         CommandName: CommandName,
         Title: $"技术要求「{name}」",
         Summary: Summary,
         Usage: Summary,
-        Run: context => Run(context, name, drawing));
+        Run: context => context.Options.TechAi && TechTemplates.Find(name) is not null
+            ? TechAi.Run(context, fallback: name)
+            : Run(context, name));
 
     /// <param name="context">快捷指令上下文。</param>
     /// <param name="name">模板名。</param>
@@ -54,9 +60,22 @@ internal static class TechApply
         var template = TechTemplates.Find(name);
         if (template is null)
             return QuickOutcome.Fail(Missing(name));
+        return Insert(context, drawing ?? HoleScan.ActiveDrawing(context), template.Name, template.Text, template.Items);
+    }
 
+    /// <summary>
+    /// 把一份技术要求全文插进工程图：图框里已有技术要求就先删掉、在原处放新的，否则放标题栏上方或左侧（<see cref="TechNotePlacement"/>）。
+    /// 模板原样插与「AI 填写技术要求」改过的（1.14.0）走同一条路。
+    /// </summary>
+    /// <param name="context">快捷指令上下文。</param>
+    /// <param name="drawing">工程图。</param>
+    /// <param name="label">写进回执的名字（模板名，或「模板名（AI 微调）」）。</param>
+    /// <param name="note">交给 <c>InsertNote</c> 的全文。</param>
+    /// <param name="items">条数。</param>
+    /// <param name="detail">回执末尾另起一行的说明（AI 改了什么）；null 不加。</param>
+    internal static QuickOutcome Insert(QuickCommandContext context, object drawing, string label, string note, int items, string? detail = null)
+    {
         var api = context.Api;
-        drawing ??= HoleScan.ActiveDrawing(context);
         context.SetState("换技术要求");
         var existing = TechNotePlacement.Notes(api, drawing);
         NoteSlot? preferred = null;
@@ -67,17 +86,17 @@ internal static class TechApply
             ? (0, 0)
             : AnnotationEraser.Erase(context, drawing, () => TechNotePlacement.Notes(api, drawing).Select(item => item.Annotation).ToList());
         if (leftover > 0)
-            return QuickOutcome.Fail($"技术要求：原来的技术要求有 {leftover} 条删不掉，没有换成「{template.Name}」。");
+            return QuickOutcome.Fail($"技术要求：原来的技术要求有 {leftover} 条删不掉，没有换成「{label}」。");
 
         api.Call(drawing, "IModelDoc2", "ClearSelection2", true);
-        var note = api.Call(drawing, "IModelDoc2", "InsertNote", template.Text);
-        if (note is null || api.Call(note, "INote", "GetAnnotation") is not { } annotation)
-            return QuickOutcome.Fail($"技术要求：SolidWorks 没有接受注释，「{template.Name}」没有加上" + (existing.Count > 0 ? "（原来的已删）。" : "。"));
+        var inserted = api.Call(drawing, "IModelDoc2", "InsertNote", note);
+        if (inserted is null || api.Call(inserted, "INote", "GetAnnotation") is not { } annotation)
+            return QuickOutcome.Fail($"技术要求：SolidWorks 没有接受注释，「{label}」没有加上" + (existing.Count > 0 ? "（原来的已删）。" : "。"));
 
         // 让不开也算加上了（注释已在图上），回执里说压到了谁。
-        var (where, _) = TechNotePlacement.Place(context, drawing, note, annotation, preferred);
-        var action = existing.Count > 0 ? $"删掉原来的技术要求，换成「{template.Name}」（{template.Items} 条）" : $"加上「{template.Name}」（{template.Items} 条）";
-        return QuickOutcome.Ok($"技术要求：{action}，{where}。");
+        var (where, _) = TechNotePlacement.Place(context, drawing, inserted, annotation, preferred);
+        var action = existing.Count > 0 ? $"删掉原来的技术要求，换成「{label}」（{items} 条）" : $"加上「{label}」（{items} 条）";
+        return QuickOutcome.Ok($"技术要求：{action}，{where}。" + (detail is null ? string.Empty : $"{Environment.NewLine}{detail}。"));
     }
 
     /// <summary><c>strenua.tech.default</c>：带 name 就设默认、记到本机并刷新表格；不带就报当前默认。</summary>

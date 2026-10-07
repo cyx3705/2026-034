@@ -280,6 +280,7 @@ static void TestCommandRegistration()
         "strenua.drawing.arrange",
         "strenua.drawing.filletall",
         "strenua.drawing.chamferall",
+        "strenua.drawing.symmetry",
         "strenua.drawing.fillet",
         "strenua.drawing.chamfer",
         "strenua.tech.apply",
@@ -314,7 +315,7 @@ static void TestCommandRegistration()
     True(registry.TryGet("strenua.quick.list", out var list) && list!.Readonly, "列表是只读的");
     foreach (var name in new[] { "strenua.drawing.create", "strenua.drawing.auto", "strenua.drawing.project", "strenua.drawing.iso", "strenua.tech.apply",
                  "strenua.drawing.arrange", "strenua.drawing.filletall", "strenua.drawing.chamferall", "strenua.drawing.fillet", "strenua.drawing.chamfer",
-                 "strenua.check.snapshot" })
+                 "strenua.drawing.symmetry", "strenua.check.snapshot" })
         True(registry.TryGet(name, out var drawing) && !drawing!.Readonly && drawing.HiddenReason is null, $"{name} 要能在控制台直接敲（建图、加尺寸、写图片都不是只读）");
     True(registry.TryGet("strenua.quick.run", out var run) && !run!.Readonly, "按 key 执行会改工程图，不是只读");
     var keys = run!.Parameters!.Single(p => p.Name == "key").AllowedValues!;
@@ -516,7 +517,7 @@ static void TestClassPanels()
     foreach (var group in QuickCommands.All.GroupBy(c => c.CommandClass).Where(g => g.Key != "tech"))
         Equal(string.Join(",", group.Select(c => c.Title)), Row(group.Key));
     Equal("孔标注全流程,销钉符号,中心符号线,孔位尺寸,孔标注,销孔标注,外轮廓", Row("hole"));
-    Equal("一键出图,新建工程图,投影视图,轴测图,排版,全图圆角,全图倒角,圆角标注,倒角标注", Row("drawing"));
+    Equal("一键出图,新建工程图,投影视图,轴测图,排版,全图圆角,全图倒角,对称轴,圆角标注,倒角标注", Row("drawing"));
     // 1.13.0（用户定）：旧「技术要求」按钮删掉，「技术要求」类整支就是模板表格；1.14.0 的「写入」按钮不在这里，在最下面一行和 AI 开关并排（见 switches 那组）。
     var tech = branches.Single(branch => branch.GetProperty("case").GetString() == "技术要求");
     Equal("table", tech.GetProperty("type").GetString()!);
@@ -1234,7 +1235,7 @@ static void TestFlowCommand()
         && usage.IndexOf("→ 孔标注", StringComparison.Ordinal) < usage.IndexOf("→ 销孔标注", StringComparison.Ordinal), "步骤顺序");
     True(usage.Contains("当前图纸页", StringComparison.Ordinal), "范围是当前图纸页");
     Equal("hole-flow,dowel-symbol,center-mark,hole-position,hole-callout,dowel-fit,outline,"
-        + "drawing-auto,drawing-create,drawing-project,drawing-iso,drawing-arrange,fillet-all,chamfer-all,fillet,chamfer,check-dimension,check-dangling,check-overlap,snapshot,tech-ai",
+        + "drawing-auto,drawing-create,drawing-project,drawing-iso,drawing-arrange,fillet-all,chamfer-all,symmetry-axes,fillet,chamfer,check-dimension,check-dangling,check-overlap,snapshot,tech-ai",
         string.Join(",", QuickCommands.All.Select(command => command.Key)));
 }
 

@@ -9,7 +9,8 @@ namespace HistoryStrenua;
 /// <remarks>
 /// <para>认孔、分种与「孔标注」相同（<see cref="HoleScan"/>）；怎么标见 <see cref="HolePositionPlanner"/>：
 /// 同种孔接着前一个孔标，不同种孔从基准标；同种孔一个方向超过 4 个且等距用阵列标法「(N-1) x 间距 =总长」。
-/// 视图整个关于一根轴对称时（1.14.1，<see cref="SymmetryPlanner"/>）先插上对称轴，那个方向不再从基准边标、直接标对称轴两侧孔的距离。
+/// 视图整个关于一根轴对称时（1.14.1，<see cref="SymmetryPlanner"/>）先补上对称轴（<see cref="SymmetryAxes.Insert"/>，全图加轴另有出图类「对称轴」），
+/// 那个方向不再从基准边标、直接标对称轴两侧孔的距离。
 /// 页面「尺寸链」开关打开时（1.7.0）改为每个方向一组 SolidWorks「尺寸链」（坐标尺寸，<see cref="InsertOrdinate"/>）：
 /// 0 点是左侧 / 上侧基准边，其后每列（行）孔一个坐标值。
 /// 腰型孔只标上方那一端圆弧的圆心（1.3.0，用户定）。</para>
@@ -85,7 +86,7 @@ internal static class HolePosition
             if (symmetry.Count > 0)
             {
                 context.SetState("加对称轴");
-                (axesAdded, axesFailed) = InsertAxes(api, scan, symmetry);
+                (axesAdded, axesFailed) = SymmetryAxes.Insert(api, scan, symmetry);
             }
 
             context.SetState("加尺寸");
@@ -147,60 +148,6 @@ internal static class HolePosition
             + clearance.Describe("尺寸数字")
             + "。";
         return added == 0 && plan.Count > 0 ? QuickOutcome.Fail(message) : QuickOutcome.Ok(message);
-    }
-
-    // swAnnotationType_e.swCenterLine
-    private const int CenterLineAnnotation = 15;
-
-    /// <summary>
-    /// 对称轴（1.14.1）：视图里还没有落在这根轴上的中心线，就选左右（上下）一对对称的直边，<c>IDrawingDoc.InsertCenterLine2</c>。
-    /// 真机（SW 2025 SP5，XJ05A-01 安装板）：生成在两边正中、两头各伸出 5 mm，与用户手工插的那根完全一致；中心线注解类型 15，
-    /// 位置读回为空，线段在显示数据里（线型 6）。
-    /// </summary>
-    /// <returns>加上的根数与没插上的根数。</returns>
-    private static (int Added, int Failed) InsertAxes(SolidWorksApi api, ScannedView scan, IReadOnlyList<SymmetryAxis> axes)
-    {
-        var drawn = CenterLines(api, scan.View);
-        var (added, failed) = (0, 0);
-        foreach (var axis in axes)
-        {
-            if (SymmetryPlanner.Drawn(axis, drawn))
-                continue;
-            api.Call(scan.Document, "IModelDoc2", "ClearSelection2", true);
-            var line = SelectEdge(api, scan, scan.LineEdges[axis.FirstLine], false)
-                       && SelectEdge(api, scan, scan.LineEdges[axis.SecondLine], true)
-                ? api.Call(scan.Document, "IDrawingDoc", "InsertCenterLine2")
-                : null;
-            api.Call(scan.Document, "IModelDoc2", "ClearSelection2", true);
-            if (line is null)
-                failed++;
-            else
-                added++;
-        }
-
-        return (added, failed);
-    }
-
-    /// <summary>视图里已有中心线注解的线段（图纸坐标）。</summary>
-    private static List<SheetSegment> CenterLines(SolidWorksApi api, object view)
-    {
-        var lines = new List<SheetSegment>();
-        foreach (var annotation in api.CallArray(view, "IView", "GetAnnotations"))
-        {
-            if (annotation is null || api.CallInt(annotation, "IAnnotation", "GetType") != CenterLineAnnotation
-                || api.Call(annotation, "IAnnotation", "GetDisplayData") is not { } data)
-                continue;
-            var count = api.CallInt(data, "IDisplayData", "GetLineCount");
-            for (var i = 0; i < count; i++)
-            {
-                // [颜色, 线型, 线样式, 线宽, 起点 xyz, 终点 xyz]
-                var line = api.CallDoubles(data, "IDisplayData", "GetLineAtIndex3", i);
-                if (line.Length >= 10)
-                    lines.Add(new SheetSegment(line[4], line[5], line[7], line[8]));
-            }
-        }
-
-        return lines;
     }
 
     /// <summary>

@@ -104,6 +104,7 @@ internal static class QuickCommands
         DrawingArrange.Command,
         FilletAll.Command,
         ChamferAll.Command,
+        SymmetryAxes.Command,
         FilletDimension.Command,
         ChamferDimension.Command,
         DimensionCheck.Command,

@@ -2265,7 +2265,8 @@
             <remarks>
             <para>认孔、分种与「孔标注」相同（<see cref="T:HistoryStrenua.HoleScan"/>）；怎么标见 <see cref="T:HistoryStrenua.HolePositionPlanner"/>：
             同种孔接着前一个孔标，不同种孔从基准标；同种孔一个方向超过 4 个且等距用阵列标法「(N-1) x 间距 =总长」。
-            视图整个关于一根轴对称时（1.14.1，<see cref="T:HistoryStrenua.SymmetryPlanner"/>）先插上对称轴，那个方向不再从基准边标、直接标对称轴两侧孔的距离。
+            视图整个关于一根轴对称时（1.14.1，<see cref="T:HistoryStrenua.SymmetryPlanner"/>）先补上对称轴（<see cref="M:HistoryStrenua.SymmetryAxes.Insert(HistoryStrenua.SolidWorks.SolidWorksApi,HistoryStrenua.ScannedView,System.Collections.Generic.IReadOnlyList{HistoryStrenua.SymmetryAxis})"/>，全图加轴另有出图类「对称轴」），
+            那个方向不再从基准边标、直接标对称轴两侧孔的距离。
             页面「尺寸链」开关打开时（1.7.0）改为每个方向一组 SolidWorks「尺寸链」（坐标尺寸，<see cref="M:HistoryStrenua.HolePosition.InsertOrdinate(HistoryStrenua.SolidWorks.SolidWorksApi,HistoryStrenua.ScannedView,HistoryStrenua.OrdinateGroup,System.Object)"/>）：
             0 点是左侧 / 上侧基准边，其后每列（行）孔一个坐标值。
             腰型孔只标上方那一端圆弧的圆心（1.3.0，用户定）。</para>
@@ -2277,17 +2278,6 @@
         <member name="M:HistoryStrenua.HolePosition.Run(HistoryStrenua.QuickCommandContext,System.Object)">
             <param name="context">快捷指令上下文。</param>
             <param name="view">直接处理这个视图（全流程用）；null 时取选中的或等用户点选。</param>
-        </member>
-        <member name="M:HistoryStrenua.HolePosition.InsertAxes(HistoryStrenua.SolidWorks.SolidWorksApi,HistoryStrenua.ScannedView,System.Collections.Generic.IReadOnlyList{HistoryStrenua.SymmetryAxis})">
-            <summary>
-            对称轴（1.14.1）：视图里还没有落在这根轴上的中心线，就选左右（上下）一对对称的直边，<c>IDrawingDoc.InsertCenterLine2</c>。
-            真机（SW 2025 SP5，XJ05A-01 安装板）：生成在两边正中、两头各伸出 5 mm，与用户手工插的那根完全一致；中心线注解类型 15，
-            位置读回为空，线段在显示数据里（线型 6）。
-            </summary>
-            <returns>加上的根数与没插上的根数。</returns>
-        </member>
-        <member name="M:HistoryStrenua.HolePosition.CenterLines(HistoryStrenua.SolidWorks.SolidWorksApi,System.Object)">
-            <summary>视图里已有中心线注解的线段（图纸坐标）。</summary>
         </member>
         <member name="M:HistoryStrenua.HolePosition.Insert(HistoryStrenua.SolidWorks.SolidWorksApi,HistoryStrenua.ScannedView,System.Object,HistoryStrenua.PositionDimension)">
             <summary>
@@ -4037,6 +4027,27 @@
         </member>
         <member name="M:HistoryStrenua.StrenuaPage.TechTable(System.String)">
             <summary>技术要求模板表格（1.13.0）：一份「通用技术要求」一行；「技术要求」列是按钮，点了插那一份（换掉图上原有的）；「设置」列设默认。</summary>
+        </member>
+        <member name="T:HistoryStrenua.SymmetryAxes">
+            <summary>
+            快捷指令「对称轴」（1.14.1，出图类，用户定为单独的全图指令）：当前图纸页全部视图（轴测图跳过）里，边和孔整个关于一根轴对称的，
+            插上对称轴（中心线）；已经有落在轴上的中心线就不再加。
+            </summary>
+            <remarks>
+            判法见 <see cref="T:HistoryStrenua.SymmetryPlanner"/>（要有孔不在轴上；孔全在轴上、或没有孔的视图不加——每个矩形都对称，全加上就满图中心线）。
+            「孔位尺寸」以对称轴为基准时也调这里的 <see cref="M:HistoryStrenua.SymmetryAxes.Insert(HistoryStrenua.SolidWorks.SolidWorksApi,HistoryStrenua.ScannedView,System.Collections.Generic.IReadOnlyList{HistoryStrenua.SymmetryAxis})"/>，补上它要的那根，所以单按孔类指令不会缺轴。
+            </remarks>
+        </member>
+        <member name="M:HistoryStrenua.SymmetryAxes.Insert(HistoryStrenua.SolidWorks.SolidWorksApi,HistoryStrenua.ScannedView,System.Collections.Generic.IReadOnlyList{HistoryStrenua.SymmetryAxis})">
+            <summary>
+            视图里还没有落在这根轴上的中心线，就选左右（上下）一对对称的直边，<c>IDrawingDoc.InsertCenterLine2</c>。
+            真机（SW 2025 SP5，XJ05A-01 安装板）：生成在两边正中、两头各伸出 5 mm，与用户手工插的那根完全一致；中心线注解类型 15，
+            位置读回为空，线段在显示数据里（线型 6）。
+            </summary>
+            <returns>加上的根数与没插上的根数（已有的两样都不算）。</returns>
+        </member>
+        <member name="M:HistoryStrenua.SymmetryAxes.CenterLines(HistoryStrenua.SolidWorks.SolidWorksApi,System.Object)">
+            <summary>视图里已有中心线注解的线段（图纸坐标）。</summary>
         </member>
         <member name="T:HistoryStrenua.SymmetryAxis">
             <summary>

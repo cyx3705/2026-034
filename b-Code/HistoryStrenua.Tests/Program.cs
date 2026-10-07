@@ -28,6 +28,8 @@ var tests = new (string Name, Action Run)[]
     ("hole position: only linear dimensions on holes are redone", TestPositionObsolete),
     ("hole position: pattern prefix text", TestPatternPrefix),
     ("hole position: chain mode is one ordinate group per direction", TestPositionChain),
+    ("hole position: symmetric views measure across the axis", TestPositionSymmetry),
+    ("hole callout: opposite face holes", TestOppositeHoles),
     ("slots: two facing half circles pair up", TestSlotPairing),
     ("slots: semicircle and bulge direction", TestSlotGeometry),
     ("slots: one callout per kind, on the upper end", TestSlotCallout),
@@ -108,6 +110,155 @@ static Registrar Registry()
     var registry = new Registrar();
     HistoryStrenuaModule.Register(registry, new QuickCommandRunner(new StrenuaOptions()));
     return registry;
+}
+
+static void TestPositionSymmetry()
+{
+    // 用户 XJ05A-01 安装板的下视图（View3，图纸米）：100 × 10 的板条，两个 M3 在 x=12.5 / 87.5、y=5。
+    List<SheetSegment> strip =
+    [
+        new(0.11666, 0.12878, 0.11666, 0.13878),
+        new(0.21666, 0.12878, 0.21666, 0.13878),
+        new(0.11666, 0.13878, 0.21666, 0.13878),
+        new(0.11666, 0.12878, 0.21666, 0.12878),
+    ];
+    List<HoleEdge> pair =
+    [
+        new(0, 0.12916, 0.13378, 0.00125, "/M3"),
+        new(1, 0.20416, 0.13378, 0.00125, "/M3"),
+    ];
+    var axes = SymmetryPlanner.Axes(strip, [], pair);
+    // 左右对称；孔全在水平中线上，那个方向不算（用户示范保留了「5」）。
+    Equal(1, axes.Count);
+    Equal(PositionAxis.Horizontal, axes[0].Axis);
+    True(Math.Abs(axes[0].At - 0.16666) < 1e-9, "对称轴在板条正中");
+    Equal("0,1", $"{axes[0].FirstLine},{axes[0].SecondLine}");
+    True(SymmetryPlanner.Drawn(axes[0], [new SheetSegment(0.16666, 0.12378, 0.16666, 0.14378)]), "已有的中心线认得出");
+    True(!SymmetryPlanner.Drawn(axes[0], [new SheetSegment(0.13, 0.12378, 0.13, 0.14378)]), "别处的中心线不算");
+
+    // 以对称轴为基准：水平只标两孔之间的 75，不再从左边标 12.5；竖直照旧从上边标 5。
+    var plan = HolePositionPlanner.Plan(pair, 0.11666, 0.13878, 1, symmetric: axes.Select(a => a.Axis).ToList());
+    var horizontal = plan.Dimensions.Where(d => d.Axis == PositionAxis.Horizontal).ToList();
+    Equal(1, horizontal.Count);
+    Equal(0, horizontal[0].FromEdgeIndex);
+    Equal(1, horizontal[0].ToEdgeIndex);
+    Equal(1, plan.Dimensions.Count(d => d.Axis == PositionAxis.Vertical && d.FromEdgeIndex is null));
+    Equal(2, HolePositionPlanner.Plan(pair, 0.11666, 0.13878, 1).Dimensions.Count(d => d.Axis == PositionAxis.Horizontal));
+
+    // 边在投影里被切成两段照样算对称（按并集盖住）。
+    List<SheetSegment> split = [strip[0], strip[1], new(0.11666, 0.13878, 0.15, 0.13878), new(0.15, 0.13878, 0.21666, 0.13878), strip[3]];
+    Equal(1, SymmetryPlanner.Axes(split, [], pair).Count);
+    // 孔不对称、或对称位置上是别种孔：不算。
+    Equal(0, SymmetryPlanner.Axes(strip, [], [pair[0], pair[1] with { X = 0.20 }]).Count);
+    Equal(0, SymmetryPlanner.Axes(strip, [], [pair[0], pair[1] with { Kind = "/M4" }]).Count);
+    // 外形不对称（右下多一个缺口的斜边）：不算。
+    Equal(0, SymmetryPlanner.Axes([.. strip, new(0.20666, 0.12878, 0.21666, 0.13378)], [], pair).Count);
+
+    // 侧视图（View2）：10 × 60，三个 M4 在中线上 y=7.5/30/52.5——上下对称、中间那个正在轴上。
+    List<SheetSegment> end =
+    [
+        new(0.03694, 0.18068, 0.03694, 0.24068),
+        new(0.04694, 0.18068, 0.04694, 0.24068),
+        new(0.03694, 0.24068, 0.04694, 0.24068),
+        new(0.03694, 0.18068, 0.04694, 0.18068),
+    ];
+    List<HoleEdge> three =
+    [
+        new(0, 0.04194, 0.23318, 0.00165, "/M4"),
+        new(1, 0.04194, 0.21068, 0.00165, "/M4"),
+        new(2, 0.04194, 0.18818, 0.00165, "/M4"),
+    ];
+    var endAxes = SymmetryPlanner.Axes(end, [], three);
+    Equal(1, endAxes.Count);
+    Equal(PositionAxis.Vertical, endAxes[0].Axis);
+    Equal("2,3", $"{endAxes[0].FirstLine},{endAxes[0].SecondLine}");
+    // 同种互标：22.5 + 22.5 两段链，没有从上边到第一个孔的 7.5（用户示范）。
+    var endPlan = HolePositionPlanner.Plan(three, 0.03694, 0.24068, 1, symmetric: endAxes.Select(a => a.Axis).ToList());
+    var vertical = endPlan.Dimensions.Where(d => d.Axis == PositionAxis.Vertical).ToList();
+    Equal(2, vertical.Count);
+    True(vertical.All(d => d.FromEdgeIndex is not null), "对称方向不从基准边标");
+    True(SymmetryPlanner.OnAxis(endAxes, PositionAxis.Vertical, 0.21068), "中间那个孔在对称轴上");
+
+    // 两种孔各自对称：各自跨轴标，不互标。
+    List<HoleEdge> mixed = [.. pair, new(2, 0.14166, 0.13378, 0.001, "/D2"), new(3, 0.19166, 0.13378, 0.001, "/D2")];
+    var mixedPlan = HolePositionPlanner.Plan(mixed, 0.11666, 0.13878, 1, symmetric: [PositionAxis.Horizontal]);
+    var spans = mixedPlan.Dimensions.Where(d => d.Axis == PositionAxis.Horizontal).Select(d => $"{d.FromEdgeIndex}-{d.ToEdgeIndex}").Order().ToList();
+    Equal("0-1,2-3", string.Join(",", spans));
+}
+
+static void TestOppositeHoles()
+{
+    // 真机 XJ05A-01 安装板（100 × 60 × 10，模型米）：两端面各 3 个 M4 盲孔（轴沿 X，深 8），一头「M4螺纹孔1」、另一头是镜像出来的「镜向1」。
+    static PartCylinder Hole(double x, double y, int opening, string feature)
+        => new(new ModelDirection(1, 0, 0), new ModelDirection(x, y, 0.005), 0.00165, true, true, feature, [new ModelDirection(opening, 0, 0)],
+            opening > 0 ? x - 0.008 : x, opening > 0 ? x : x + 0.008);
+    var box = new ModelBox(0, 0, 0, 0.1, 0.06, 0.01);
+    var ys = new[] { 0.0075, 0.03, 0.0525 };
+    var same = ys.Select(y => Hole(0.1, y, 1, "M4螺纹孔1")).Concat(ys.Select(y => Hole(0, y, -1, "镜向1"))).ToList();
+    var part = new PartGeometry(box, same, []);
+    var normal = new ModelDirection(1, 0, 0);
+    // 共轴却隔着整块板：是 6 个孔，不是 3 个。
+    Equal(6, part.Holes.Count);
+    Equal((OppositeResult.Same, 3), OppositePlanner.Judge(part, normal, "/M4螺纹孔1", 0.00165, 6));
+    Equal((OppositeResult.Same, 3), OppositePlanner.Judge(part, normal, "/M4螺纹孔1", 0.00165, null));
+    Equal((OppositeResult.Same, 3), OppositePlanner.Judge(part, new ModelDirection(-1, 0, 0), "/镜向1", 0.00165, 6));
+    True(!OppositePlanner.FacesDiffer(part, normal), "两头一样不用两边都开视图");
+    Equal((OppositeResult.None, 0), OppositePlanner.Judge(part, normal, "/别的特征", 0.00165, 6));
+    Equal((OppositeResult.None, 0), OppositePlanner.Judge(part, normal, "/M4螺纹孔1", 0.0025, 6));
+    // 读不到起止（旧夹具）照旧按共轴并。
+    Equal(3, new PartGeometry(box, same.Select(c => c with { AxialMin = double.NaN }).ToList(), []).Holes.Count);
+    // 沉头与底孔首尾相接：仍是一个孔（轴向反着存也认得）。
+    var cbore = new PartCylinder(new ModelDirection(0, 0, 1), new ModelDirection(0.05, 0.03, 0), 0.003, true, true, "CB", [new ModelDirection(0, 0, 1)], 0.006, 0.01);
+    var drill = new PartCylinder(new ModelDirection(0, 0, -1), new ModelDirection(0.05, 0.03, 0), 0.0017, true, true, "CB", [], -0.006, 0);
+    Equal(1, new PartGeometry(box, [cbore, drill], []).Holes.Count);
+
+    // 中间那个底孔打穿进了窗口（孔口两头都有）：按碰不碰外表面判，仍是只开在一头的盲孔。
+    var window = same.Select(c => c.Point.Y == 0.03 && c.Feature == "镜向1" ? c with { Openings = [new(-1, 0, 0), new(1, 0, 0)] } : c).ToList();
+    Equal(OppositeResult.Same, OppositePlanner.Judge(new PartGeometry(box, window, []), normal, "/M4螺纹孔1", 0.00165, 6).Result);
+
+    // 对面一个挪了位置：不一致，要另开视图。
+    var moved = ys.Select(y => Hole(0.1, y, 1, "M4螺纹孔1")).Concat(ys.Select(y => Hole(0, y == 0.03 ? 0.04 : y, -1, "镜向1"))).ToList();
+    var movedPart = new PartGeometry(box, moved, []);
+    Equal((OppositeResult.Different, 3), OppositePlanner.Judge(movedPart, normal, "/M4螺纹孔1", 0.00165, 6));
+    Equal((OppositeResult.Different, 3), OppositePlanner.Judge(movedPart, normal, "/M4螺纹孔1", 0.00165, null));
+    True(OppositePlanner.FacesDiffer(movedPart, normal), "两头不一样");
+    // 对面少一个：也按不一致。
+    var fewer = ys.Select(y => Hole(0.1, y, 1, "M4螺纹孔1")).Concat(ys.Take(2).Select(y => Hole(0, y, -1, "镜向1"))).ToList();
+    Equal(OppositeResult.Different, OppositePlanner.Judge(new PartGeometry(box, fewer, []), normal, "/M4螺纹孔1", 0.00165, 5).Result);
+    // 中间那个一头被窗口截短：深度不同不影响（不比长度）。
+    var cut = same.Select(c => c.Point.Y == 0.03 && c.Feature == "镜向1" ? c with { AxialMax = 0.005 } : c).ToList();
+    Equal(OppositeResult.Same, OppositePlanner.Judge(new PartGeometry(box, cut, []), normal, "/M4螺纹孔1", 0.00165, 6).Result);
+    // 对面同位置同孔径、却是另一个特征单独标的（孔标注只数这一面的「3 x」）：不写「(含对面)」。
+    Equal((OppositeResult.None, 0), OppositePlanner.Judge(part, normal, "/M4螺纹孔1", 0.00165, 3));
+    // 对面孔径不同（另一种）：没有对面同种孔。
+    var other = ys.Select(y => Hole(0.1, y, 1, "M4螺纹孔1")).Concat(ys.Select(y => Hole(0, y, -1, "别的") with { Radius = 0.002 })).ToList();
+    Equal((OppositeResult.None, 0), OppositePlanner.Judge(new PartGeometry(box, other, []), normal, "/M4螺纹孔1", 0.00165, null));
+
+    // M3：两头各打 7.5 深、板厚 10，连成一个通孔——模型里 2 个，孔标注写「4 x」：两倍就是两头都有。
+    var m3 = new[] { 0.034, 0.006 }.Select(z => new PartCylinder(new ModelDirection(-1, 0, 0), new ModelDirection(0, 0.02, z), 0.00125, true, true, "M3螺纹孔1",
+        [new(1, 0, 0), new(-1, 0, 0)], -0.1, 0)).ToList();
+    var through = new PartGeometry(box, m3, []);
+    Equal((OppositeResult.Same, 2), OppositePlanner.Judge(through, normal, "/M3螺纹孔1", 0.00125, 4));
+    Equal((OppositeResult.None, 0), OppositePlanner.Judge(through, normal, "/M3螺纹孔1", 0.00125, 2));
+    Equal((OppositeResult.None, 0), OppositePlanner.Judge(through, normal, "/M3螺纹孔1", 0.00125, null));
+    True(!OppositePlanner.FacesDiffer(through, normal), "通孔不算两头不一样");
+
+    True(OppositePlanner.KindIsFeature("子装配-1/零件-1/M4螺纹孔1", "M4螺纹孔1"), "组件名带「/」只比结尾");
+    True(!OppositePlanner.KindIsFeature("/M4螺纹孔10", "M4螺纹孔1"), "特征名要整段对上");
+    True(OppositePlanner.HasMarker(["6 x  M4 - 6H ", " 10.10 (含对面)"]), "显示文字里认得出后缀");
+    True(!OppositePlanner.HasMarker(["6 x  M4 - 6H ", " 10.10"]), "没写过");
+    Equal(6, OppositePlanner.CalloutCount(["6 x  M4 - 6H ", "<HOLE-DEPTH>"]));
+    Equal(2, OppositePlanner.CalloutCount(["H7", "2 x ", "<MOD-DIAM>"]));
+    Equal<int?>(null, OppositePlanner.CalloutCount(["<MOD-DIAM>", " 3.30 "]));
+
+    // 投影视图：主视图看板面（前视），侧面沿图纸横向两头的孔不一样就左右都加，只认正好那一边已有的视图。
+    var front = StandardView.Of("front");
+    var differ = DrawingPlanner.SideViews(movedPart, Frame(front), firstAngle: true);
+    Equal("Right,Left", string.Join(",", differ.Select(side => side.Slot)));
+    True(differ.All(side => side.Exact && side.Alternative is null), "两边都要、各认各的");
+    var alike = DrawingPlanner.SideViews(part, Frame(front), firstAngle: true);
+    Equal(1, alike.Count);
+    True(!alike[0].Exact, "两头一样只加一个");
 }
 
 static void TestCommandRegistration()

@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using HistoryStrenua.SolidWorks;
 
 namespace HistoryStrenua;
 
@@ -8,6 +9,10 @@ namespace HistoryStrenua;
 /// <remarks>
 /// 真机上第一遍删除偶有漏删（中心符号线实测），而 <c>EditDelete</c> 没有返回值，
 /// 删掉几个只能靠回读数出来。所以每遍删完都重新读一次视图，最多 <see cref="Passes"/> 遍。
+/// <para>
+/// 给了视图时（1.14.1）删完把视图里其余尺寸放回原处：真机上删掉里层的尺寸，SolidWorks 会把外层的尺寸往里收一层
+/// （XJ05A-01 侧视图：删掉孔位「5」，外轮廓「10」从第二层掉到第一层，重标的「5」又落在第一层，两个叠在一起）。
+/// </para>
 /// </remarks>
 internal static class AnnotationEraser
 {
@@ -19,12 +24,17 @@ internal static class AnnotationEraser
     /// <param name="context">快捷指令上下文。</param>
     /// <param name="document">活动工程图。</param>
     /// <param name="readObsolete">现读视图，返回此刻还该删的注解（<c>IAnnotation</c>）。</param>
+    /// <param name="view">给了就在删完后把这个视图里其余尺寸放回删之前的位置（<c>IView</c>）。</param>
     /// <returns>删掉的个数与最后仍在的个数。</returns>
-    public static (int Removed, int Leftover) Erase(QuickCommandContext context, object document, Func<IReadOnlyList<object>> readObsolete)
+    public static (int Removed, int Leftover) Erase(QuickCommandContext context, object document, Func<IReadOnlyList<object>> readObsolete, object? view = null)
     {
         var api = context.Api;
         var obsolete = readObsolete();
         var initial = obsolete.Count;
+        var doomed = obsolete.Select(annotation => Name(api, annotation)).ToHashSet(StringComparer.Ordinal);
+        Dictionary<string, double[]> places = view is null || initial == 0
+            ? new Dictionary<string, double[]>()
+            : DimensionPlaces(api, view).Where(place => !doomed.Contains(place.Key)).ToDictionary(place => place.Key, place => place.Value.Position);
         for (var pass = 0; pass < Passes && obsolete.Count > 0; pass++)
         {
             foreach (var annotation in obsolete)
@@ -46,6 +56,54 @@ internal static class AnnotationEraser
             obsolete = readObsolete();
         }
 
+        if (view is not null && places.Count > 0)
+            Restore(api, view, places);
         return (initial - obsolete.Count, obsolete.Count);
+    }
+
+    /// <summary>把视图里还在的尺寸挪回 <paramref name="places"/> 记下的位置（挪动不到 0.01 mm 的不动）。</summary>
+    private static void Restore(SolidWorksApi api, object view, IReadOnlyDictionary<string, double[]> places)
+    {
+        foreach (var (name, (annotation, position)) in DimensionPlaces(api, view))
+        {
+            if (!places.TryGetValue(name, out var before) || before.Length < 3 || position.Length < 3
+                || Math.Abs(before[0] - position[0]) + Math.Abs(before[1] - position[1]) < 1e-5)
+                continue;
+            try
+            {
+                api.Call(annotation, "IAnnotation", "SetPosition2", before[0], before[1], before[2]);
+            }
+            catch (COMException ex) when (ex.HResult == Disconnected)
+            {
+                // 跟着删掉的组一起重建了：放不回去就算了。
+            }
+        }
+    }
+
+    /// <summary>视图里每个尺寸：注解名 →（注解、位置）。</summary>
+    private static Dictionary<string, (object Annotation, double[] Position)> DimensionPlaces(SolidWorksApi api, object view)
+    {
+        var places = new Dictionary<string, (object, double[])>(StringComparer.Ordinal);
+        var dimension = api.Call(view, "IView", "GetFirstDisplayDimension5");
+        while (dimension is not null)
+        {
+            if (api.Call(dimension, "IDisplayDimension", "GetAnnotation") is { } annotation)
+                places[Name(api, annotation)] = (annotation, api.CallDoubles(annotation, "IAnnotation", "GetPosition"));
+            dimension = api.Call(dimension, "IDisplayDimension", "GetNext5");
+        }
+
+        return places;
+    }
+
+    private static string Name(SolidWorksApi api, object annotation)
+    {
+        try
+        {
+            return api.CallString(annotation, "IAnnotation", "GetName");
+        }
+        catch (COMException ex) when (ex.HResult == Disconnected)
+        {
+            return string.Empty;
+        }
     }
 }

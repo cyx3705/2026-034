@@ -163,11 +163,21 @@ internal static class DrawingPlanner
         var alongY = Count(part, holes, u);
 
         // 沿图纸 X：摆右边的视图在第一角投影里看 −X 那一侧。窗口两面都看得到，不影响摆哪边；倒角（1.10.0）沿这个方向看才成斜线、才标得了。
+        // 1.14.1：两头都有孔、位置对不上（OppositePlanner.FacesDiffer）就两边都加——从一边看只看得到朝它开口的那些。
         if (alongX.Holes + alongX.Windows + alongX.Chamfers > 0)
         {
             var rightShows = firstAngle ? alongX.Minus : alongX.Plus;
             var leftShows = firstAngle ? alongX.Plus : alongX.Minus;
-            result.Add(new SideView(rightShows >= leftShows ? ViewSlot.Right : ViewSlot.Left, "侧面沿图纸横向有" + Features(alongX.Holes, alongX.Windows, alongX.Chamfers)));
+            var reason = "侧面沿图纸横向有" + Features(alongX.Holes, alongX.Windows, alongX.Chamfers);
+            if (OppositePlanner.FacesDiffer(part, r))
+            {
+                result.Add(new SideView(ViewSlot.Right, reason + "，两头的孔不一样", Exact: true));
+                result.Add(new SideView(ViewSlot.Left, reason + "，两头的孔不一样", Exact: true));
+            }
+            else
+            {
+                result.Add(new SideView(rightShows >= leftShows ? ViewSlot.Right : ViewSlot.Left, reason));
+            }
         }
 
         // 沿图纸 Y：摆下边的视图在第一角投影里看 +Y 那一侧（零件上面）。
@@ -175,7 +185,16 @@ internal static class DrawingPlanner
         {
             var belowShows = firstAngle ? alongY.Plus : alongY.Minus;
             var aboveShows = firstAngle ? alongY.Minus : alongY.Plus;
-            result.Add(new SideView(belowShows >= aboveShows ? ViewSlot.Below : ViewSlot.Above, "侧面沿图纸竖向有" + Features(alongY.Holes, alongY.Windows, alongY.Chamfers)));
+            var reason = "侧面沿图纸竖向有" + Features(alongY.Holes, alongY.Windows, alongY.Chamfers);
+            if (OppositePlanner.FacesDiffer(part, u))
+            {
+                result.Add(new SideView(ViewSlot.Below, reason + "，两头的孔不一样", Exact: true));
+                result.Add(new SideView(ViewSlot.Above, reason + "，两头的孔不一样", Exact: true));
+            }
+            else
+            {
+                result.Add(new SideView(belowShows >= aboveShows ? ViewSlot.Below : ViewSlot.Above, reason));
+            }
         }
 
         if (result.Count > 0)
@@ -888,5 +907,8 @@ internal sealed record DrawingTemplate(string Path, string Name, double Width, d
 /// <summary>选定的模板、比例、投影视图摆法与按估计排出的版面。</summary>
 internal sealed record SheetChoice(DrawingTemplate Template, double Scale, LayoutResult Layout, IReadOnlyList<ViewSlot> Slots, string Reason);
 
-/// <summary>一个投影视图：摆在主视图哪边、为什么要它；<see cref="Alternative"/> 不为空时也可以摆到那一边（看厚度、只看圆弧的视图）。</summary>
-internal sealed record SideView(ViewSlot Slot, string Reason, ViewSlot? Alternative = null);
+/// <summary>
+/// 一个投影视图：摆在主视图哪边、为什么要它；<see cref="Alternative"/> 不为空时也可以摆到那一边（看厚度、只看圆弧的视图）。
+/// <see cref="Exact"/>（1.14.1）：两头的孔不一样、两边都要——只有正好这一边已有视图才算有了，对面那边的不算。
+/// </summary>
+internal sealed record SideView(ViewSlot Slot, string Reason, ViewSlot? Alternative = null, bool Exact = false);

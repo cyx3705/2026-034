@@ -30,7 +30,7 @@ internal sealed record ViewCheck(
 /// <item>孔标注：每种孔（同孔标注的分种）要有一个孔标注连在这种的某个孔上。</item>
 /// <item>孔位：每个孔（腰型孔取上端）水平、竖直各要有尺寸定位——有一个沿这个方向量的线性 / 坐标尺寸，某一头落在这个孔的中心线上
 /// （连这个孔、连同一中心线上的别的孔、连穿过孔心的中心线都算，同孔位尺寸「按中心线标」）；阵列标法的尺寸跨度里的孔也算；
-/// 正好在基准边上的不用标。</item>
+/// 正好在基准边上的不用标；视图整个对称时正好在对称轴上的也不用标（1.14.1）。</item>
 /// <item>销孔：每种销孔的孔标注带 H7；相邻销孔之间的尺寸在且带对称公差（同 <see cref="DowelFitPlanner"/>）。</item>
 /// <item>外轮廓：每站（<see cref="OutlinePlanner.Stations"/>）要有一个沿这个方向量的尺寸某一头落在这条边上。本视图没有的交给调用方，
 /// 同一模型别的视图里已有尺寸把它定了也算标过（总长总宽常在另一个视图里标；1.8.1 起按模型面判，见 <see cref="OutlineCoverage"/>）。</item>
@@ -70,6 +70,7 @@ internal static class DimensionCheckPlanner
 
         // 孔位：每个孔两个方向。
         var positioned = existing.Where(dimension => dimension.Linear || dimension.Ordinate).ToList();
+        var symmetry = SymmetryPlanner.Axes(lines, curves, holes);
         foreach (var hole in HoleCalloutPlanner.Representatives(holes))
         {
             var missing = new List<string>();
@@ -78,6 +79,9 @@ internal static class DimensionCheckPlanner
                 var coordinate = axis == PositionAxis.Horizontal ? hole.X : hole.Y;
                 var datum = axis == PositionAxis.Horizontal ? left : top;
                 if (datum is { } d && DimensionGeometry.Same(d, coordinate))
+                    continue;
+                // 1.14.1：正好在对称轴上的孔由对称轴定位，这个方向不用尺寸。
+                if (SymmetryPlanner.OnAxis(symmetry, axis, coordinate))
                     continue;
                 if (!Located(positioned, axis, coordinate, scale))
                     missing.Add(axis == PositionAxis.Horizontal ? "水平" : "竖直");

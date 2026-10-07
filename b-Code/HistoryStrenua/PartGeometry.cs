@@ -30,6 +30,11 @@ internal readonly record struct ModelBox(double MinX, double MinY, double MinZ, 
 /// <param name="Full">整圈：边里有一条没有端点的整圆（孔、凸台）；圆角、腰型孔端头只有一段弧。</param>
 /// <param name="Feature">所属特征名，取不到为空。</param>
 /// <param name="Openings">孔口朝哪些方向（只对内凹整圈的孔有意义）：整圆边旁边那张平面的外法向，且这张平面在圆柱面的这一头。</param>
+/// <param name="AxialMin">
+/// 面沿 <paramref name="Axis"/> 的起止（面包围盒八个角点乘轴向的最小 / 最大，米；1.14.1）。同一根轴线上的两段圆柱面只有首尾相接才是同一个孔——
+/// 板两端面同位置的盲孔共轴却隔着整块板，首版不看这个，把它们并成一个孔。读不到（旧夹具）为 NaN，照旧按共轴并。
+/// </param>
+/// <param name="AxialMax">同上，最大。</param>
 internal sealed record PartCylinder(
     ModelDirection Axis,
     ModelDirection Point,
@@ -37,7 +42,9 @@ internal sealed record PartCylinder(
     bool Concave,
     bool Full,
     string Feature,
-    IReadOnlyList<ModelDirection> Openings);
+    IReadOnlyList<ModelDirection> Openings,
+    double AxialMin = double.NaN,
+    double AxialMax = double.NaN);
 
 /// <summary>
 /// 零件上一张平面倒角（1.10.0）：倒角特征做的平面。沿 <see cref="Axis"/> 看它侧着成一条斜线，倒角尺寸要标在这样的视图里。
@@ -90,8 +97,27 @@ internal sealed record PartGeometry(
 /// <param name="Radius">最小的半径（底孔 / 螺纹底孔）。</param>
 /// <param name="Kind">种：最小那张面的特征 + 孔径，与工程图里「每种孔标一次」同一口径的近似。</param>
 /// <param name="Openings">孔口朝向：取最粗那一截的（沉头孔只朝沉头那面，通孔两面）。</param>
-internal sealed record PartHole(ModelDirection Axis, double Radius, string Kind, IReadOnlyList<ModelDirection> Openings)
+/// <param name="Point">轴线上的一点（米，当作向量存；1.14.1 判对面孔位置用）。</param>
+/// <param name="Feature">最小那张面的特征名（1.14.1，与工程图里孔的「种」对照用）。</param>
+/// <param name="AxialMin">孔沿 <paramref name="Axis"/> 的起止（各段并起来，米；1.14.1）；读不到为 NaN。</param>
+/// <param name="AxialMax">同上，最大。</param>
+/// <param name="Shape">
+/// 孔的形状（1.14.1）：各段半径由细到粗排起来（0.001 mm）。镜像、阵列出来的孔特征名不同、形状相同——
+/// 安装板一头是「M4 螺纹孔1」、另一头是镜像出来的，SolidWorks 的孔标注照样数成「6 x」。不比长度：
+/// 那块板中间的 M4 一头打进了窗口被截短、另一头没有，比长度就成了两种（是不是同一个孔标注里的，由「N x」把关，见 <see cref="OppositePlanner"/>）。
+/// </param>
+internal sealed record PartHole(
+    ModelDirection Axis, double Radius, string Kind, IReadOnlyList<ModelDirection> Openings, ModelDirection Point = default, string Feature = "",
+    double AxialMin = double.NaN, double AxialMax = double.NaN, string Shape = "")
 {
+    /// <summary>沿 <paramref name="direction"/> 的起止（方向与轴相反时翻过来）；读不到为 null。</summary>
+    public (double Min, double Max)? RangeAlong(ModelDirection direction)
+    {
+        if (double.IsNaN(AxialMin) || double.IsNaN(AxialMax))
+            return null;
+        return Axis.Dot(direction) >= 0 ? (AxialMin, AxialMax) : (-AxialMax, -AxialMin);
+    }
+
     /// <summary>两条轴线算同一条：方向平行、相距不到 0.02 mm。</summary>
     public const double AxisTolerance = 2e-5;
 
@@ -101,7 +127,7 @@ internal sealed record PartHole(ModelDirection Axis, double Radius, string Kind,
         var groups = new List<List<PartCylinder>>();
         foreach (var wall in walls)
         {
-            var group = groups.FirstOrDefault(existing => SameAxis(existing[0], wall));
+            var group = groups.FirstOrDefault(existing => SameAxis(existing[0], wall) && existing.Any(member => Touch(member, wall)));
             if (group is null)
                 groups.Add([wall]);
             else
@@ -116,9 +142,32 @@ internal sealed record PartHole(ModelDirection Axis, double Radius, string Kind,
                 // 通孔只有一截、两头都算。
                 var widest = group.MaxBy(cylinder => cylinder.Radius)!;
                 var kind = smallest.Feature + "/" + Math.Round(smallest.Radius * 2000, 2).ToString(System.Globalization.CultureInfo.InvariantCulture);
-                return new PartHole(smallest.Axis, smallest.Radius, kind, widest.Openings);
+                var shape = string.Join(";", group.Select(member => Math.Round(member.Radius * 1e6)).Distinct().Order());
+                var ranges = group.Select(member => Range(member, smallest.Axis)).ToList();
+                if (ranges.Any(range => range is null))
+                    return new PartHole(smallest.Axis, smallest.Radius, kind, widest.Openings, smallest.Point, smallest.Feature, Shape: shape);
+                return new PartHole(smallest.Axis, smallest.Radius, kind, widest.Openings, smallest.Point, smallest.Feature,
+                    ranges.Min(range => range!.Value.Min), ranges.Max(range => range!.Value.Max), shape);
             })
             .ToList();
+    }
+
+    /// <summary>圆柱面沿 <paramref name="axis"/> 的起止（方向相反时翻过来）；读不到为 null。</summary>
+    private static (double Min, double Max)? Range(PartCylinder cylinder, ModelDirection axis)
+    {
+        if (double.IsNaN(cylinder.AxialMin) || double.IsNaN(cylinder.AxialMax))
+            return null;
+        return cylinder.Axis.Dot(axis) >= 0 ? (cylinder.AxialMin, cylinder.AxialMax) : (-cylinder.AxialMax, -cylinder.AxialMin);
+    }
+
+    /// <summary>两段共轴圆柱面沿轴首尾相接或重叠（相差不到 <see cref="AxisTolerance"/>）；读不到起止的当相接（1.14.1）。</summary>
+    private static bool Touch(PartCylinder a, PartCylinder b)
+    {
+        if (double.IsNaN(a.AxialMin) || double.IsNaN(a.AxialMax) || double.IsNaN(b.AxialMin) || double.IsNaN(b.AxialMax))
+            return true;
+        // 起止按各自的轴向量，方向相反时翻过来。
+        var (min, max) = a.Axis.Dot(b.Axis) >= 0 ? (b.AxialMin, b.AxialMax) : (-b.AxialMax, -b.AxialMin);
+        return min <= a.AxialMax + AxisTolerance && max >= a.AxialMin - AxisTolerance;
     }
 
     private static bool SameAxis(PartCylinder a, PartCylinder b)

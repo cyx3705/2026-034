@@ -142,7 +142,8 @@ internal static class PartScan
             }
         }
 
-        return new PartCylinder(axis, point, radius, concave, circles.Count > 0, FeatureName(api, face), openings);
+        var (axialMin, axialMax) = AxialRange(api, face, axis);
+        return new PartCylinder(axis, point, radius, concave, circles.Count > 0, FeatureName(api, face), openings, axialMin, axialMax);
     }
 
     /// <summary>平面上的窗口数：内环（<c>ILoop2.IsOuter</c> 为假）里不是单独一条整圆边的（单独整圆是圆孔，已按孔算）。</summary>
@@ -164,6 +165,19 @@ internal static class PartScan
         }
 
         return count;
+    }
+
+    /// <summary>
+    /// 面沿轴向的起止（1.14.1，<see cref="PartCylinder.AxialMin"/>）：包围盒八个角点乘轴向取最小、最大。轴沿坐标轴时就是面的真实起止，
+    /// 斜着的轴会偏大（多并不少并，与旧行为一致）。读不到为 NaN。
+    /// </summary>
+    private static (double Min, double Max) AxialRange(SolidWorksApi api, object face, ModelDirection axis)
+    {
+        var box = api.CallDoubles(face, "IFace2", "GetBox");
+        if (box.Length < 6)
+            return (double.NaN, double.NaN);
+        var values = new ModelBox(box[0], box[1], box[2], box[3], box[4], box[5]).Corners().Select(corner => corner.Dot(axis)).ToList();
+        return (values.Min(), values.Max());
     }
 
     /// <summary>圆柱面沿轴线的中点（取面的包围盒中心投到轴上），读不到返回 null。</summary>

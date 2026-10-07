@@ -11,6 +11,7 @@ namespace HistoryStrenua;
 /// 腰型孔选它一端的圆弧加孔标注，与圆孔同一个 <c>AddHoleCallout2</c>，规格由 SolidWorks 一次写全。
 /// 最后做标注避障（1.6.0，<see cref="Clearance.ClearCallouts"/>）：视图里孔标注的文字压在别的孔相关注解上就换角位，
 /// 已有的孔标注也算。1.7.0 起受页面「避障」开关控制（默认开）。
+/// 避障之前看对面（1.14.1，<see cref="MarkOpposite"/>）：对面的同种孔与这一面同位置，孔标注后面写「(含对面)」。
 /// </remarks>
 internal static class HoleCallout
 {
@@ -19,7 +20,7 @@ internal static class HoleCallout
         CommandName: StrenuaIdentity.Domain + ".hole.callout",
         Title: "孔标注",
         Summary: "点一个工程图视图，视图里每种孔（含腰型孔）各标一次孔标注，已有标注的种跳过。",
-        Usage: "在工程图里点一个视图（先点后按、先按后点都行，60 秒内），该视图里每种孔（含腰型孔）标一次（数量由 SolidWorks 的 N× 带出）；已有标注的种跳过。「避障」开关开着时最后避障：孔标注文字压在别的孔的尺寸、中心符号线等线条上就换到孔的另一个角。",
+        Usage: "在工程图里点一个视图（先点后按、先按后点都行，60 秒内），该视图里每种孔（含腰型孔）标一次（数量由 SolidWorks 的 N× 带出）；已有标注的种跳过。零件对面（背面）的同种孔与这一面位置一一相同时，这种的孔标注后面写「(含对面)」（SolidWorks 的 N× 把两面都数进去了，视图只看得到这一面）；对面位置不同时回执提示要从对面再开一个视图。「避障」开关开着时最后避障：孔标注文字压在别的孔的尺寸、中心符号线等线条上就换到孔的另一个角。",
         Run: context => Run(context, null));
 
     /// <summary>首次落位时文字中心放在折点左边多远（图纸上 20 mm），只是让文字先落在左边。</summary>
@@ -47,6 +48,7 @@ internal static class HoleCallout
         var added = 0;
         var failed = 0;
         var clearance = default(ClearanceResult);
+        var opposite = default(OppositeMarks);
         _ = api.Call(document, "IDrawingDoc", "ActivateView", viewName);
         try
         {
@@ -69,6 +71,9 @@ internal static class HoleCallout
                     AlignShoulder(api, annotation, target.Placement, textLeft: true);
             }
 
+            context.SetState("对面孔");
+            opposite = MarkOpposite(context, scan);
+
             if (context.Options.Clearance)
             {
                 context.SetState("避障");
@@ -84,9 +89,121 @@ internal static class HoleCallout
         var message = $"视图「{viewName}」：{plan.Summary}，新加 {added} 个孔标注"
             + (plan.AlreadyAnnotated > 0 ? $"，{plan.AlreadyAnnotated} 种已有标注跳过" : string.Empty)
             + (failed > 0 ? $"，{failed} 个 SolidWorks 没有接受" : string.Empty)
+            + opposite.Describe()
             + clearance.Describe("孔标注")
             + "。";
         return added == 0 && plan.Targets.Count > 0 ? QuickOutcome.Fail(message) : QuickOutcome.Ok(message);
+    }
+
+    // swDimensionTextParts_e.swDimensionTextSuffix / swDocumentTypes_e.swDocPART
+    private const int TextSuffix = 2;
+    private const int DocumentPart = 1;
+
+    /// <summary>「(含对面)」做了什么（1.14.1）：写上的、已有的、去掉的种数，对面位置不同的种数与孔数。</summary>
+    internal readonly record struct OppositeMarks(int Marked, int Already, int Cleared, int DifferentKinds, int DifferentHoles)
+    {
+        public string Describe()
+            => (Marked > 0 ? $"，{Marked} 种对面同位置的写了「(含对面)」" : string.Empty)
+               + (Already > 0 ? $"，{Already} 种已写「(含对面)」" : string.Empty)
+               + (Cleared > 0 ? $"，{Cleared} 种对面已不同位置、去掉了「(含对面)」" : string.Empty)
+               + (DifferentKinds > 0
+                   ? $"；{DifferentKinds} 种孔对面另有 {DifferentHoles} 个、位置与这一面不同，这个视图看不全，要从对面再开一个视图（「投影视图」会两边都加）"
+                   : string.Empty);
+    }
+
+    /// <summary>
+    /// 对面孔（1.14.1，用户定，判法见 <see cref="OppositePlanner"/>）：视图里每种孔，对面的同种孔与这一面一一同位置，就在这种的孔标注
+    /// 后缀写「(含对面)」；不再同位置了就去掉。只看零件视图（装配视图不读模型，跳过）。
+    /// </summary>
+    /// <remarks>
+    /// 写在孔标注的<b>后缀</b>（<c>SetText(swDimensionTextSuffix)</c>）：真机上它接在整段文字最后（「⌀3.30 ↓10.10 (含对面)」），
+    /// 不动孔标注里的变量（改上方那行要把「6 x」等写死）。<c>GetText(后缀)</c> 读回总是空的，有没有写过看显示数据里的文字。
+    /// 文字变长后引线折点会跟着动，按写之前的折点再对一次（<see cref="AlignShoulder"/>）。
+    /// </remarks>
+    private static OppositeMarks MarkOpposite(QuickCommandContext context, ScannedView scan)
+    {
+        var api = context.Api;
+        var model = api.Call(scan.View, "IView", "get_ReferencedDocument");
+        if (model is null || api.CallInt(model, "IModelDoc2", "GetType") != DocumentPart)
+            return default;
+
+        var part = PartScan.Read(context, model);
+        var normal = scan.Geometry.Frame.Normal;
+        var scale = scan.Geometry.Scale;
+        var kinds = HoleCalloutPlanner.GroupKinds(HoleCalloutPlanner.Recognize(scan.Candidates).Where(hole => hole.Slot < 0));
+        var callouts = Callouts(api, scan);
+        int marked = 0, already = 0, cleared = 0, differentKinds = 0, differentHoles = 0;
+        foreach (var kind in kinds)
+        {
+            context.Cancellation.ThrowIfCancellationRequested();
+            var mine = callouts.Where(c => kind.Any(hole => HoleCalloutPlanner.SameCenter(c.Center, new SheetPoint(hole.X, hole.Y)))).ToList();
+            var count = mine.Select(c => OppositePlanner.CalloutCount(Texts(api, c.Annotation))).FirstOrDefault(n => n is not null);
+            var (result, back) = OppositePlanner.Judge(part, normal, kind[0].Kind, kind[0].Radius / scale, count);
+            if (result == OppositeResult.Different)
+            {
+                differentKinds++;
+                differentHoles += back;
+            }
+
+            var want = result == OppositeResult.Same;
+            foreach (var callout in mine)
+            {
+                if (OppositePlanner.HasMarker(Texts(api, callout.Annotation)) == want)
+                {
+                    if (want)
+                        already++;
+                    continue;
+                }
+
+                var shoulder = ShoulderTowards(api, callout.Annotation, callout.Center);
+                api.Call(callout.Display, "IDisplayDimension", "SetText", TextSuffix, want ? OppositePlanner.Suffix : string.Empty);
+                if (shoulder is { } s)
+                    AlignShoulder(api, callout.Annotation, s.Point, s.TextLeft);
+                if (want)
+                    marked++;
+                else
+                    cleared++;
+            }
+        }
+
+        return new OppositeMarks(marked, already, cleared, differentKinds, differentHoles);
+    }
+
+    /// <summary>视图里的孔标注：注解、显示尺寸、所指孔心。</summary>
+    private static List<(object Annotation, object Display, SheetPoint Center)> Callouts(SolidWorksApi api, ScannedView scan)
+    {
+        var callouts = new List<(object, object, SheetPoint)>();
+        var dimension = api.Call(scan.View, "IView", "GetFirstDisplayDimension5");
+        while (dimension is not null)
+        {
+            if (api.CallBool(dimension, "IDisplayDimension", "IsHoleCallout")
+                && api.Call(dimension, "IDisplayDimension", "GetAnnotation") is { } annotation
+                && AttachedCircleCenters(api, scan.Geometry, annotation).Cast<SheetPoint?>().FirstOrDefault() is { } center)
+                callouts.Add((annotation, dimension, center));
+            dimension = api.Call(dimension, "IDisplayDimension", "GetNext5");
+        }
+
+        return callouts;
+    }
+
+    /// <summary>注解显示出来的各段文字。</summary>
+    private static IEnumerable<string> Texts(SolidWorksApi api, object annotation)
+    {
+        if (api.Call(annotation, "IAnnotation", "GetDisplayData") is not { } data)
+            yield break;
+        var count = api.CallInt(data, "IDisplayData", "GetTextCount");
+        for (var i = 0; i < count; i++)
+            yield return api.CallString(data, "IDisplayData", "GetTextAtIndex", i);
+    }
+
+    /// <summary>
+    /// 孔标注现在的引线折点：下划线两端里离孔心近的那一头（引线从那头斜下去），文字在另一侧。读不到下划线返回 null。
+    /// </summary>
+    private static (SheetPoint Point, bool TextLeft)? ShoulderTowards(SolidWorksApi api, object annotation, SheetPoint hole)
+    {
+        if (Shoulder(api, annotation, textLeft: true) is not { } right || Shoulder(api, annotation, textLeft: false) is not { } left)
+            return null;
+        return Math.Abs(right.X - hole.X) <= Math.Abs(left.X - hole.X) ? (right, true) : (left, false);
     }
 
     /// <summary>

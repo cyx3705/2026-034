@@ -46,11 +46,13 @@ internal static class DrawingProject
         for (var i = 0; i < planned.Count; i++)
         {
             context.Cancellation.ThrowIfCancellationRequested();
-            var (_, reason, alternative) = planned[i];
+            var (_, reason, alternative, _) = planned[i];
             var slot = slots[i];
             // 那个方向（可换边的两个方向都算）已经有视图看着就不再加：横向的孔左视图、右视图都看得到。
+            // 两头的孔不一样（1.14.1，Exact）时左右（上下）各要一个，只认正好这一边的。
             var directions = new[] { planned[i].Slot, alternative ?? planned[i].Slot }.Select(DrawingPlanner.Horizontal).ToHashSet();
-            if (existing.FirstOrDefault(pair => directions.Contains(DrawingPlanner.Horizontal(pair.Key))) is { Value: not null } seen)
+            var exact = planned[i].Exact;
+            if (existing.FirstOrDefault(pair => exact ? pair.Key == slot : directions.Contains(DrawingPlanner.Horizontal(pair.Key))) is { Value: not null } seen)
             {
                 lines.Add($"· {reason}：{DrawingSheet.SlotName(seen.Key)}已有「{DrawingSheet.Name(api, seen.Value)}」，不再加。");
                 continue;

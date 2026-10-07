@@ -9,6 +9,7 @@ namespace HistoryStrenua;
 /// <remarks>
 /// <para>认孔、分种与「孔标注」相同（<see cref="HoleScan"/>）；怎么标见 <see cref="HolePositionPlanner"/>：
 /// 同种孔接着前一个孔标，不同种孔从基准标；同种孔一个方向超过 4 个且等距用阵列标法「(N-1) x 间距 =总长」。
+/// 视图整个关于一根轴对称时（1.14.1，<see cref="SymmetryPlanner"/>）先插上对称轴，那个方向不再从基准边标、直接标对称轴两侧孔的距离。
 /// 页面「尺寸链」开关打开时（1.7.0）改为每个方向一组 SolidWorks「尺寸链」（坐标尺寸，<see cref="InsertOrdinate"/>）：
 /// 0 点是左侧 / 上侧基准边，其后每列（行）孔一个坐标值。
 /// 腰型孔只标上方那一端圆弧的圆心（1.3.0，用户定）。</para>
@@ -23,7 +24,7 @@ internal static class HolePosition
         CommandName: StrenuaIdentity.Domain + ".hole.position",
         Title: "孔位尺寸",
         Summary: "点一个工程图视图，删掉孔的旧位置尺寸后以零件左侧、上侧直边为基准重标全部孔位尺寸。",
-        Usage: "在工程图里点一个视图（先点后按、先按后点都行，60 秒内），该视图里全部的孔删掉旧位置尺寸（含悬空的线性尺寸）后，以零件左侧、上侧直边为基准重标：同种孔接着前一个标，不同种从基准标；同种一个方向超过 4 个且等距时标「(N-1) x 间距 =总长」（页面「尺寸链」开关打开时改用 SolidWorks 尺寸链：每个方向一组坐标尺寸，0 点在零件左侧 / 上侧直边，文字排在零件外一列）；腰型孔标在上方那个圆上；「避障」开关开着时，数字压在别的孔的尺寸、中心符号线等线条上就沿尺寸线滑开。",
+        Usage: "在工程图里点一个视图（先点后按、先按后点都行，60 秒内），该视图里全部的孔删掉旧位置尺寸（含悬空的线性尺寸）后，以零件左侧、上侧直边为基准重标：同种孔接着前一个标，不同种从基准标；视图里的边和孔整个左右（或上下）对称、且有孔不在对称轴上时，先加对称轴（中心线），那个方向改以对称轴为基准、直接标对称轴两侧同种孔之间的距离（不同种照样不互标）；同种一个方向超过 4 个且等距时标「(N-1) x 间距 =总长」（页面「尺寸链」开关打开时改用 SolidWorks 尺寸链：每个方向一组坐标尺寸，0 点在零件左侧 / 上侧直边，文字排在零件外一列）；腰型孔标在上方那个圆上；「避障」开关开着时，数字压在别的孔的尺寸、中心符号线等线条上就沿尺寸线滑开。",
         Run: context => Run(context, null));
 
     // swDimensionTextParts_e / swSelectType_e / swAddOrdinateDims_e
@@ -53,8 +54,12 @@ internal static class HolePosition
         }
 
         var chain = context.Options.Chain;
-        var plan = HolePositionPlanner.Plan(scan.Candidates, scan.Lines[l].X1, scan.Lines[t].Y1, scan.Geometry.Scale, chain);
+        // 1.14.1：整个视图关于某根轴对称就以对称轴为基准（尺寸链模式不管，照旧从直边量）。
+        var symmetry = chain ? [] : SymmetryPlanner.Axes(scan.Lines, scan.CurveSegments, holes);
+        var plan = HolePositionPlanner.Plan(scan.Candidates, scan.Lines[l].X1, scan.Lines[t].Y1, scan.Geometry.Scale, chain,
+            symmetry.Select(axis => axis.Axis).ToList());
         context.Report($"孔位尺寸：视图「{viewName}」认出 {plan.Summary}，"
+            + (symmetry.Count > 0 ? $"关于{string.Join("、", symmetry.Select(axis => axis.Name))}对称，" : string.Empty)
             + $"删掉孔上的旧位置尺寸后标 {plan.Count} 个"
             + (chain ? "（尺寸链模式）。" : $"（阵列 {plan.PatternCount} 个）。"));
         _ = api.Call(document, "IDrawingDoc", "ActivateView", viewName);
@@ -64,15 +69,23 @@ internal static class HolePosition
         var onCenterLines = 0;
         var failed = 0;
         var nativeChains = 0;
+        var axesAdded = 0;
+        var axesFailed = 0;
         var clearance = default(ClearanceResult);
         try
         {
             context.SetState("删旧尺寸");
-            (removed, var leftover) = AnnotationEraser.Erase(context, document, () => ReadObsolete(api, scan, holes));
+            (removed, var leftover) = AnnotationEraser.Erase(context, document, () => ReadObsolete(api, scan, holes), scan.View);
             if (leftover > 0)
             {
                 return QuickOutcome.Fail($"视图「{viewName}」：有 {leftover} 个旧位置尺寸删不掉，没有重标（已删 {removed} 个）。"
                     + "请在 SolidWorks 里手工删掉后再按。");
+            }
+
+            if (symmetry.Count > 0)
+            {
+                context.SetState("加对称轴");
+                (axesAdded, axesFailed) = InsertAxes(api, scan, symmetry);
             }
 
             context.SetState("加尺寸");
@@ -126,9 +139,68 @@ internal static class HolePosition
         var message = $"视图「{viewName}」：{plan.Summary}，删掉旧位置尺寸 {removed} 个，"
             + $"新加 {added} 个（{(chain ? $"尺寸链模式，尺寸链 {nativeChains} 组" : $"阵列标法 {plan.PatternCount} 个")}；连在中心线上 {onCenterLines} 个，其余连在孔边上）"
             + (failed > 0 ? $"，{failed} 个 SolidWorks 没有接受" : string.Empty)
+            + (symmetry.Count > 0
+                ? $"；{string.Join("、", symmetry.Select(axis => axis.Name))}为基准、直接标两侧孔的距离"
+                  + (axesAdded > 0 ? $"，加了 {axesAdded} 根对称轴" : "，对称轴已有")
+                  + (axesFailed > 0 ? $"，{axesFailed} 根 SolidWorks 没有插上" : string.Empty)
+                : string.Empty)
             + clearance.Describe("尺寸数字")
             + "。";
         return added == 0 && plan.Count > 0 ? QuickOutcome.Fail(message) : QuickOutcome.Ok(message);
+    }
+
+    // swAnnotationType_e.swCenterLine
+    private const int CenterLineAnnotation = 15;
+
+    /// <summary>
+    /// 对称轴（1.14.1）：视图里还没有落在这根轴上的中心线，就选左右（上下）一对对称的直边，<c>IDrawingDoc.InsertCenterLine2</c>。
+    /// 真机（SW 2025 SP5，XJ05A-01 安装板）：生成在两边正中、两头各伸出 5 mm，与用户手工插的那根完全一致；中心线注解类型 15，
+    /// 位置读回为空，线段在显示数据里（线型 6）。
+    /// </summary>
+    /// <returns>加上的根数与没插上的根数。</returns>
+    private static (int Added, int Failed) InsertAxes(SolidWorksApi api, ScannedView scan, IReadOnlyList<SymmetryAxis> axes)
+    {
+        var drawn = CenterLines(api, scan.View);
+        var (added, failed) = (0, 0);
+        foreach (var axis in axes)
+        {
+            if (SymmetryPlanner.Drawn(axis, drawn))
+                continue;
+            api.Call(scan.Document, "IModelDoc2", "ClearSelection2", true);
+            var line = SelectEdge(api, scan, scan.LineEdges[axis.FirstLine], false)
+                       && SelectEdge(api, scan, scan.LineEdges[axis.SecondLine], true)
+                ? api.Call(scan.Document, "IDrawingDoc", "InsertCenterLine2")
+                : null;
+            api.Call(scan.Document, "IModelDoc2", "ClearSelection2", true);
+            if (line is null)
+                failed++;
+            else
+                added++;
+        }
+
+        return (added, failed);
+    }
+
+    /// <summary>视图里已有中心线注解的线段（图纸坐标）。</summary>
+    private static List<SheetSegment> CenterLines(SolidWorksApi api, object view)
+    {
+        var lines = new List<SheetSegment>();
+        foreach (var annotation in api.CallArray(view, "IView", "GetAnnotations"))
+        {
+            if (annotation is null || api.CallInt(annotation, "IAnnotation", "GetType") != CenterLineAnnotation
+                || api.Call(annotation, "IAnnotation", "GetDisplayData") is not { } data)
+                continue;
+            var count = api.CallInt(data, "IDisplayData", "GetLineCount");
+            for (var i = 0; i < count; i++)
+            {
+                // [颜色, 线型, 线样式, 线宽, 起点 xyz, 终点 xyz]
+                var line = api.CallDoubles(data, "IDisplayData", "GetLineAtIndex3", i);
+                if (line.Length >= 10)
+                    lines.Add(new SheetSegment(line[4], line[5], line[7], line[8]));
+            }
+        }
+
+        return lines;
     }
 
     /// <summary>

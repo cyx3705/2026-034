@@ -71,7 +71,7 @@ internal sealed record HolePositionPlan(
 /// 认孔与分种与孔标注完全相同（<see cref="HoleCalloutPlanner.Recognize"/>、<see cref="HoleCalloutPlanner.GroupKinds"/>）。
 /// </summary>
 /// <remarks>
-/// <para>基准是视图里零件最左的竖直直边与最上的水平直边。</para>
+/// <para>基准是视图里零件最左的竖直直边与最上的水平直边；视图整个关于一根轴对称时（1.14.1），那个方向改以对称轴为基准，见 <see cref="SymmetryPlanner"/>。</para>
 /// <para>
 /// 每个方向、每种孔单独标：这一种里的孔按坐标归成列（水平方向）或行（竖直方向），
 /// 第一列从基准标，其余每列从前一列标（链式）——同种孔可以接着前一个孔标，不同种孔一律从基准起。
@@ -125,7 +125,12 @@ internal static class HolePositionPlanner
     /// <param name="top">上侧基准边的 Y（图纸坐标）。</param>
     /// <param name="scale">视图比例（图纸长度 / 模型长度），用来把间距换成模型尺寸写进文字。</param>
     /// <param name="chainMode">尺寸链模式（1.7.0，页面开关）：出坐标尺寸组而不是线性尺寸，见 <see cref="PlanChain"/>。</param>
-    public static HolePositionPlan Plan(IReadOnlyList<HoleEdge> edges, double left, double top, double scale, bool chainMode = false)
+    /// <param name="symmetric">
+    /// 以对称轴为基准的方向（1.14.1，<see cref="SymmetryPlanner"/>）：这个方向上每种孔仍链式互标，但不再有从基准边到第一个孔的尺寸——
+    /// 跨过对称轴的那段直接标两侧孔的距离。尺寸链模式不看它。
+    /// </param>
+    public static HolePositionPlan Plan(
+        IReadOnlyList<HoleEdge> edges, double left, double top, double scale, bool chainMode = false, IReadOnlyCollection<PositionAxis>? symmetric = null)
     {
         ArgumentNullException.ThrowIfNull(edges);
         if (scale <= 0)
@@ -162,11 +167,12 @@ internal static class HolePositionPlanner
                 return true;
             }
 
+            var mirrored = symmetric?.Contains(axis) == true;
             foreach (var chain in chains)
             {
                 var stops = chain.Stops;
                 var first = stops[0];
-                var needDatum = Claim(0, first.Offset);
+                var needDatum = !mirrored && Claim(0, first.Offset);
                 if (chain.Pattern)
                 {
                     var last = stops[^1];

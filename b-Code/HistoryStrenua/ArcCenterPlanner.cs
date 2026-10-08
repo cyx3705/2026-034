@@ -8,16 +8,41 @@ namespace HistoryStrenua;
 /// <param name="TextAt">尺寸文字的位置（图纸坐标，米）。</param>
 internal sealed record ArcCenterTarget(PositionAxis Axis, int ArcIndex, double Coordinate, double Value, SheetPoint TextAt);
 
+/// <summary>中心线一头连着的圆心：一段圆弧，或一个孔。</summary>
+/// <param name="Center">圆心（图纸坐标）。</param>
+/// <param name="ArcIndex">圆弧（<see cref="ScannedView.ArcEdges"/> 下标）；是孔时为 null。</param>
+/// <param name="HoleIndex">孔边（<see cref="ScannedView.Edges"/> 下标）；是圆弧时为 null。</param>
+internal readonly record struct CenterRef(SheetPoint Center, int? ArcIndex, int? HoleIndex);
+
+/// <summary>
+/// 要加的一根中心线（1.14.2 第二轮，用户定）：几个圆心在某个方向上坐标相同，只标一个尺寸，其余用中心线连上表示对齐。
+/// </summary>
+/// <param name="Axis">对齐的方向：<see cref="PositionAxis.Horizontal"/> 是 X 相同（竖线），<see cref="PositionAxis.Vertical"/> 是 Y 相同（横线）。</param>
+/// <param name="First">线一头的圆心（沿线最靠前的）。</param>
+/// <param name="Second">线另一头的圆心（沿线最靠后的）。</param>
+/// <param name="Centers">线上要穿过的全部圆心（含两头）。</param>
+internal sealed record ArcCenterLink(PositionAxis Axis, CenterRef First, CenterRef Second, IReadOnlyList<SheetPoint> Centers);
+
 /// <summary>规划结果。</summary>
 /// <param name="Targets">要加的尺寸，先水平后竖直，同方向近的在里。</param>
 /// <param name="CenterCount">认出的圆心（同圆心的几段弧、同心不同半径的弧都算一个）。</param>
 /// <param name="Tangent">靠两端相切已经定位、不用标的圆心个数。</param>
 /// <param name="OnHole">与孔同心、由孔位尺寸定位的圆心个数。</param>
 /// <param name="Present">已经有尺寸、跳过的方向个数（另含落在基准、对称轴上不用标的方向）。</param>
-internal sealed record ArcCenterPlan(IReadOnlyList<ArcCenterTarget> Targets, int CenterCount, int Tangent, int OnHole, int Present);
+/// <param name="Links">要加的中心线（对齐的圆心，1.14.2 第二轮）。</param>
+/// <param name="Aligned">因为与别的圆心（孔、已标的或这一轮标的圆弧圆心）对齐而不标的方向个数。</param>
+/// <param name="LinkPresent">已经有线串着、不再加的中心线根数。</param>
+internal sealed record ArcCenterPlan(
+    IReadOnlyList<ArcCenterTarget> Targets, int CenterCount, int Tangent, int OnHole, int Present,
+    IReadOnlyList<ArcCenterLink>? Links = null, int Aligned = 0, int LinkPresent = 0)
+{
+    /// <summary>要加的中心线（没有时为空表）。</summary>
+    public IReadOnlyList<ArcCenterLink> CenterLinks => Links ?? [];
+}
 
 /// <summary>
-/// 「圆心位置」（1.14.2，用户定）的纯几何部分：圆弧（圆角、凹弧、孔以外的整圆）的圆心要不要标、标哪个方向、放哪。不碰 SolidWorks。
+/// 「圆心位置」（1.14.2，用户定）的纯几何部分：圆弧（圆角、凹弧、孔以外的整圆）的圆心要不要标、标哪个方向、放哪，
+/// 对齐的圆心用哪根中心线连。不碰 SolidWorks。
 /// </summary>
 /// <remarks>
 /// <para>圆弧标注（原「圆角标注」）事实上承担了孔以外所有圆的标注，R / Ø 之外圆心也要定位。用户定的规则看圆弧两端与直线相不相切：</para>
@@ -27,6 +52,9 @@ internal sealed record ArcCenterPlan(IReadOnlyList<ArcCenterTarget> Targets, int
 /// <item>只有一端相切：只标一个。切线与两个基准都不平行（斜的）时标哪个都行，取水平；切线是水平的（平行于上侧基准），
 /// 以上侧基准量的竖直尺寸不能标（与切线重复约束），只能从左侧基准标水平尺寸；切线是竖直的反过来，只标竖直尺寸。</item>
 /// </list>
+/// <para><b>去重</b>（第二轮，用户定：圆心在某个方向上重叠的只标一个，用中心线连上）：某个方向要标的圆心，与孔、已有尺寸量过的圆心
+/// 在这个方向上坐标相同，就不标，用一根中心线连到最近的那个；这一轮要标的几个圆弧圆心坐标相同，只标离尺寸近的那个
+/// （水平尺寸在上方取最高的，竖直尺寸在左侧取最左的），其余与它连成一根中心线。已经有线（中心线、视图草图线）串着的不再加。</para>
 /// <para>我补的口径：</para>
 /// <list type="bullet">
 /// <item>两端都相切、但两条切线平行（腰形外轮廓的端头，切上下两条水平边）：沿切线方向圆心仍不定，按「一端相切」处理，只标那一个。</item>
@@ -50,7 +78,7 @@ internal static class ArcCenterPlanner
 
     /// <param name="arcs">视图里的圆弧（孔已减掉，<see cref="FilletPlanner.WithoutCircles"/>）。</param>
     /// <param name="lines">视图里的直边。</param>
-    /// <param name="holes">认出来的孔（同心的弧不标）。</param>
+    /// <param name="holes">认出来的孔（同心的弧不标；对齐的圆心可以连到孔上）。</param>
     /// <param name="left">左侧基准边的 X。</param>
     /// <param name="top">上侧基准边的 Y。</param>
     /// <param name="scale">视图比例。</param>
@@ -58,10 +86,12 @@ internal static class ArcCenterPlanner
     /// <param name="firstHorizontal">水平尺寸第一层离上侧基准多远（<see cref="OutlinePlanner.FirstTier"/>）。</param>
     /// <param name="firstVertical">竖直尺寸第一层离左侧基准多远。</param>
     /// <param name="symmetry">视图的对称轴（圆心落在轴上的那个方向不标）；尺寸链模式不给。</param>
+    /// <param name="drawn">视图里已有的中心线、草图线（图纸坐标）：已经把对齐的圆心串起来的不再加中心线。</param>
     public static ArcCenterPlan Plan(
         IReadOnlyList<FilletArc> arcs, IReadOnlyList<SheetSegment> lines, IReadOnlyList<HoleEdge> holes,
         double left, double top, double scale, IReadOnlyList<ViewDimension> existing,
-        double firstHorizontal, double firstVertical, IReadOnlyList<SymmetryAxis>? symmetry = null)
+        double firstHorizontal, double firstVertical, IReadOnlyList<SymmetryAxis>? symmetry = null,
+        IReadOnlyList<SheetSegment>? drawn = null)
     {
         ArgumentNullException.ThrowIfNull(arcs);
         ArgumentNullException.ThrowIfNull(lines);
@@ -83,7 +113,15 @@ internal static class ArcCenterPlanner
         var tangent = 0;
         var onHole = 0;
         var present = 0;
-        var pending = new List<(PositionAxis Axis, FilletArc Arc, double Offset)>();
+        // 每个方向：要标的圆心，与已经定了位置、可以拿来对齐的圆心（孔、已有尺寸量过的圆弧圆心）。
+        var needers = new Dictionary<PositionAxis, List<CenterRef>>();
+        var located = new Dictionary<PositionAxis, List<CenterRef>>();
+        foreach (var axis in new[] { PositionAxis.Horizontal, PositionAxis.Vertical })
+        {
+            needers[axis] = [];
+            located[axis] = holes.Select(hole => new CenterRef(new SheetPoint(hole.X, hole.Y), null, hole.Index)).ToList();
+        }
+
         foreach (var group in groups)
         {
             var center = group[0].Center;
@@ -101,21 +139,68 @@ internal static class ArcCenterPlanner
             }
 
             // 选弧挑最长的那段（选得准、引出线短）。
-            var arc = group.OrderByDescending(item => item.Sweep).First();
+            var reference = new CenterRef(center, group.OrderByDescending(item => item.Sweep).First().Index, null);
             foreach (var axis in needs)
             {
-                var horizontal = axis == PositionAxis.Horizontal;
-                var offset = horizontal ? center.X - left : top - center.Y;
-                var coordinate = horizontal ? center.X : center.Y;
-                if (Math.Abs(offset) <= HoleCalloutPlanner.CenterTolerance
-                    || (symmetry ?? []).Any(item => item.Axis == axis && Math.Abs(item.At - coordinate) <= SymmetryPlanner.Tolerance)
-                    || existing.Any(dimension => Locates(dimension, center, axis, scale)))
+                var coordinate = Along(axis, center);
+                if (Math.Abs(Offset(axis, center, left, top)) <= HoleCalloutPlanner.CenterTolerance
+                    || (symmetry ?? []).Any(item => item.Axis == axis && Math.Abs(item.At - coordinate) <= SymmetryPlanner.Tolerance))
                 {
                     present++;
                     continue;
                 }
 
-                pending.Add((axis, arc, offset));
+                if (existing.Any(dimension => Locates(dimension, center, axis, scale)))
+                {
+                    present++;
+                    located[axis].Add(reference);
+                    continue;
+                }
+
+                needers[axis].Add(reference);
+            }
+        }
+
+        var pending = new List<(PositionAxis Axis, CenterRef Center)>();
+        var links = new List<ArcCenterLink>();
+        var aligned = 0;
+        var linkPresent = 0;
+        foreach (var axis in new[] { PositionAxis.Horizontal, PositionAxis.Vertical })
+        {
+            var remaining = needers[axis].ToList();
+            while (remaining.Count > 0)
+            {
+                var at = Along(axis, remaining[0].Center);
+                var same = remaining.Where(item => DimensionGeometry.Same(Along(axis, item.Center), at)).ToList();
+                remaining.RemoveAll(same.Contains);
+                var anchors = located[axis].Where(item => DimensionGeometry.Same(Along(axis, item.Center), at)).ToList();
+                List<CenterRef> members;
+                if (anchors.Count > 0)
+                {
+                    // 与孔 / 已标的圆心对齐：一个都不标，连到离它们最近的那个。
+                    var nearest = anchors.OrderBy(anchor => same.Min(item => Math.Abs(Across(axis, item.Center) - Across(axis, anchor.Center)))).First();
+                    aligned += same.Count;
+                    members = [.. same, nearest];
+                }
+                else
+                {
+                    // 这一轮几个圆弧圆心对齐：标离尺寸近的那个，其余连上它。
+                    var representative = axis == PositionAxis.Horizontal
+                        ? same.OrderByDescending(item => item.Center.Y).First()
+                        : same.OrderBy(item => item.Center.X).First();
+                    pending.Add((axis, representative));
+                    aligned += same.Count - 1;
+                    members = same;
+                }
+
+                if (members.Count < 2)
+                    continue;
+                var ordered = members.OrderBy(item => Across(axis, item.Center)).ToList();
+                var link = new ArcCenterLink(axis, ordered[0], ordered[^1], ordered.Select(item => item.Center).ToList());
+                if ((drawn ?? []).Any(line => Covers(line, link)))
+                    linkPresent++;
+                else
+                    links.Add(link);
             }
         }
 
@@ -123,18 +208,54 @@ internal static class ArcCenterPlanner
         foreach (var axis in new[] { PositionAxis.Horizontal, PositionAxis.Vertical })
         {
             var tier = 0;
-            foreach (var (_, arc, offset) in pending.Where(item => item.Axis == axis).OrderBy(item => Math.Abs(item.Offset)))
+            foreach (var (_, reference) in pending.Where(item => item.Axis == axis).OrderBy(item => Math.Abs(Offset(axis, item.Center.Center, left, top))))
             {
+                var center = reference.Center;
                 var textAt = axis == PositionAxis.Horizontal
-                    ? new SheetPoint((left + arc.Center.X) / 2, top + firstHorizontal + tier * HolePositionPlanner.TierStep)
-                    : new SheetPoint(left - firstVertical - tier * HolePositionPlanner.TierStep, (top + arc.Center.Y) / 2);
-                var coordinate = axis == PositionAxis.Horizontal ? arc.Center.X : arc.Center.Y;
-                targets.Add(new ArcCenterTarget(axis, arc.Index, coordinate, Math.Abs(offset) / scale, textAt));
+                    ? new SheetPoint((left + center.X) / 2, top + firstHorizontal + tier * HolePositionPlanner.TierStep)
+                    : new SheetPoint(left - firstVertical - tier * HolePositionPlanner.TierStep, (top + center.Y) / 2);
+                targets.Add(new ArcCenterTarget(axis, reference.ArcIndex!.Value, Along(axis, center),
+                    Math.Abs(Offset(axis, center, left, top)) / scale, textAt));
                 tier++;
             }
         }
 
-        return new ArcCenterPlan(targets, groups.Count, tangent, onHole, present);
+        return new ArcCenterPlan(targets, groups.Count, tangent, onHole, present, links, aligned, linkPresent);
+    }
+
+    /// <summary>
+    /// 要定位的圆弧圆心（1.14.2，判对称轴要不要加用，<see cref="SymmetryPlanner.Axes"/>）：同圆心的弧合成一个，与孔同心的、两端切线定死的不算。
+    /// </summary>
+    public static List<SheetPoint> Locatable(IReadOnlyList<FilletArc> arcs, IReadOnlyList<SheetSegment> lines, IReadOnlyList<HoleEdge> holes)
+    {
+        var centers = new List<SheetPoint>();
+        foreach (var arc in arcs)
+        {
+            if (centers.Any(center => HoleCalloutPlanner.SameCenter(center, arc.Center))
+                || holes.Any(hole => HoleCalloutPlanner.SameCenter(new SheetPoint(hole.X, hole.Y), arc.Center)))
+                continue;
+            var group = arcs.Where(other => HoleCalloutPlanner.SameCenter(other.Center, arc.Center));
+            if (Needs(group.SelectMany(other => Tangents(other, lines)).ToList()).Count > 0)
+                centers.Add(arc.Center);
+        }
+
+        return centers;
+    }
+
+    /// <summary>
+    /// 已有的线把这根中心线要串的圆心都串上了：线沿对齐方向（X 相同是竖线、Y 相同是横线），坐标对得上，两头盖过最远的两个圆心
+    /// （留 <see cref="HolePositionPlanner.CenterGap"/> 的余量，中心线、中心符号线在圆心处常断开一点）。
+    /// </summary>
+    public static bool Covers(SheetSegment line, ArcCenterLink link)
+    {
+        var axis = link.Axis;
+        var at = Along(axis, link.First.Center);
+        if (!DimensionGeometry.Same(Along(axis, new SheetPoint(line.X1, line.Y1)), at) || !DimensionGeometry.Same(Along(axis, new SheetPoint(line.X2, line.Y2)), at))
+            return false;
+        var (a, b) = (Across(axis, new SheetPoint(line.X1, line.Y1)), Across(axis, new SheetPoint(line.X2, line.Y2)));
+        var (first, last) = (Across(axis, link.First.Center), Across(axis, link.Second.Center));
+        return Math.Min(a, b) <= Math.Min(first, last) + HolePositionPlanner.CenterGap
+               && Math.Max(a, b) >= Math.Max(first, last) - HolePositionPlanner.CenterGap;
     }
 
     /// <summary>
@@ -181,6 +302,16 @@ internal static class ArcCenterPlanner
             return [];
         return Math.Abs(first.X) < ParallelTolerance ? [PositionAxis.Vertical] : [PositionAxis.Horizontal];
     }
+
+    /// <summary>沿尺寸方向的坐标：水平尺寸量 X，竖直尺寸量 Y。</summary>
+    private static double Along(PositionAxis axis, SheetPoint point) => axis == PositionAxis.Horizontal ? point.X : point.Y;
+
+    /// <summary>沿中心线的坐标：X 相同的圆心连竖线、按 Y 排；Y 相同的连横线、按 X 排。</summary>
+    private static double Across(PositionAxis axis, SheetPoint point) => axis == PositionAxis.Horizontal ? point.Y : point.X;
+
+    /// <summary>离基准的图纸距离：水平从左侧基准往右，竖直从上侧基准往下。</summary>
+    private static double Offset(PositionAxis axis, SheetPoint point, double left, double top)
+        => axis == PositionAxis.Horizontal ? point.X - left : top - point.Y;
 
     /// <summary>已有的线性 / 坐标尺寸有一头连着这个圆心、量的是这个方向。</summary>
     private static bool Locates(ViewDimension dimension, SheetPoint center, PositionAxis axis, double scale)

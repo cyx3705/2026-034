@@ -7,7 +7,7 @@ namespace HistoryStrenua;
 /// 插上对称轴（中心线）；已经有落在轴上的中心线就不再加。
 /// </summary>
 /// <remarks>
-/// 判法见 <see cref="SymmetryPlanner"/>（要有孔不在轴上；孔全在轴上、或没有孔的视图不加——每个矩形都对称，全加上就满图中心线）。
+/// 判法见 <see cref="SymmetryPlanner"/>（要有孔不在轴上，或有要定位的圆弧圆心（1.14.2）；孔全在轴上、又没有这样的圆弧的视图不加——每个矩形都对称，全加上就满图中心线）。
 /// 「孔位尺寸」以对称轴为基准时也调这里的 <see cref="Insert"/>，补上它要的那根，所以单按孔类指令不会缺轴。
 /// </remarks>
 internal static class SymmetryAxes
@@ -16,8 +16,8 @@ internal static class SymmetryAxes
         Key: "symmetry-axes",
         CommandName: StrenuaIdentity.Domain + ".drawing.symmetry",
         Title: "对称轴",
-        Summary: "当前图纸页全部视图（轴测图跳过）：边和孔整个左右或上下对称、且有孔不在轴上的，加对称轴（中心线），已有的不再加。",
-        Usage: "不用点视图：当前图纸页上的全部视图（轴测图跳过）逐个看，视图里的边和孔整个左右（或上下）对称、且有孔不在对称轴上的，选一对对称的边插一根对称轴（中心线，两头伸出零件一点）；已经有落在轴上的中心线不再加。孔全在轴上、没有孔、或同位置是别种孔的视图不加。「孔位尺寸」遇到对称的视图也会自己补上它要的那根并以它为基准标。某个视图没成不中断，最后汇总。",
+        Summary: "当前图纸页全部视图（轴测图跳过）：边和孔整个左右或上下对称、且有孔不在轴上或有要定位的圆弧圆心的，加对称轴（中心线），已有的不再加。",
+        Usage: "不用点视图：当前图纸页上的全部视图（轴测图跳过）逐个看，视图里的边和孔整个左右（或上下）对称、且有孔不在对称轴上（或有要定位的圆弧圆心：两端不都与直线相切、不与孔同心的圆弧）的，选一对对称的边插一根对称轴（中心线，两头伸出零件一点）；已经有落在轴上的中心线不再加。孔全在轴上又没有这样的圆弧、或同位置是别种孔的视图不加。「圆心位置」也会自己补它要的那根。「孔位尺寸」遇到对称的视图也会自己补上它要的那根并以它为基准标。某个视图没成不中断，最后汇总。",
         Run: Run);
 
     // swAnnotationType_e.swCenterLine
@@ -28,10 +28,11 @@ internal static class SymmetryAxes
     private static QuickOutcome RunView(QuickCommandContext context, object? view)
     {
         var api = context.Api;
-        var scan = HoleScan.Scan(context, "对称轴", withLines: true, view: view);
-        var axes = SymmetryPlanner.Axes(scan.Lines, scan.CurveSegments, HoleCalloutPlanner.Recognize(scan.Candidates));
+        var scan = HoleScan.Scan(context, "对称轴", withLines: true, view: view, withArcs: true);
+        var holes = HoleCalloutPlanner.Recognize(scan.Candidates);
+        var axes = SymmetryPlanner.Axes(scan.Lines, scan.CurveSegments, holes, ArcCenterPlanner.Locatable(scan.Arcs, scan.Lines, holes));
         if (axes.Count == 0)
-            return QuickOutcome.Ok($"视图「{scan.ViewName}」不对称（或孔都在轴上），没有加对称轴。");
+            return QuickOutcome.Ok($"视图「{scan.ViewName}」不对称（或孔都在轴上、没有要定位的圆弧），没有加对称轴。");
         var names = string.Join("、", axes.Select(axis => axis.Name));
         var (added, failed) = Insert(api, scan, axes);
         api.Call(scan.Document, "IModelDoc2", "GraphicsRedraw2");
@@ -71,23 +72,32 @@ internal static class SymmetryAxes
         return (added, failed);
     }
 
-    /// <summary>视图里已有中心线注解的线段（图纸坐标）。</summary>
-    private static List<SheetSegment> CenterLines(SolidWorksApi api, object view)
+    /// <summary>视图里已有中心线注解的线段（图纸坐标）。「圆心位置」（1.14.2）判对齐的圆心连没连上也用它。</summary>
+    internal static List<SheetSegment> CenterLines(SolidWorksApi api, object view)
     {
         var lines = new List<SheetSegment>();
         foreach (var annotation in api.CallArray(view, "IView", "GetAnnotations"))
         {
-            if (annotation is null || api.CallInt(annotation, "IAnnotation", "GetType") != CenterLineAnnotation
-                || api.Call(annotation, "IAnnotation", "GetDisplayData") is not { } data)
-                continue;
-            var count = api.CallInt(data, "IDisplayData", "GetLineCount");
-            for (var i = 0; i < count; i++)
-            {
-                // [颜色, 线型, 线样式, 线宽, 起点 xyz, 终点 xyz]
-                var line = api.CallDoubles(data, "IDisplayData", "GetLineAtIndex3", i);
-                if (line.Length >= 10)
-                    lines.Add(new SheetSegment(line[4], line[5], line[7], line[8]));
-            }
+            if (annotation is not null && api.CallInt(annotation, "IAnnotation", "GetType") == CenterLineAnnotation)
+                lines.AddRange(DisplayLines(api, annotation));
+        }
+
+        return lines;
+    }
+
+    /// <summary>一个注解显示出来的线段（图纸坐标）；中心线注解的位置读回为空，线在显示数据里。</summary>
+    internal static List<SheetSegment> DisplayLines(SolidWorksApi api, object annotation)
+    {
+        var lines = new List<SheetSegment>();
+        if (api.Call(annotation, "IAnnotation", "GetDisplayData") is not { } data)
+            return lines;
+        var count = api.CallInt(data, "IDisplayData", "GetLineCount");
+        for (var i = 0; i < count; i++)
+        {
+            // [颜色, 线型, 线样式, 线宽, 起点 xyz, 终点 xyz]
+            var line = api.CallDoubles(data, "IDisplayData", "GetLineAtIndex3", i);
+            if (line.Length >= 10)
+                lines.Add(new SheetSegment(line[4], line[5], line[7], line[8]));
         }
 
         return lines;

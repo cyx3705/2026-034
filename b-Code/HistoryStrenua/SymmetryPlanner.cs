@@ -25,7 +25,9 @@ internal sealed record SymmetryAxis(PositionAxis Axis, double At, int FirstLine,
 /// 只是不再有从基准边到第一个孔的那个尺寸——整种孔关于对称轴对称，链本身就跨过对称轴把位置定死了；正好在对称轴上的单个孔不用标。</para>
 /// <para>判法：对称轴取边的外包范围的中线；每条直边、曲线近似段关于它镜像后都要被同一直线上的边盖住（边在投影里常被切成几段，按并集判）；
 /// 每个孔（含腰型孔端头）镜像后都要落在一个同种、同孔径的孔上（腰型孔端头鼓出方向也要镜像）。
-/// 还要至少有一个孔不在对称轴上——孔全在轴上（示范里侧视图的横向）时照旧从基准边标（用户示范保留了那个「5」）。</para>
+/// 还要至少有一个孔不在对称轴上——孔全在轴上（示范里侧视图的横向）时照旧从基准边标（用户示范保留了那个「5」）。
+/// 1.14.2（用户定：理论上对称的视图就要加对称轴）：视图里有要定位的圆弧圆心（<see cref="ArcCenterPlanner.Locatable"/>）也算，
+/// 在不在轴上都行——没有孔、只有圆弧的视图（右视图的键槽形型腔）同样加轴，轴上的圆心那个方向就不用标。</para>
 /// <para>插中心线选左右（上下）一对对称的直边，<c>IDrawingDoc.InsertCenterLine2</c> 就生成在两边正中、两头各伸出一点，与手工插的一致（真机核对过）。
 /// 找不到这样一对边就不算对称（没有轴，尺寸也就没有基准）。尺寸链模式（坐标尺寸）不管对称，照旧从直边量。</para>
 /// </remarks>
@@ -40,15 +42,18 @@ internal static class SymmetryPlanner
     /// <param name="lines">视图里的直边（图纸）。</param>
     /// <param name="curves">其余曲线边近似成的线段。</param>
     /// <param name="holes">认出来的孔（<see cref="HoleCalloutPlanner.Recognize"/> 的结果，含腰型孔两端）。</param>
+    /// <param name="centers">要定位的圆弧圆心（1.14.2）：有它们时孔都在轴上、或没有孔也加轴。圆弧本身的对称由 <paramref name="curves"/> 判。</param>
     /// <returns>竖直对称轴（管水平尺寸）在前、水平对称轴在后；都不对称为空。</returns>
-    public static List<SymmetryAxis> Axes(IReadOnlyList<SheetSegment> lines, IReadOnlyList<SheetSegment> curves, IReadOnlyList<HoleEdge> holes)
+    public static List<SymmetryAxis> Axes(
+        IReadOnlyList<SheetSegment> lines, IReadOnlyList<SheetSegment> curves, IReadOnlyList<HoleEdge> holes, IReadOnlyList<SheetPoint>? centers = null)
     {
         ArgumentNullException.ThrowIfNull(lines);
         ArgumentNullException.ThrowIfNull(curves);
         ArgumentNullException.ThrowIfNull(holes);
         var result = new List<SymmetryAxis>();
         var segments = lines.Concat(curves).Where(segment => Length(segment) > Tolerance).ToList();
-        if (segments.Count == 0 || holes.Count == 0)
+        var arcCenters = centers ?? [];
+        if (segments.Count == 0 || (holes.Count == 0 && arcCenters.Count == 0))
             return result;
 
         foreach (var axis in new[] { PositionAxis.Horizontal, PositionAxis.Vertical })
@@ -56,7 +61,7 @@ internal static class SymmetryPlanner
             var vertical = axis == PositionAxis.Horizontal;
             var values = segments.SelectMany(s => vertical ? new[] { s.X1, s.X2 } : [s.Y1, s.Y2]).ToList();
             var at = (values.Min() + values.Max()) / 2;
-            if (!holes.Any(hole => Math.Abs((vertical ? hole.X : hole.Y) - at) > Tolerance))
+            if (arcCenters.Count == 0 && !holes.Any(hole => Math.Abs((vertical ? hole.X : hole.Y) - at) > Tolerance))
                 continue;
             if (!holes.All(hole => holes.Any(other => MirrorHole(hole, other, vertical, at))))
                 continue;

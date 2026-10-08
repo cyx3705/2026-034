@@ -2781,6 +2781,79 @@ static void TestArcCenter()
     // 圆心落在对称轴上的那个方向不标。
     var onAxis = ArcCenterPlanner.Plan([boss], [left, top], [], 0, 0.100, scale, [], 0.020, 0.020, [new SymmetryAxis(PositionAxis.Horizontal, 0.050, 0, 1)]);
     Equal("Vertical", string.Join(",", onAxis.Targets.Select(target => target.Axis)));
+
+    // 第二轮去重（用户截图：右视图两个圆心 X 相同标了两个「20」）：X 相同的只标上面那个，两个圆心连一根竖的中心线；Y 不同照标。
+    var upperCircle = Arc(9, 0.040, 0.078, 0.004, null, null, 2 * Math.PI);
+    var lowerCircle = Arc(10, 0.040, 0.044, 0.012, null, null, 2 * Math.PI);
+    var stacked = ArcCenterPlanner.Plan([lowerCircle, upperCircle], [left, top], [], 0, 0.100, scale, [], 0.020, 0.020);
+    Equal("Horizontal:9,Vertical:9,Vertical:10", string.Join(",", stacked.Targets.Select(target => $"{target.Axis}:{target.ArcIndex}")));
+    Equal(1, stacked.Aligned);
+    Equal(1, stacked.CenterLinks.Count);
+    var link = stacked.CenterLinks[0];
+    True(link.Axis == PositionAxis.Horizontal && link.First.ArcIndex == 10 && link.Second.ArcIndex == 9, "竖的中心线从下面的圆心连到上面的");
+    // 已经有线串着就不再加：中心线在圆心处断开一点也算。
+    var drawnLine = new SheetSegment(0.040, 0.044 + 0.001, 0.040, 0.078 + 0.003);
+    True(ArcCenterPlanner.Covers(drawnLine, link), "竖线盖过两个圆心");
+    True(!ArcCenterPlanner.Covers(new SheetSegment(0.041, 0.040, 0.041, 0.090), link), "不在同一 X 上不算");
+    True(!ArcCenterPlanner.Covers(new SheetSegment(0.040, 0.060, 0.040, 0.090), link), "没盖到下面的圆心不算");
+    var stackedDrawn = ArcCenterPlanner.Plan([lowerCircle, upperCircle], [left, top], [], 0, 0.100, scale, [], 0.020, 0.020, drawn: [drawnLine]);
+    Equal(0, stackedDrawn.CenterLinks.Count);
+    Equal(1, stackedDrawn.LinkPresent);
+    Equal(3, stackedDrawn.Targets.Count);
+
+    // 真机（2026-10-08 用户图右视图 Drawing View2，1:1，读回的图纸坐标 mm）：40 × 45 的块上一个键槽形型腔——
+    // 下面 R13.68 被左右两条竖直平边截断，上面 R11.13 接两条斜边，两端都不相切；视图左右完全对称、没有孔。
+    // 1.14.1 要有孔才加对称轴，这里一根都没加、两个圆心各标了一个「20」（用户截图）。1.14.2：有要定位的圆弧圆心也加轴，轴上的方向不标。
+    static SheetSegment M(double x1, double y1, double x2, double y2) => new(x1 / 1000, y1 / 1000, x2 / 1000, y2 / 1000);
+    static SheetPoint Pt(double x, double y) => new(x / 1000, y / 1000);
+    List<SheetSegment> keyLines =
+    [
+        M(155.32, 172.68, 153.32, 174.68), M(155.32, 172.68, 155.32, 131.68), M(153.32, 129.68, 155.32, 131.68), M(153.32, 129.68, 117.32, 129.68),
+        M(115.32, 131.68, 117.32, 129.68), M(117.32, 174.68, 153.32, 174.68), M(140.176, 171.883, 148.32, 157.632), M(122.32, 157.632, 130.464, 171.883),
+        M(122.32, 148.419, 122.32, 157.632), M(148.32, 157.632, 148.32, 148.419), M(115.32, 131.68, 115.32, 172.68), M(117.32, 174.68, 115.32, 172.68),
+    ];
+    var topArc = new FilletArc(0, Pt(135.32, 161.874), 0.011125, 0.011125, Pt(135.32, 172.999), true, 0.903, Pt(130.464, 171.883), Pt(140.176, 171.883));
+    var bottomArc = new FilletArc(1, Pt(135.32, 152.68), 0.013681, 0.013681, Pt(135.32, 138.999), true, 2.508, Pt(148.32, 148.419), Pt(122.32, 148.419));
+    List<SheetSegment> keyCurves =
+    [
+        M(130.464, 171.883, 135.32, 172.999), M(135.32, 172.999, 140.176, 171.883),
+        M(148.32, 148.419, 135.32, 138.999), M(135.32, 138.999, 122.32, 148.419),
+    ];
+    var keyArcs = new List<FilletArc> { topArc, bottomArc };
+    Equal(0, ArcCenterPlanner.Tangents(topArc, keyLines).Count);
+    Equal(0, ArcCenterPlanner.Tangents(bottomArc, keyLines).Count);
+    var locatable = ArcCenterPlanner.Locatable(keyArcs, keyLines, []);
+    Equal(2, locatable.Count);
+    Equal(0, SymmetryPlanner.Axes(keyLines, keyCurves, []).Count);
+    var keyAxes = SymmetryPlanner.Axes(keyLines, keyCurves, [], locatable);
+    Equal(1, keyAxes.Count);
+    True(keyAxes[0].Axis == PositionAxis.Horizontal && Math.Abs(keyAxes[0].At - 0.13532) < 1e-9, "竖直对称轴在 x = 135.32");
+    Equal("10,1", $"{keyAxes[0].FirstLine},{keyAxes[0].SecondLine}");
+    // 有轴：两个圆心都在轴上，水平不标、也不用连线；竖直照标 22 与 12.81。
+    var keyPlan = ArcCenterPlanner.Plan(keyArcs, keyLines, [], 0.11532, 0.17468, 1, [], 0.020, 0.020, keyAxes);
+    Equal("Vertical:0:12.806,Vertical:1:22", string.Join(",", keyPlan.Targets.Select(target =>
+        $"{target.Axis}:{target.ArcIndex}:{(target.Value * 1000).ToString("0.###", System.Globalization.CultureInfo.InvariantCulture)}")));
+    Equal(0, keyPlan.CenterLinks.Count);
+    // 没有轴（尺寸链模式）：X 都是 20，只标上面那个，两个圆心连一根竖的中心线。
+    var keyChain = ArcCenterPlanner.Plan(keyArcs, keyLines, [], 0.11532, 0.17468, 1, [], 0.020, 0.020);
+    Equal(1, keyChain.Targets.Count(target => target.Axis == PositionAxis.Horizontal));
+    Equal(1, keyChain.CenterLinks.Count);
+
+    // 与孔 X 相同：水平一个都不标，连到最近的孔（孔边下标）；竖直照标。
+    var nearHole = new HoleEdge(3, 0.040, 0.020, 0.003);
+    var farHole = new HoleEdge(4, 0.040, 0.090, 0.003);
+    var withHole = ArcCenterPlanner.Plan([upperCircle], [left, top], [farHole, nearHole], 0, 0.100, scale, [], 0.020, 0.020);
+    Equal("Vertical", string.Join(",", withHole.Targets.Select(target => target.Axis)));
+    Equal(1, withHole.CenterLinks.Count);
+    Equal(4, withHole.CenterLinks[0].Second.HoleIndex ?? -1);
+
+    // 与已有尺寸量过的圆心 Y 相同：竖直不标，连到它。
+    var measuredCircle = Arc(11, 0.090, 0.078, 0.004, null, null, 2 * Math.PI);
+    var vertical = new ViewDimension(0, 2, false, 0.022 / scale, [L(0, 0.100, 0.200, 0.100), C(0.090, 0.078)]);
+    var withMeasured = ArcCenterPlanner.Plan([upperCircle, measuredCircle], [left, top], [], 0, 0.100, scale, [vertical], 0.020, 0.020);
+    Equal("Horizontal:9,Horizontal:11", string.Join(",", withMeasured.Targets.Select(target => $"{target.Axis}:{target.ArcIndex}")));
+    Equal(1, withMeasured.CenterLinks.Count);
+    True(withMeasured.CenterLinks[0].Axis == PositionAxis.Vertical, "Y 相同连横线");
 }
 
 sealed class Registrar : ICommandRegistrar

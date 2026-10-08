@@ -2944,6 +2944,12 @@ static void TestHoleCoverage()
     True(HoleCoveragePlanner.PositionedElsewhere(hole, [labeled]), "底视图标过位置");
     True(!HoleCoveragePlanner.PositionedElsewhere(hole, [topView]), "顶视图只看得见、没标");
     True(!HoleCoveragePlanner.PositionedElsewhere(hole with { Axis = null }, [labeled]), "没有轴线的不算");
+    // 阵列标法只连首尾两个孔（真机模组立板「4 x 75 =300」）：那个视图看得见、同种标过位置的，整种算标过；它看不见的（另一面的盲孔）不算。
+    var middle = new HoleEdge(2, 0.06, 0.03, 0.0017, "/CB", Axis: HoleAxis.Of("", new ModelDirection(0.06, 0.03, 0), up));
+    var pattern = new CoveringView("底视图", down, [bottom, middle.Axis!.Value], [], [bottom], new HashSet<string> { "/CB" });
+    True(HoleCoveragePlanner.PositionedElsewhere(middle, [pattern]), "阵列中间的孔算标过");
+    True(!HoleCoveragePlanner.PositionedElsewhere(middle, [pattern with { Holes = [bottom] }]), "那个视图看不见的不算");
+    True(!HoleCoveragePlanner.PositionedElsewhere(middle with { Kind = "/M5" }, [pattern]), "别的种不算");
 
     // 孔标注规划：别处标过的种跳过、记下视图名；其余照旧。
     var other = new HoleEdge(1, 0.02, 0.03, 0.002, "/M5", Axis: HoleAxis.Of("", new ModelDirection(0.02, 0.03, 0), up));

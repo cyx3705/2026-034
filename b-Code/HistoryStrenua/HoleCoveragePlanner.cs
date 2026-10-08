@@ -42,8 +42,13 @@ internal readonly record struct HoleAxis(string Component, ModelDirection Direct
 /// <param name="Holes">它看得见（正对图纸）的孔。</param>
 /// <param name="CalledOut">它里面已有孔标注的孔。</param>
 /// <param name="Positioned">它里面已有位置尺寸（线性 / 坐标尺寸连着孔边或穿过孔心的线）的孔。</param>
+/// <param name="PositionedKinds">
+/// 它里面有孔标过位置的种（<see cref="HoleEdge.Kind"/>）。阵列标法「4 x 75 =300」只连首尾两个孔，中间的孔没有尺寸连着却已定位（真机模组立板），
+/// 所以按种算：这种孔在那个视图里标过位置，它看得见的同种孔都算标过。
+/// </param>
 internal sealed record CoveringView(
-    string Name, ModelDirection Normal, IReadOnlyList<HoleAxis> Holes, IReadOnlyList<HoleAxis> CalledOut, IReadOnlyList<HoleAxis> Positioned);
+    string Name, ModelDirection Normal, IReadOnlyList<HoleAxis> Holes, IReadOnlyList<HoleAxis> CalledOut, IReadOnlyList<HoleAxis> Positioned,
+    IReadOnlyCollection<string>? PositionedKinds = null);
 
 /// <summary>一种孔的孔标注该不该标在这个视图里（1.15.0）。</summary>
 internal enum CalloutPlace
@@ -92,9 +97,13 @@ internal static class HoleCoveragePlanner
     public static bool HasBackMarker(IEnumerable<string> texts)
         => texts.Any(text => text.Replace(" ", string.Empty, StringComparison.Ordinal).Contains(BackMarker, StringComparison.Ordinal));
 
-    /// <summary>别的视图里标过位置的孔（<see cref="HoleEdge.Axis"/> 读不到的不算）。</summary>
+    /// <summary>
+    /// 别的视图里标过位置的孔（<see cref="HoleEdge.Axis"/> 读不到的不算）：有尺寸连着它，或那个视图看得见它、且同种孔在那里标过位置
+    /// （<see cref="CoveringView.PositionedKinds"/>）。
+    /// </summary>
     public static bool PositionedElsewhere(HoleEdge hole, IReadOnlyList<CoveringView> views)
-        => hole.Axis is { } axis && views.Any(view => view.Positioned.Any(axis.Same));
+        => hole.Axis is { } axis && views.Any(view => view.Positioned.Any(axis.Same)
+                                                  || ((view.PositionedKinds?.Contains(hole.Kind) ?? false) && view.Holes.Any(axis.Same)));
 
     /// <summary>
     /// 一种孔（<paramref name="kind"/>，同种的全部孔）的孔标注放哪。

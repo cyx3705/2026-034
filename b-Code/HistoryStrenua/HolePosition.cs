@@ -57,10 +57,10 @@ internal static class HolePosition
         }
 
         var chain = context.Options.Chain;
-        // 1.14.1：整个视图关于某根轴对称就以对称轴为基准（尺寸链模式不管，照旧从直边量）。
-        var symmetry = chain ? [] : SymmetryPlanner.Axes(scan.Lines, scan.CurveSegments, holes);
         // 1.15.0：别的视图标过位置的孔不再标（旧尺寸照删）。
         var (candidates, elsewhere) = WithoutPositionedElsewhere(context, scan);
+        // 1.14.1：整个视图关于某根轴对称就以对称轴为基准（尺寸链模式不管，照旧从直边量）；孔全归别的视图标时不加轴。
+        var symmetry = chain || HoleCalloutPlanner.Recognize(candidates).Count == 0 ? [] : SymmetryPlanner.Axes(scan.Lines, scan.CurveSegments, holes);
         var plan = HolePositionPlanner.Plan(candidates, scan.Lines[l].X1, scan.Lines[t].Y1, scan.Geometry.Scale, chain,
             symmetry.Select(axis => axis.Axis).ToList());
         context.Report($"孔位尺寸：视图「{viewName}」认出 {plan.Summary}，"

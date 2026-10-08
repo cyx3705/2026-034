@@ -153,7 +153,7 @@ internal static class ChamferPlanner
     public static bool IsDefault(ChamferEdge chamfer)
         => Math.Abs(chamfer.LegX - DefaultLeg) <= SizeTolerance && Math.Abs(chamfer.LegY - DefaultLeg) <= SizeTolerance;
 
-    private static bool SameSize((double Short, double Long) a, (double Short, double Long) b)
+    internal static bool SameSize((double Short, double Long) a, (double Short, double Long) b)
         => Math.Abs(a.Short - b.Short) <= SizeTolerance && Math.Abs(a.Long - b.Long) <= SizeTolerance;
 
     /// <summary>尺寸值的写法：「5」「0.5」。</summary>

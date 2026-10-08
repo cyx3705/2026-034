@@ -111,13 +111,15 @@ internal static class ChamferDimension
     }
 
     /// <summary>
-    /// 避障要躲的（1.15.0）：这个视图的全部注解，同一页别的视图的全部注解，以及别的视图的外框（当一个文字框，整块不许压）。读不了的跳过。
+    /// 避障要躲的（1.15.0）：这个视图的全部注解，同一页别的视图的全部注解，别的视图的外框，以及标题栏、修改栏与图纸上的注解（后两样当文字框，整块不许压）。读不了的跳过。
     /// </summary>
     private static Obstacles SheetObstacles(SolidWorksApi api, ScannedView scan)
     {
         var own = Clearance.ViewObstacles(api, scan.View);
         var lines = new List<SheetSegment>(own.Lines);
         var texts = new List<TextBox>(own.Texts);
+        foreach (var rect in DrawingSheet.KeepOutRects(api, scan.Document))
+            texts.Add(new TextBox(rect.Left, rect.Bottom, rect.Width, rect.Height));
         foreach (var view in HoleScan.SheetViews(api, scan.Document))
         {
             if (DrawingSheet.Name(api, view) == scan.ViewName)
@@ -150,6 +152,7 @@ internal static class ChamferDimension
             if (!self && (api.Call(view, "IView", "get_ReferencedDocument") is null || HoleScan.ModelKey(api, view) != model))
                 continue;
             var geometry = self ? scan.Geometry : new HoleScan.ViewGeometry(api, context.Session.Application, view);
+            var keys = new List<string>();
             foreach (var edge in ChamferDimensionEdges(api, view))
             {
                 if (self)
@@ -159,9 +162,18 @@ internal static class ChamferDimension
                 }
                 else if (geometry.TryChamferKey(edge) is { } key)
                 {
-                    elsewhere.Add(key);
+                    keys.Add(key);
                 }
             }
+
+            if (self || keys.Count == 0)
+                continue;
+            // 1.15.0：那个视图里的「4 x C2」只连着其中一张倒角面，合标管到的同尺寸倒角也算标过（真机移动底板：
+            // 底视图标了「4 x C2」，顶视图只认出连着的那一张，剩下三张又标成「3 x C2」）。
+            elsewhere.UnionWith(keys);
+            var other = HoleScan.Scan(context, string.Empty, withLines: true, view: view, withChamfers: true, quiet: true).Chamfers;
+            var sizes = other.Where(chamfer => keys.Contains(chamfer.Key)).Select(chamfer => chamfer.Size).ToList();
+            elsewhere.UnionWith(other.Where(chamfer => sizes.Any(size => ChamferPlanner.SameSize(size, chamfer.Size))).Select(chamfer => chamfer.Key));
         }
 
         return (here, elsewhere);

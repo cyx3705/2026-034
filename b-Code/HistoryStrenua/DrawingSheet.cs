@@ -190,6 +190,13 @@ internal sealed record DrawingSheet(
     /// </summary>
     public static SheetRect? FrameRect(SolidWorksApi api, object drawing) => StandardSpace(api, drawing)?.Frame.Inflate(-TextFrameMargin);
 
+    /// <summary>
+    /// 图框里整块不许压的地方（1.15.0，倒角避障用）：标题栏、修改栏、图号框（国标估计），以及图纸上的注解（标题栏各格、技术要求、「其余」粗糙度……）。
+    /// 只躲边线不够：真机移动底板「3 x C2」整个落进修改栏的格子里，没碰到任何一条边。读不到图纸大小返回空。
+    /// </summary>
+    public static IReadOnlyList<SheetRect> KeepOutRects(SolidWorksApi api, object drawing)
+        => StandardSpace(api, drawing) is { } space ? space.KeepOuts.Concat(FormatKeepOuts(api, drawing, space, [])).ToList() : [];
+
     /// <summary>圆角、倒角文字离图框至少这么远（图纸 3 mm）。</summary>
     public const double TextFrameMargin = 0.003;
 

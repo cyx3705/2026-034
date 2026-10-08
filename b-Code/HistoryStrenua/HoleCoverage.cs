@@ -49,11 +49,18 @@ internal static class HoleCoverage
         var holes = scan.Candidates;
         var calledOut = new List<HoleAxis>();
         var positioned = new List<HoleAxis>();
+        var positionedKinds = new HashSet<string>(StringComparer.Ordinal);
         void Add(List<HoleAxis> into, Func<HoleEdge, bool> hit)
         {
             foreach (var hole in holes)
-                if (hole.Axis is { } axis && hit(hole) && !into.Any(axis.Same))
+            {
+                if (hole.Axis is not { } axis || !hit(hole))
+                    continue;
+                if (into == positioned)
+                    positionedKinds.Add(hole.Kind);
+                if (!into.Any(axis.Same))
                     into.Add(axis);
+            }
         }
 
         for (var display = api.Call(scan.View, "IView", "GetFirstDisplayDimension5"); display is not null; display = api.Call(display, "IDisplayDimension", "GetNext5"))
@@ -75,6 +82,6 @@ internal static class HoleCoverage
         }
 
         return new CoveringView(scan.ViewName, scan.Geometry.Frame.Normal,
-            holes.Select(hole => hole.Axis).OfType<HoleAxis>().ToList(), calledOut, positioned);
+            holes.Select(hole => hole.Axis).OfType<HoleAxis>().ToList(), calledOut, positioned, positionedKinds);
     }
 }

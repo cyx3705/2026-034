@@ -515,7 +515,7 @@
         </member>
         <member name="M:HistoryStrenua.ChamferDimension.SheetObstacles(HistoryStrenua.SolidWorks.SolidWorksApi,HistoryStrenua.ScannedView)">
             <summary>
-            避障要躲的（1.15.0）：这个视图的全部注解，同一页别的视图的全部注解，以及别的视图的外框（当一个文字框，整块不许压）。读不了的跳过。
+            避障要躲的（1.15.0）：这个视图的全部注解，同一页别的视图的全部注解，别的视图的外框，以及标题栏、修改栏与图纸上的注解（后两样当文字框，整块不许压）。读不了的跳过。
             </summary>
         </member>
         <member name="M:HistoryStrenua.ChamferDimension.Existing(HistoryStrenua.QuickCommandContext,HistoryStrenua.ScannedView)">
@@ -1955,6 +1955,12 @@
             （限位块前的「2 x C5」）。读不到图纸大小返回 null。
             </summary>
         </member>
+        <member name="M:HistoryStrenua.DrawingSheet.KeepOutRects(HistoryStrenua.SolidWorks.SolidWorksApi,System.Object)">
+            <summary>
+            图框里整块不许压的地方（1.15.0，倒角避障用）：标题栏、修改栏、图号框（国标估计），以及图纸上的注解（标题栏各格、技术要求、「其余」粗糙度……）。
+            只躲边线不够：真机移动底板「3 x C2」整个落进修改栏的格子里，没碰到任何一条边。读不到图纸大小返回空。
+            </summary>
+        </member>
         <member name="F:HistoryStrenua.DrawingSheet.TextFrameMargin">
             <summary>圆角、倒角文字离图框至少这么远（图纸 3 mm）。</summary>
         </member>
@@ -2619,14 +2625,22 @@
             <param name="Holes">它看得见（正对图纸）的孔。</param>
             <param name="CalledOut">它里面已有孔标注的孔。</param>
             <param name="Positioned">它里面已有位置尺寸（线性 / 坐标尺寸连着孔边或穿过孔心的线）的孔。</param>
+            <param name="PositionedKinds">
+            它里面有孔标过位置的种（<see cref="P:HistoryStrenua.HoleEdge.Kind"/>）。阵列标法「4 x 75 =300」只连首尾两个孔，中间的孔没有尺寸连着却已定位（真机模组立板），
+            所以按种算：这种孔在那个视图里标过位置，它看得见的同种孔都算标过。
+            </param>
         </member>
-        <member name="M:HistoryStrenua.CoveringView.#ctor(System.String,HistoryStrenua.ModelDirection,System.Collections.Generic.IReadOnlyList{HistoryStrenua.HoleAxis},System.Collections.Generic.IReadOnlyList{HistoryStrenua.HoleAxis},System.Collections.Generic.IReadOnlyList{HistoryStrenua.HoleAxis})">
+        <member name="M:HistoryStrenua.CoveringView.#ctor(System.String,HistoryStrenua.ModelDirection,System.Collections.Generic.IReadOnlyList{HistoryStrenua.HoleAxis},System.Collections.Generic.IReadOnlyList{HistoryStrenua.HoleAxis},System.Collections.Generic.IReadOnlyList{HistoryStrenua.HoleAxis},System.Collections.Generic.IReadOnlyCollection{System.String})">
             <summary>同一页上另一个看得见同一批孔的视图（1.15.0）：视线与这个视图平行（同向或相反，如顶视图与底视图）、引用同一个模型。</summary>
             <param name="Name">视图名（回执用）。</param>
             <param name="Normal">视线（图纸 +Z 在模型里的方向，朝看图人）。</param>
             <param name="Holes">它看得见（正对图纸）的孔。</param>
             <param name="CalledOut">它里面已有孔标注的孔。</param>
             <param name="Positioned">它里面已有位置尺寸（线性 / 坐标尺寸连着孔边或穿过孔心的线）的孔。</param>
+            <param name="PositionedKinds">
+            它里面有孔标过位置的种（<see cref="P:HistoryStrenua.HoleEdge.Kind"/>）。阵列标法「4 x 75 =300」只连首尾两个孔，中间的孔没有尺寸连着却已定位（真机模组立板），
+            所以按种算：这种孔在那个视图里标过位置，它看得见的同种孔都算标过。
+            </param>
         </member>
         <member name="P:HistoryStrenua.CoveringView.Name">
             <summary>视图名（回执用）。</summary>
@@ -2642,6 +2656,12 @@
         </member>
         <member name="P:HistoryStrenua.CoveringView.Positioned">
             <summary>它里面已有位置尺寸（线性 / 坐标尺寸连着孔边或穿过孔心的线）的孔。</summary>
+        </member>
+        <member name="P:HistoryStrenua.CoveringView.PositionedKinds">
+            <summary>
+            它里面有孔标过位置的种（<see cref="P:HistoryStrenua.HoleEdge.Kind"/>）。阵列标法「4 x 75 =300」只连首尾两个孔，中间的孔没有尺寸连着却已定位（真机模组立板），
+            所以按种算：这种孔在那个视图里标过位置，它看得见的同种孔都算标过。
+            </summary>
         </member>
         <member name="T:HistoryStrenua.CalloutPlace">
             <summary>一种孔的孔标注该不该标在这个视图里（1.15.0）。</summary>
@@ -2688,7 +2708,10 @@
             <summary>显示出来的文字里已经有「(反面)」了吗（空格不论）。</summary>
         </member>
         <member name="M:HistoryStrenua.HoleCoveragePlanner.PositionedElsewhere(HistoryStrenua.HoleEdge,System.Collections.Generic.IReadOnlyList{HistoryStrenua.CoveringView})">
-            <summary>别的视图里标过位置的孔（<see cref="P:HistoryStrenua.HoleEdge.Axis"/> 读不到的不算）。</summary>
+            <summary>
+            别的视图里标过位置的孔（<see cref="P:HistoryStrenua.HoleEdge.Axis"/> 读不到的不算）：有尺寸连着它，或那个视图看得见它、且同种孔在那里标过位置
+            （<see cref="P:HistoryStrenua.CoveringView.PositionedKinds"/>）。
+            </summary>
         </member>
         <member name="M:HistoryStrenua.HoleCoveragePlanner.Callout(System.Collections.Generic.IReadOnlyList{HistoryStrenua.HoleEdge},System.Collections.Generic.IReadOnlyList{HistoryStrenua.CoveringView},System.Nullable{HistoryStrenua.ModelDirection},HistoryStrenua.ModelDirection)">
             <summary>

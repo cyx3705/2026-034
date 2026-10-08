@@ -162,7 +162,7 @@ internal static class ArcCenter
     /// <summary>草图线退路两头伸出圆心多远（图纸 3 mm，与 SolidWorks 中心线伸出零件的样子相近）。</summary>
     private const double LinkOverhang = 0.003;
 
-    private enum LinkResult
+    internal enum LinkResult
     {
         Failed,
         CenterLine,
@@ -174,9 +174,10 @@ internal static class ArcCenter
     /// 读回显示的线核对它沿对齐方向串过两头圆心；SolidWorks 不接受（中心线本来是选两条边、或一个圆柱面）或位置不对，
     /// 就删掉，改在视图草图里画一根直线、线型设成中心线（细点划线），两头各伸出 <see cref="LinkOverhang"/>，读回核对。
     /// </summary>
-    /// <remarks>未真机核对：选两段圆弧时 <c>InsertCenterLine2</c> 是否生成过两圆心的中心线；草图退路里 <c>CreateLine</c> 是否画进了激活的视图
-    /// （读回按视图变换核对，画到图纸上会对不上而删掉）。</remarks>
-    private static LinkResult InsertLink(SolidWorksApi api, ScannedView scan, ArcCenterLink link)
+    /// <remarks>真机（SW 2025 SP5，2026-10-08 用户图右视图）：选两段圆弧 <c>InsertCenterLine2</c> 返回 null（中心线注解只认两条边或一个圆柱面），
+    /// 圆弧之间实际都走草图退路；ActivateView 之后 <c>CreateLine</c> 画进了视图草图，读回位置对、<c>Style</c> 4、<c>Width</c> 0。
+    /// 先试中心线注解是留给与孔相连时（孔边也是圆，多半同样不认，没试）。</remarks>
+    internal static LinkResult InsertLink(SolidWorksApi api, ScannedView scan, ArcCenterLink link)
     {
         var document = scan.Document;
         api.Call(document, "IModelDoc2", "ClearSelection2", true);

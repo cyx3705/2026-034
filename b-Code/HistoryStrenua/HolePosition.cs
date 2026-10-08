@@ -15,6 +15,8 @@ namespace HistoryStrenua;
 /// 0 点是左侧 / 上侧基准边，其后每列（行）孔一个坐标值。
 /// 腰型孔只标上方那一端圆弧的圆心（1.3.0，用户定）。</para>
 /// <para>「重新标」：先删掉连着这些孔的旧线性尺寸与视图里悬空的线性尺寸（孔标注、直径尺寸、外形尺寸不动），再全部重标。</para>
+/// <para>跨视图不重复（1.15.0，用户定，<see cref="HoleCoveragePlanner"/>）：同一页上视线平行的别的视图（顶视图对底视图）已标过位置的孔，
+/// 这里删旧后不再标。</para>
 /// <para>最后做标注避障（1.6.0，<see cref="Clearance.ClearDimensions"/>）：尺寸数字压在别的孔相关注解上就沿尺寸线滑开。
 /// 1.7.0 起受页面「避障」开关控制（默认开）。</para>
 /// </remarks>
@@ -25,7 +27,7 @@ internal static class HolePosition
         CommandName: StrenuaIdentity.Domain + ".hole.position",
         Title: "孔位尺寸",
         Summary: "点一个工程图视图，删掉孔的旧位置尺寸后以零件左侧、上侧直边为基准重标全部孔位尺寸。",
-        Usage: "在工程图里点一个视图（先点后按、先按后点都行，60 秒内），该视图里全部的孔删掉旧位置尺寸（含悬空的线性尺寸）后，以零件左侧、上侧直边为基准重标：同种孔接着前一个标，不同种从基准标；视图里的边和孔整个左右（或上下）对称、且有孔不在对称轴上时，先加对称轴（中心线），那个方向改以对称轴为基准、直接标对称轴两侧同种孔之间的距离（不同种照样不互标）；同种一个方向超过 4 个且等距时标「(N-1) x 间距 =总长」（页面「尺寸链」开关打开时改用 SolidWorks 尺寸链：每个方向一组坐标尺寸，0 点在零件左侧 / 上侧直边，文字排在零件外一列）；腰型孔标在上方那个圆上；「避障」开关开着时，数字压在别的孔的尺寸、中心符号线等线条上就沿尺寸线滑开。",
+        Usage: "在工程图里点一个视图（先点后按、先按后点都行，60 秒内），该视图里全部的孔删掉旧位置尺寸（含悬空的线性尺寸）后，以零件左侧、上侧直边为基准重标：同种孔接着前一个标，不同种从基准标；视图里的边和孔整个左右（或上下）对称、且有孔不在对称轴上时，先加对称轴（中心线），那个方向改以对称轴为基准、直接标对称轴两侧同种孔之间的距离（不同种照样不互标）；同种一个方向超过 4 个且等距时标「(N-1) x 间距 =总长」（页面「尺寸链」开关打开时改用 SolidWorks 尺寸链：每个方向一组坐标尺寸，0 点在零件左侧 / 上侧直边，文字排在零件外一列）；腰型孔标在上方那个圆上；同一页上别的视图（如顶视图对底视图）已标过位置的孔不再标；「避障」开关开着时，数字压在别的孔的尺寸、中心符号线等线条上就沿尺寸线滑开。",
         Run: context => Run(context, null));
 
     // swDimensionTextParts_e / swSelectType_e / swAddOrdinateDims_e
@@ -57,7 +59,9 @@ internal static class HolePosition
         var chain = context.Options.Chain;
         // 1.14.1：整个视图关于某根轴对称就以对称轴为基准（尺寸链模式不管，照旧从直边量）。
         var symmetry = chain ? [] : SymmetryPlanner.Axes(scan.Lines, scan.CurveSegments, holes);
-        var plan = HolePositionPlanner.Plan(scan.Candidates, scan.Lines[l].X1, scan.Lines[t].Y1, scan.Geometry.Scale, chain,
+        // 1.15.0：别的视图标过位置的孔不再标（旧尺寸照删）。
+        var (candidates, elsewhere) = WithoutPositionedElsewhere(context, scan);
+        var plan = HolePositionPlanner.Plan(candidates, scan.Lines[l].X1, scan.Lines[t].Y1, scan.Geometry.Scale, chain,
             symmetry.Select(axis => axis.Axis).ToList());
         context.Report($"孔位尺寸：视图「{viewName}」认出 {plan.Summary}，"
             + (symmetry.Count > 0 ? $"关于{string.Join("、", symmetry.Select(axis => axis.Name))}对称，" : string.Empty)
@@ -137,7 +141,7 @@ internal static class HolePosition
             api.Call(document, "IModelDoc2", "GraphicsRedraw2");
         }
 
-        var message = $"视图「{viewName}」：{plan.Summary}，删掉旧位置尺寸 {removed} 个，"
+        var message = $"视图「{viewName}」：{plan.Summary}" + elsewhere + $"，删掉旧位置尺寸 {removed} 个，"
             + $"新加 {added} 个（{(chain ? $"尺寸链模式，尺寸链 {nativeChains} 组" : $"阵列标法 {plan.PatternCount} 个")}；连在中心线上 {onCenterLines} 个，其余连在孔边上）"
             + (failed > 0 ? $"，{failed} 个 SolidWorks 没有接受" : string.Empty)
             + (symmetry.Count > 0
@@ -148,6 +152,21 @@ internal static class HolePosition
             + clearance.Describe("尺寸数字")
             + "。";
         return added == 0 && plan.Count > 0 ? QuickOutcome.Fail(message) : QuickOutcome.Ok(message);
+    }
+
+    /// <summary>
+    /// 去掉同一页上视线平行的别的视图里已标过位置的孔（1.15.0，<see cref="HoleCoveragePlanner.PositionedElsewhere"/>），
+    /// 另给回执一句「另有 N 个孔别的视图已标过位置」；没有去掉的为空。下标仍指 <see cref="ScannedView.Edges"/>。
+    /// </summary>
+    internal static (IReadOnlyList<HoleEdge> Candidates, string Note) WithoutPositionedElsewhere(QuickCommandContext context, ScannedView scan)
+    {
+        var views = HoleCoverage.Read(context, scan);
+        if (views.Count == 0)
+            return (scan.Candidates, string.Empty);
+        var kept = scan.Candidates.Where(hole => !HoleCoveragePlanner.PositionedElsewhere(hole, views)).ToList();
+        var skipped = HoleCalloutPlanner.Count(HoleCalloutPlanner.Recognize(scan.Candidates)).Holes - HoleCalloutPlanner.Count(HoleCalloutPlanner.Recognize(kept)).Holes;
+        var names = string.Join("、", views.Where(view => view.Positioned.Count > 0).Select(view => $"「{view.Name}」"));
+        return (kept, skipped > 0 ? $"，另有 {skipped} 个孔别的视图（{names}）已标过位置、不再标" : string.Empty);
     }
 
     /// <summary>

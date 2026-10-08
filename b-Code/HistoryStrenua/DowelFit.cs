@@ -6,7 +6,8 @@ namespace HistoryStrenua;
 /// 快捷指令「销孔标注」（1.8.0）：点一个工程图视图，销孔的孔标注带上 H7（代号与偏差值），相邻销孔之间的尺寸带 ±0.02。
 /// </summary>
 /// <remarks>
-/// <para>销孔、站、「(仅销孔)」怎么判见 <see cref="DowelFitPlanner"/>。</para>
+/// <para>销孔、站、「(公差仅对销孔)」怎么判见 <see cref="DowelFitPlanner"/>。</para>
+/// <para>跨视图不重复（1.15.0）：同一页上视线平行的别的视图已有孔标注的种、已标过位置的孔，这里不加不改（见 <see cref="HoleCoveragePlanner"/>）。</para>
 /// <para>H7：每种销孔一个孔标注（与「孔标注」相同，SolidWorks 自带 N×）。已有的孔标注直接改，没有就先加一个；
 /// 改的是孔标注里孔径那个长度变量（<c>ICalloutVariable</c>）：公差类型「配合（带公差）」、孔配合 H7、线性显示，
 /// SolidWorks 按标准表算出偏差值，显示成「⌀6H7(+0.012/0)」一类。文字变长后把引线折点挪回原处。</para>
@@ -21,7 +22,7 @@ internal static class DowelFit
         CommandName: StrenuaIdentity.Domain + ".hole.dowelfit",
         Title: "销孔标注",
         Summary: "点一个工程图视图，销孔的孔标注带上 H7 与偏差值，相邻销孔之间的尺寸带 ±0.02（已有的改、没有的补）。",
-        Usage: "在工程图里点一个视图（先点后按、先按后点都行，60 秒内）。只认异形孔向导的销钉孔：每种销孔的孔标注（没有就先加）孔径带 H7 和偏差值；相邻销孔之间的水平 / 竖直尺寸带 ±0.02，已有的直接改、没有的新加（销孔与别的孔、与基准之间不加）；这段尺寸和别的孔的同段尺寸重叠被并成一个时，后面写「(仅销孔)」。「避障」开着时最后把压线的数字滑开。",
+        Usage: "在工程图里点一个视图（先点后按、先按后点都行，60 秒内）。只认异形孔向导的销钉孔：每种销孔的孔标注（没有就先加）孔径带 H7 和偏差值；相邻销孔之间的水平 / 竖直尺寸带 ±0.02，已有的直接改、没有的新加（销孔与别的孔、与基准之间不加）；这段尺寸和别的孔的同段尺寸重叠被并成一个时，后面写「(公差仅对销孔)」。「避障」开着时最后把压线的数字滑开。",
         Run: context => Run(context, null));
 
     // swCalloutVariableType_e / swFitTolDisplay_e
@@ -47,9 +48,20 @@ internal static class DowelFit
         var left = leftIndex is { } l ? scan.Lines[l].X1 : dowels.Min(hole => hole.X);
         var top = topIndex is { } t ? scan.Lines[t].Y1 : dowels.Max(hole => hole.Y);
         var dimensions = DimensionScan.Read(api, scan);
-        var plan = DowelFitPlanner.Plan(scan.Candidates, dimensions.Select(item => item.Geometry).ToList(), scale, context.Options.Chain, left, top);
+        var existing = dimensions.Select(item => item.Geometry).ToList();
+        var plan = DowelFitPlanner.Plan(scan.Candidates, existing, scale, context.Options.Chain, left, top);
+        // 1.15.0（用户定：同一孔标注、位置不在两个视图里重复）：同一页视线平行的别的视图已有孔标注的种不在这里加 / 改 H7，
+        // 已标过位置的孔不在这里加销孔间尺寸——与「孔标注」「孔位尺寸」的跳过一致。
+        var covering = HoleCoverage.Read(context, scan);
+        var normal = scan.Geometry.Frame.Normal;
+        var kinds = plan.Kinds.Where(kind => HoleCoveragePlanner.Callout(kind, covering, null, normal).Place != CalloutPlace.Elsewhere).ToList();
+        var spans = covering.Count == 0
+            ? plan.Spans
+            : DowelFitPlanner.Plan(scan.Candidates.Where(hole => !HoleCoveragePlanner.PositionedElsewhere(hole, covering)).ToList(),
+                existing, scale, context.Options.Chain, left, top).Spans;
+        var elsewhere = plan.Kinds.Count - kinds.Count;
         context.Report($"销孔标注：视图「{viewName}」认出 {plan.DowelCount} 个销孔共 {plan.Kinds.Count} 种，"
-            + $"孔标注加 H7，相邻销孔之间 {plan.Spans.Count} 段尺寸加 ±0.02。");
+            + $"孔标注加 H7，相邻销孔之间 {spans.Count} 段尺寸加 ±0.02。");
 
         var fits = 0;
         var calloutsAdded = 0;
@@ -63,7 +75,7 @@ internal static class DowelFit
         try
         {
             context.SetState("孔标注加 H7");
-            foreach (var kind in plan.Kinds)
+            foreach (var kind in kinds)
             {
                 context.Cancellation.ThrowIfCancellationRequested();
                 switch (FitCallout(api, scan, dimensions, kind, scale))
@@ -82,7 +94,7 @@ internal static class DowelFit
             }
 
             context.SetState("销孔间 ±0.02");
-            foreach (var span in plan.Spans)
+            foreach (var span in spans)
             {
                 context.Cancellation.ThrowIfCancellationRequested();
                 object? display;
@@ -125,8 +137,9 @@ internal static class DowelFit
         var message = $"视图「{viewName}」：{plan.DowelCount} 个销孔共 {plan.Kinds.Count} 种，{fits} 种孔标注已带 H7"
             + (calloutsAdded > 0 ? $"（其中 {calloutsAdded} 个孔标注是新加的）" : string.Empty)
             + (fitFailed > 0 ? $"，{fitFailed} 种没改成" : string.Empty)
+            + (elsewhere > 0 ? $"，{elsewhere} 种的孔标注在别的视图、这里不加" : string.Empty)
             + $"；销孔间尺寸 {tolerated} 个带 ±0.02（新加 {spansAdded} 个"
-            + (spansShared > 0 ? $"，{spansShared} 个兼管别的孔写了「(仅销孔)」" : string.Empty) + "）"
+            + (spansShared > 0 ? $"，{spansShared} 个兼管别的孔写了「(公差仅对销孔)」" : string.Empty) + "）"
             + (spanFailed > 0 ? $"，{spanFailed} 个没成" : string.Empty)
             + clearance.Describe("尺寸数字")
             + "。";
@@ -219,13 +232,13 @@ internal static class DowelFit
                && api.CallString(target, "ICalloutVariable", "get_HoleFit") == DowelFitPlanner.HoleFit;
     }
 
-    /// <summary>兼管别的孔就写「(仅销孔)」后缀；不兼管了而后缀还是它就去掉。别的后缀不动。</summary>
+    /// <summary>兼管别的孔就写「(公差仅对销孔)」后缀；不兼管了而后缀还是它就去掉。别的后缀不动。</summary>
     private static void SetSharedSuffix(SolidWorksApi api, object display, bool shared)
     {
         var suffix = api.CallString(display, "IDisplayDimension", "GetText", DimensionScan.TextSuffix);
         if (shared && suffix != DowelFitPlanner.SharedSuffix)
             api.Call(display, "IDisplayDimension", "SetText", DimensionScan.TextSuffix, DowelFitPlanner.SharedSuffix);
-        else if (!shared && suffix.Trim() == DowelFitPlanner.SharedSuffix.Trim())
+        else if (!shared && (suffix.Trim() == DowelFitPlanner.SharedSuffix.Trim() || suffix.Trim() == DowelFitPlanner.LegacySharedSuffix.Trim()))
             api.Call(display, "IDisplayDimension", "SetText", DimensionScan.TextSuffix, string.Empty);
     }
 }

@@ -51,6 +51,10 @@ internal sealed record ChamferPlan(IReadOnlyList<ChamferTarget> Targets, int Cha
 /// 不等边的倒角两条直角边各标一个、不写 C。</para>
 /// <para>量哪条直角边：尺寸线放在被倒掉的那个角（两条直边延长线的交点，在零件外）那一侧、视图外 <see cref="Offset"/>，
 /// 先下边、再右边、再上边、再左边（孔位尺寸与外轮廓都在上边和左边）；出了图框或压线多就换另一条。</para>
+/// <para>避障（1.15.0，用户指出倒角没做避障：上边、左边那一档正是孔位、外轮廓尺寸的位置，两条都压时只能挑压得少的）：
+/// 每条再往外一档一档试（<see cref="Offsets"/>），文字还可沿尺寸线左右滑（<see cref="Slides"/>）；压不压既看文字框碰没碰线和别的文字，
+/// 也看这个尺寸自己的尺寸线、尺寸界线穿没穿别的文字。挑 不出图框 → 压得最少 → 离视图近 → 下右上左 → 滑得少。
+/// 障碍由调用方给：这个视图的线、全部注解，以及同一页别的视图的外框与注解（尺寸放到视图外，可能伸进邻近视图）。</para>
 /// </remarks>
 internal static class ChamferPlanner
 {
@@ -68,6 +72,12 @@ internal static class ChamferPlanner
 
     /// <summary>尺寸线离视图最外的线多远（图纸 8 mm）。</summary>
     public const double Offset = 0.008;
+
+    /// <summary>避障时尺寸线离视图最外的线的几档（图纸 8 / 14 / 20 / 26 mm，1.15.0）；第一档就是 <see cref="Offset"/>。</summary>
+    public static readonly double[] Offsets = [Offset, 0.014, 0.020, 0.026];
+
+    /// <summary>避障时文字沿尺寸线滑的几档（图纸 0、±5、±10、±15 mm，1.15.0）。</summary>
+    public static readonly double[] Slides = [0, 0.005, -0.005, 0.010, -0.010, 0.015, -0.015];
 
     /// <summary>文字估计：字高 3.5 mm，每个字宽 2.6 mm，文字在尺寸线外侧约 2.5 mm（与模板「汉仪长仿宋 3.5」相符）。</summary>
     private const double CharHeight = 0.0035;
@@ -177,8 +187,9 @@ internal static class ChamferPlanner
     }
 
     /// <summary>
-    /// 尺寸放哪：被倒掉的角在下（上）就量横向跨度、尺寸线放在视图下（上）边外 <see cref="Offset"/>；在右（左）就量竖向跨度、放在视图右（左）边外。
-    /// 两种按 下 → 右 → 上 → 左 排先后，取文字在 <paramref name="inside"/> 里、压线最少的那种（一样少取靠前的）。不等边的两条直角边都标。
+    /// 尺寸放哪：被倒掉的角在下（上）就量横向跨度、尺寸线放在视图下（上）边外；在右（左）就量竖向跨度、放在视图右（左）边外。
+    /// 两种按 下 → 右 → 上 → 左 排先后；每种从 <see cref="Offset"/> 往外一档档试、文字沿尺寸线滑（<see cref="Best"/>），
+    /// 取文字在 <paramref name="inside"/> 里、压线最少的那种（一样少取离视图近的、再取靠前的）。不等边的两条直角边都标，各自找位置。
     /// </summary>
     private static IReadOnlyList<ChamferPlacement> Place(ChamferEdge chamfer, SheetPoint corner, SheetRect extent, int characters,
         IReadOnlyList<SheetSegment> obstacles, List<TextBox> placed, SheetRect? inside)
@@ -186,39 +197,93 @@ internal static class ChamferPlanner
         var middle = chamfer.Middle;
         var below = corner.Y < middle.Y;
         var right = corner.X > middle.X;
-        var horizontal = new ChamferPlacement(PositionAxis.Horizontal,
-            new SheetPoint(middle.X, below ? extent.Bottom - Offset : extent.Top + Offset));
-        var vertical = new ChamferPlacement(PositionAxis.Vertical,
-            new SheetPoint(right ? extent.Right + Offset : extent.Left - Offset, middle.Y));
         // 下 0、右 1、上 2、左 3。
-        var options = new[] { (Placement: horizontal, Rank: below ? 0 : 2), (Placement: vertical, Rank: right ? 1 : 3) }
+        var axes = new[] { (Axis: PositionAxis.Horizontal, Rank: below ? 0 : 2), (Axis: PositionAxis.Vertical, Rank: right ? 1 : 3) }
             .OrderBy(option => option.Rank)
-            .Select(option => option.Placement)
+            .Select(option => option.Axis)
             .ToList();
 
         if (!chamfer.Equal)
         {
-            // 不等边：两条直角边各一个，不写 C。
-            foreach (var option in options)
-                placed.Add(Box(option, characters));
-            return options;
+            // 不等边：两条直角边各一个，不写 C；各自找位置。
+            var both = new List<ChamferPlacement>();
+            foreach (var axis in axes)
+            {
+                var (placement, box) = Best(chamfer, [axis], below, right, extent, characters, obstacles, placed, inside);
+                placed.Add(box);
+                both.Add(placement);
+            }
+
+            return both;
         }
 
-        var scored = options
-            .Select(option => Clamp(option, characters, inside))
-            .Select((option, order) =>
+        var chosen = Best(chamfer, axes, below, right, extent, characters, obstacles, placed, inside);
+        placed.Add(chosen.Box);
+        return [chosen.Placement];
+    }
+
+    /// <summary>
+    /// 在 <paramref name="axes"/>（按先后排好）里挑尺寸位置：每种由近到远 <see cref="Offsets"/>、文字沿尺寸线 <see cref="Slides"/>；
+    /// 挑 不出图框 → 压得最少 → 离视图近 → 排在前 → 滑得少。避障关（<paramref name="obstacles"/> 与 <paramref name="placed"/> 都空）时
+    /// 只试每种的近档不滑，结果同 1.15.0 以前。
+    /// </summary>
+    private static (ChamferPlacement Placement, TextBox Box) Best(ChamferEdge chamfer, IReadOnlyList<PositionAxis> axes, bool below, bool right,
+        SheetRect extent, int characters, IReadOnlyList<SheetSegment> obstacles, IReadOnlyList<TextBox> placed, SheetRect? inside)
+    {
+        var middle = chamfer.Middle;
+        var avoid = obstacles.Count > 0 || placed.Count > 0;
+        (ChamferPlacement Placement, TextBox Box, (bool, int, int, int, int) Score)? best = null;
+        for (var order = 0; order < axes.Count; order++)
+        {
+            var axis = axes[order];
+            for (var layer = 0; layer < (avoid ? Offsets.Length : 1); layer++)
             {
-                var box = Box(option, characters);
-                var outside = inside is { } frame && !new SheetRect(box.X, box.Y, box.X + box.Width, box.Y + box.Height).Within(frame);
-                var hits = obstacles.Count(line => ClearancePlanner.Hits(box, line)) + placed.Count(other => ClearancePlanner.Hits(box, other));
-                return (Option: option, Box: box, Outside: outside, Hits: hits, Order: order);
-            })
-            .OrderBy(item => item.Outside)
-            .ThenBy(item => item.Hits)
-            .ThenBy(item => item.Order)
-            .First();
-        placed.Add(scored.Box);
-        return [scored.Option];
+                var offset = Offsets[layer];
+                var line = axis == PositionAxis.Horizontal
+                    ? new SheetPoint(middle.X, below ? extent.Bottom - offset : extent.Top + offset)
+                    : new SheetPoint(right ? extent.Right + offset : extent.Left - offset, middle.Y);
+                for (var slide = 0; slide < (avoid ? Slides.Length : 1); slide++)
+                {
+                    var at = axis == PositionAxis.Horizontal ? line with { X = line.X + Slides[slide] } : line with { Y = line.Y + Slides[slide] };
+                    var placement = Clamp(new ChamferPlacement(axis, at), characters, inside);
+                    var box = Box(placement, characters);
+                    var outside = inside is { } frame && !new SheetRect(box.X, box.Y, box.X + box.Width, box.Y + box.Height).Within(frame);
+                    var hits = obstacles.Count(segment => ClearancePlanner.Hits(box, segment))
+                        + placed.Count(other => ClearancePlanner.Hits(box, other))
+                        + Leaders(chamfer.Segment, placement, box).Sum(segment => placed.Count(other => ClearancePlanner.Hits(other, segment)));
+                    var score = (outside, hits, layer, order, slide);
+                    if (best is not { } known || score.CompareTo(known.Score) < 0)
+                        best = (placement, box, score);
+                    if (!outside && hits == 0)
+                        break;
+                }
+            }
+        }
+
+        return (best!.Value.Placement, best.Value.Box);
+    }
+
+    /// <summary>
+    /// 这个尺寸自己的线（估计）：两条尺寸界线从斜边两端引到尺寸线，尺寸线从两条界线之间伸到文字那头（文字滑出界线外时 SolidWorks 把尺寸线接过去）。
+    /// 避障时看它们穿没穿别的文字。
+    /// </summary>
+    internal static IEnumerable<SheetSegment> Leaders(SheetSegment chamfer, ChamferPlacement placement, TextBox box)
+    {
+        var at = placement.At;
+        if (placement.Axis == PositionAxis.Horizontal)
+        {
+            yield return new SheetSegment(chamfer.X1, chamfer.Y1, chamfer.X1, at.Y);
+            yield return new SheetSegment(chamfer.X2, chamfer.Y2, chamfer.X2, at.Y);
+            yield return new SheetSegment(Math.Min(Math.Min(chamfer.X1, chamfer.X2), box.X), at.Y,
+                Math.Max(Math.Max(chamfer.X1, chamfer.X2), box.X + box.Width), at.Y);
+        }
+        else
+        {
+            yield return new SheetSegment(chamfer.X1, chamfer.Y1, at.X, chamfer.Y1);
+            yield return new SheetSegment(chamfer.X2, chamfer.Y2, at.X, chamfer.Y2);
+            yield return new SheetSegment(at.X, Math.Min(Math.Min(chamfer.Y1, chamfer.Y2), box.Y),
+                at.X, Math.Max(Math.Max(chamfer.Y1, chamfer.Y2), box.Y + box.Height));
+        }
     }
 
     /// <summary>

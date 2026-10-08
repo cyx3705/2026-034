@@ -7,7 +7,7 @@ namespace HistoryStrenua;
 /// <param name="FromEdgeIndex">一头的销孔边下标（新加时选它）。</param>
 /// <param name="ToEdgeIndex">另一头。</param>
 /// <param name="Existing">已经有这段尺寸：它在已有尺寸表里的下标；没有为 null（要新加）。</param>
-/// <param name="Shared">这段尺寸兼管别的孔（被去重并掉过别的孔的同段尺寸，或连着的不是销孔）：后缀写「(仅销孔)」。</param>
+/// <param name="Shared">这段尺寸兼管别的孔（被去重并掉过别的孔的同段尺寸，或连着的不是销孔）：后缀写「(公差仅对销孔)」。</param>
 /// <param name="TextAt">新加时文字放哪（图纸坐标）。</param>
 internal sealed record DowelSpan(
     PositionAxis Axis, double From, double To, int FromEdgeIndex, int ToEdgeIndex, int? Existing, bool Shared, SheetPoint TextAt);
@@ -19,7 +19,7 @@ internal sealed record DowelSpan(
 internal sealed record DowelFitPlan(IReadOnlyList<IReadOnlyList<HoleEdge>> Kinds, IReadOnlyList<DowelSpan> Spans, int DowelCount);
 
 /// <summary>
-/// 「销孔标注」（1.8.0）的纯几何部分：哪些孔是销孔、相邻销孔之间要哪几段尺寸、已有尺寸里哪个就是这段、要不要写「(仅销孔)」。
+/// 「销孔标注」（1.8.0）的纯几何部分：哪些孔是销孔、相邻销孔之间要哪几段尺寸、已有尺寸里哪个就是这段、要不要写「(公差仅对销孔)」。
 /// </summary>
 /// <remarks>
 /// <para>销孔沿用销钉符号的认法：异形孔向导的销钉孔（<see cref="HoleEdge.Dowel"/>），腰型孔不算。</para>
@@ -29,7 +29,7 @@ internal sealed record DowelFitPlan(IReadOnlyList<IReadOnlyList<HoleEdge>> Kinds
 /// 「同种接着前一个标」的链一致，普通模式下多半是已有的改。</para>
 /// <para>已有的改、没有的补（用户定）：已有线性尺寸沿同一方向、两头落在这两条中心线上，就是这段——连的是孔边还是中心符号线、
 /// 是不是连着这两个销孔都不论（孔位尺寸按中心线去重，同一段可能连在同列的别的孔上）。</para>
-/// <para>「(仅销孔)」（用户定）：这段尺寸和别的孔的同段尺寸重叠、被去重并成了一个，后缀写「(仅销孔)」，说明 ±0.02 只管销孔。
+/// <para>「(公差仅对销孔)」（用户定）：这段尺寸和别的孔的同段尺寸重叠、被去重并成了一个，后缀写「(公差仅对销孔)」，说明 ±0.02 只管销孔。
 /// 判法：普通模式下有别的种的孔也想标这一段（<see cref="HolePositionPlanner.RequestedSpans"/>），或者已有的这段尺寸
 /// 连着的不是销孔。尺寸链模式孔之间没有线性尺寸，不会被去重，不写。</para>
 /// </remarks>
@@ -42,7 +42,10 @@ internal static class DowelFitPlanner
     public const string HoleFit = "H7";
 
     /// <summary>兼管别的孔时写在销孔间尺寸后面的字。</summary>
-    public const string SharedSuffix = " (仅销孔)";
+    public const string SharedSuffix = " (公差仅对销孔)";
+
+    /// <summary>1.15.0 之前写的后缀（用户改成「(公差仅对销孔)」）：重跑时认得出、换成新写法。</summary>
+    public const string LegacySharedSuffix = " (仅销孔)";
 
     /// <summary>新加的销孔间尺寸离孔边多远（图纸上 6 mm）。</summary>
     public const double SpanReach = 0.006;

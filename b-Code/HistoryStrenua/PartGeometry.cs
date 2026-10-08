@@ -106,9 +106,13 @@ internal sealed record PartGeometry(
 /// 安装板一头是「M4 螺纹孔1」、另一头是镜像出来的，SolidWorks 的孔标注照样数成「6 x」。不比长度：
 /// 那块板中间的 M4 一头打进了窗口被截短、另一头没有，比长度就成了两种（是不是同一个孔标注里的，由「N x」把关，见 <see cref="OppositePlanner"/>）。
 /// </param>
+/// <param name="Counterbore">
+/// 沉孔朝哪头（1.15.0）：最粗那一截与底孔是同一个特征（异形孔向导的柱形沉头孔）、比底孔粗，就是沿轴指向最粗那一截那一端的单位向量；
+/// 不是沉孔、读不到起止为 null。孔标注据此判沉孔在不在视图背面（<see cref="HoleCoveragePlanner"/>）。
+/// </param>
 internal sealed record PartHole(
     ModelDirection Axis, double Radius, string Kind, IReadOnlyList<ModelDirection> Openings, ModelDirection Point = default, string Feature = "",
-    double AxialMin = double.NaN, double AxialMax = double.NaN, string Shape = "")
+    double AxialMin = double.NaN, double AxialMax = double.NaN, string Shape = "", ModelDirection? Counterbore = null)
 {
     /// <summary>沿 <paramref name="direction"/> 的起止（方向与轴相反时翻过来）；读不到为 null。</summary>
     public (double Min, double Max)? RangeAlong(ModelDirection direction)
@@ -147,9 +151,25 @@ internal sealed record PartHole(
                 if (ranges.Any(range => range is null))
                     return new PartHole(smallest.Axis, smallest.Radius, kind, widest.Openings, smallest.Point, smallest.Feature, Shape: shape);
                 return new PartHole(smallest.Axis, smallest.Radius, kind, widest.Openings, smallest.Point, smallest.Feature,
-                    ranges.Min(range => range!.Value.Min), ranges.Max(range => range!.Value.Max), shape);
+                    ranges.Min(range => range!.Value.Min), ranges.Max(range => range!.Value.Max), shape, CounterboreOf(smallest, widest));
             })
             .ToList();
+    }
+
+    /// <summary>
+    /// 沉孔朝哪头（见 <see cref="PartHole.Counterbore"/>）：最粗那一截比底孔粗、同一个特征，它的中点在底孔中点的哪一侧。
+    /// 不同特征叠出来的（先打孔、另一次切除扩口）孔标注里没有沉孔那一行，不算。
+    /// </summary>
+    private static ModelDirection? CounterboreOf(PartCylinder smallest, PartCylinder widest)
+    {
+        if (widest.Radius <= smallest.Radius * (1 + 1e-3) || widest.Feature.Length == 0 || widest.Feature != smallest.Feature
+            || Range(smallest, smallest.Axis) is not { } narrow || Range(widest, smallest.Axis) is not { } wide)
+            return null;
+        var side = (wide.Min + wide.Max) / 2 - (narrow.Min + narrow.Max) / 2;
+        if (Math.Abs(side) <= AxisTolerance)
+            return null;
+        var axis = smallest.Axis.Normalized();
+        return side > 0 ? axis : new ModelDirection(-axis.X, -axis.Y, -axis.Z);
     }
 
     /// <summary>圆柱面沿 <paramref name="axis"/> 的起止（方向相反时翻过来）；读不到为 null。</summary>

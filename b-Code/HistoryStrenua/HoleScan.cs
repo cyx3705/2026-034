@@ -83,8 +83,9 @@ internal static class HoleScan
     /// <param name="view">直接处理这个视图，不看选择、不等点选（「孔标注全流程」逐个视图调用时给）。</param>
     /// <param name="withArcs">同时收集圆角弧（1.9.0「圆角标注」用；要 <paramref name="withLines"/>）。</param>
     /// <param name="withChamfers">同时收集倒角斜边（1.10.0「倒角标注」用；要 <paramref name="withLines"/>）。</param>
+    /// <param name="quiet">不报进度、不改状态（1.15.0：顺带读同一页别的视图时用，<see cref="HoleCoverage"/>）。</param>
     public static ScannedView Scan(QuickCommandContext context, string title, bool withLines = false, object? view = null, bool withArcs = false,
-        bool withChamfers = false)
+        bool withChamfers = false, bool quiet = false)
     {
         var api = context.Api;
         var document = ActiveDrawing(context);
@@ -94,8 +95,12 @@ internal static class HoleScan
             ?? throw new QuickCommandException($"视图「{viewName}」没有引用模型（空视图，或模型是轻化/未加载状态）。");
 
         var what = withChamfers ? "倒角" : withArcs ? "圆角" : "孔";
-        context.SetState("识别" + what);
-        context.Report($"{title}：正在识别视图「{viewName}」里的{what}。");
+        if (!quiet)
+        {
+            context.SetState("识别" + what);
+            context.Report($"{title}：正在识别视图「{viewName}」里的{what}。");
+        }
+
         var geometry = new ViewGeometry(api, context.Session.Application, view);
         var edges = new List<object>();
         var candidates = new List<HoleEdge>();
@@ -286,8 +291,10 @@ internal static class HoleScan
                 (bx, by) = (sheet[0] / length, sheet[1] / length);
             }
 
-            var (kind, dowel) = Kind(edge, wall);
-            return new HoleEdge(0, center[0], center[1], circle[6] * Scale, kind, bx, by, Dowel: dowel);
+            var (kind, dowel, component) = Kind(edge, wall);
+            // 1.15.0：零件坐标里的轴线，跨视图认同一个孔（顶视图、底视图）。
+            var model = HoleAxis.Of(component, new ModelDirection(circle[0], circle[1], circle[2]), new ModelDirection(circle[3], circle[4], circle[5]));
+            return new HoleEdge(0, center[0], center[1], circle[6] * Scale, kind, bx, by, Dowel: dowel, Axis: model);
         }
 
         /// <summary>
@@ -318,9 +325,9 @@ internal static class HoleScan
         /// <summary>
         /// 孔的「种」：组件 + 孔壁所属特征。同一个异形孔向导特征、同一次拉伸切除、同一个阵列里的孔是一种，
         /// SolidWorks 的孔标注会把它们数成「N×」。取不到特征时退回只按组件分（再由孔径细分）。
-        /// 同时回答这是不是销钉孔（<see cref="IsDowelFeature"/>）。
+        /// 同时回答这是不是销钉孔（<see cref="IsDowelFeature"/>）与组件名（零件视图为空）。
         /// </summary>
-        private (string Kind, bool Dowel) Kind(object edge, object wall)
+        private (string Kind, bool Dowel, string Component) Kind(object edge, object wall)
         {
             var component = api.Call(edge, "IEntity", "GetComponent") is { } owner
                 ? api.CallString(owner, "IComponent2", "get_Name2")
@@ -346,7 +353,7 @@ internal static class HoleScan
                 feature = string.Empty;
             }
 
-            return (component + "/" + feature, dowel);
+            return (component + "/" + feature, dowel, component);
         }
 
         private readonly Dictionary<string, bool> _dowelFeatures = new(StringComparer.Ordinal);

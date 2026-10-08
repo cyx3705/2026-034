@@ -15,8 +15,10 @@ namespace HistoryStrenua;
 /// 腰型孔编号（1.3.0 起）：配成一对的两个端头编号相同；圆孔为 -1。由 <see cref="SlotPlanner.Pair"/> 填。
 /// </param>
 /// <param name="Dowel">孔壁是异形孔向导的销钉孔（1.6.0 起，判法见 <c>HoleScan.ViewGeometry</c>）。</param>
+/// <param name="Axis">孔在零件里的轴线（1.15.0，跨视图认同一个孔用，<see cref="HoleCoveragePlanner"/>）；读不到为 null。</param>
 internal readonly record struct HoleEdge(
-    int Index, double X, double Y, double Radius, string Kind = "", double BulgeX = 0, double BulgeY = 0, int Slot = -1, bool Dowel = false)
+    int Index, double X, double Y, double Radius, string Kind = "", double BulgeX = 0, double BulgeY = 0, int Slot = -1, bool Dowel = false,
+    HoleAxis? Axis = null)
 {
     /// <summary>是腰型孔端头的半圆（不是整圈的圆孔）。</summary>
     public bool IsSlotEnd => BulgeX != 0 || BulgeY != 0;
@@ -37,7 +39,10 @@ internal readonly record struct SheetSegment(double X1, double Y1, double X2, do
 /// <param name="KindCount">孔的种数。</param>
 /// <param name="AlreadyAnnotated">已经有孔标注、本次跳过的种数。</param>
 /// <param name="SlotCount">其中腰型孔的个数。</param>
-internal sealed record HoleCalloutPlan(IReadOnlyList<CalloutTarget> Targets, int HoleCount, int KindCount, int AlreadyAnnotated, int SlotCount = 0)
+/// <param name="Elsewhere">别的视图已标过（或留给看得见沉孔的视图标）、本次跳过的种（1.15.0），每种记一个视图名。</param>
+internal sealed record HoleCalloutPlan(
+    IReadOnlyList<CalloutTarget> Targets, int HoleCount, int KindCount, int AlreadyAnnotated, int SlotCount = 0,
+    IReadOnlyList<(CalloutPlace Place, string View)>? Elsewhere = null)
 {
     /// <summary>回执里的「N 个孔（含 M 个腰型孔）共 K 种」。</summary>
     public string Summary => HoleCalloutPlanner.Summary(HoleCount, SlotCount, KindCount);
@@ -128,11 +133,16 @@ internal static class HoleCalloutPlanner
     /// </summary>
     /// <param name="edges">视图里正对图纸的孔边（含腰型孔端头的半圆）。</param>
     /// <param name="annotatedCenters">这个视图里已有孔标注所指的孔心。</param>
+    /// <param name="place">
+    /// 一种孔该不该标在这个视图（1.15.0，<see cref="HoleCoveragePlanner.Callout"/>）：给出 <see cref="CalloutPlace.Elsewhere"/> /
+    /// <see cref="CalloutPlace.Deferred"/> 的种跳过。null 时都标在这里。
+    /// </param>
     /// <remarks>
     /// 腰型孔两端都留在种里：已有标注挂在哪一端都算标过；新标注标在这一种最靠左上的那一端上
     /// （SolidWorks 的孔标注从腰型孔任一端的圆弧进去都是整个腰型孔的规格）。
     /// </remarks>
-    public static HoleCalloutPlan Plan(IReadOnlyList<HoleEdge> edges, IReadOnlyList<SheetPoint> annotatedCenters)
+    public static HoleCalloutPlan Plan(
+        IReadOnlyList<HoleEdge> edges, IReadOnlyList<SheetPoint> annotatedCenters, Func<IReadOnlyList<HoleEdge>, (CalloutPlace Place, string? View)>? place = null)
     {
         ArgumentNullException.ThrowIfNull(edges);
         ArgumentNullException.ThrowIfNull(annotatedCenters);
@@ -142,12 +152,19 @@ internal static class HoleCalloutPlanner
 
         var targets = new List<(HoleEdge Hole, CalloutTarget Target)>();
         var annotated = 0;
+        var elsewhere = new List<(CalloutPlace, string)>();
         foreach (var kind in kinds)
         {
             // 这一种里任何一个孔已经有标注，整种都算标过：那个标注上的「N×」已经把其余的数进去了。
             if (kind.Any(hole => annotatedCenters.Any(center => SameCenter(center.X, center.Y, hole.X, hole.Y))))
             {
                 annotated++;
+                continue;
+            }
+
+            if (place?.Invoke(kind) is { Place: CalloutPlace.Elsewhere or CalloutPlace.Deferred } skip)
+            {
+                elsewhere.Add((skip.Place, skip.View ?? string.Empty));
                 continue;
             }
 
@@ -166,7 +183,8 @@ internal static class HoleCalloutPlanner
             holeCount,
             kinds.Count,
             annotated,
-            slotCount);
+            slotCount,
+            elsewhere);
     }
 
     /// <summary>

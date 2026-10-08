@@ -102,10 +102,10 @@ internal static class QuickCommands
         DrawingProject.Command,
         DrawingIso.Command,
         DrawingArrange.Command,
+        SymmetryAxes.Command,
         ArcCenterAll.Command,
         FilletAll.Command,
         ChamferAll.Command,
-        SymmetryAxes.Command,
         ArcCenter.Command,
         FilletDimension.Command,
         ChamferDimension.Command,
@@ -119,8 +119,9 @@ internal static class QuickCommands
     /// <summary>
     /// 页面上类的顺序（1.13.0）。「技术要求」类 1.13.0 一度没有按钮、只有模板表格，从登记表里分组推不出它的位置，所以顺序单独写；
     /// 1.14.0 起它有「AI 填写技术要求」一个按钮。登记表里出现了这里没有的类就排在最后。
+    /// 1.15.0（用户定）：圆心位置、圆弧、倒角及其全图版从「出图」拆出，单成「倒圆倒角」类，排在出图后面。
     /// </summary>
-    public static IReadOnlyList<string> ClassOrder { get; } = ["hole", "drawing", "tech", "check"];
+    public static IReadOnlyList<string> ClassOrder { get; } = ["hole", "drawing", "fillet", "tech", "check"];
 
     /// <summary>命令类 → 页面上的类名。新类不登记也能用，只是显示成英文类名。</summary>
     private static readonly IReadOnlyDictionary<string, string> ClassTitles =
@@ -128,6 +129,7 @@ internal static class QuickCommands
         {
             ["hole"] = "孔",
             ["drawing"] = "出图",
+            ["fillet"] = "倒圆倒角",
             ["tech"] = "技术要求",
             ["check"] = "检查",
         };

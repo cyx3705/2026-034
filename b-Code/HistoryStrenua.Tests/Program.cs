@@ -72,6 +72,8 @@ var tests = new (string Name, Action Run)[]
     ("drawing steps: one-click runs the steps in order", TestDrawingSteps),
     ("chamfer: which chamfers, grouping, which leg and where", TestChamferPlan),
     ("chamfer: side views and margins", TestChamferViews),
+    ("chamfer: steps out and slides to avoid annotations (1.15.0)", TestChamferAvoid),
+    ("holes: one callout and one position per sheet, counterbore side (1.15.0)", TestHoleCoverage),
     ("fillet: which arcs, grouping and text side", TestFilletPlan),
     ("fillet: holes subtracted from all circles, the rest get Ø", TestFilletCircles),
     ("arc center: tangency decides which positions to dimension", TestArcCenter),
@@ -279,13 +281,13 @@ static void TestCommandRegistration()
         "strenua.drawing.project",
         "strenua.drawing.iso",
         "strenua.drawing.arrange",
-        "strenua.drawing.arccenterall",
-        "strenua.drawing.arcall",
-        "strenua.drawing.chamferall",
         "strenua.drawing.symmetry",
-        "strenua.drawing.arccenter",
-        "strenua.drawing.arc",
-        "strenua.drawing.chamfer",
+        "strenua.fillet.arccenterall",
+        "strenua.fillet.arcall",
+        "strenua.fillet.chamferall",
+        "strenua.fillet.arccenter",
+        "strenua.fillet.arc",
+        "strenua.fillet.chamfer",
         "strenua.tech.apply",
         "strenua.tech.default",
         "strenua.tech.ai",
@@ -317,8 +319,8 @@ static void TestCommandRegistration()
     True(registry.TryGet("strenua.hole.centermark", out var centerMark) && !centerMark!.Readonly, "中心符号线会改工程图，不是只读");
     True(registry.TryGet("strenua.quick.list", out var list) && list!.Readonly, "列表是只读的");
     foreach (var name in new[] { "strenua.drawing.create", "strenua.drawing.auto", "strenua.drawing.project", "strenua.drawing.iso", "strenua.tech.apply",
-                 "strenua.drawing.arrange", "strenua.drawing.arcall", "strenua.drawing.chamferall", "strenua.drawing.arc", "strenua.drawing.chamfer",
-                 "strenua.drawing.arccenter", "strenua.drawing.arccenterall",
+                 "strenua.drawing.arrange", "strenua.fillet.arcall", "strenua.fillet.chamferall", "strenua.fillet.arc", "strenua.fillet.chamfer",
+                 "strenua.fillet.arccenter", "strenua.fillet.arccenterall",
                  "strenua.drawing.symmetry", "strenua.check.snapshot" })
         True(registry.TryGet(name, out var drawing) && !drawing!.Readonly && drawing.HiddenReason is null, $"{name} 要能在控制台直接敲（建图、加尺寸、写图片都不是只读）");
     True(registry.TryGet("strenua.quick.run", out var run) && !run!.Readonly, "按 key 执行会改工程图，不是只读");
@@ -521,7 +523,9 @@ static void TestClassPanels()
     foreach (var group in QuickCommands.All.GroupBy(c => c.CommandClass).Where(g => g.Key != "tech"))
         Equal(string.Join(",", group.Select(c => c.Title)), Row(group.Key));
     Equal("孔标注全流程,销钉符号,中心符号线,孔位尺寸,孔标注,销孔标注,外轮廓", Row("hole"));
-    Equal("一键出图,新建工程图,投影视图,轴测图,排版,全图圆心,全图圆弧,全图倒角,对称轴,圆心位置,圆弧标注,倒角标注", Row("drawing"));
+    Equal("一键出图,新建工程图,投影视图,轴测图,排版,对称轴", Row("drawing"));
+    // 1.15.0（用户定）：圆心、圆弧、倒角拆成单独的「倒圆倒角」类。
+    Equal("全图圆心,全图圆弧,全图倒角,圆心位置,圆弧标注,倒角标注", Row("fillet"));
     // 1.13.0（用户定）：旧「技术要求」按钮删掉，「技术要求」类整支就是模板表格；1.14.0 的「写入」按钮不在这里，在最下面一行和 AI 开关并排（见 switches 那组）。
     var tech = branches.Single(branch => branch.GetProperty("case").GetString() == "技术要求");
     Equal("table", tech.GetProperty("type").GetString()!);
@@ -530,7 +534,7 @@ static void TestClassPanels()
     True(QuickCommands.All.All(command => command.Title != "技术要求"), "技术要求按钮已删");
     // 检查类 1.12.0 加「悬空标注」「注解重叠」。
     Equal("未标尺寸,悬空标注,注解重叠,图纸截图", Row("check"));
-    Equal("孔,出图,技术要求,检查", string.Join(",", StrenuaPage.ClassOptions(QuickCommands.All)));
+    Equal("孔,出图,倒圆倒角,技术要求,检查", string.Join(",", StrenuaPage.ClassOptions(QuickCommands.All)));
     // 类面板里只有按钮，没有开关（1.11.0 开关挪到窗口最下面）。
     True(panels.SelectMany(branch => branch.GetProperty("rows").EnumerateArray())
         .SelectMany(row => row.GetProperty("widgets").EnumerateArray())
@@ -1239,7 +1243,7 @@ static void TestFlowCommand()
         && usage.IndexOf("→ 孔标注", StringComparison.Ordinal) < usage.IndexOf("→ 销孔标注", StringComparison.Ordinal), "步骤顺序");
     True(usage.Contains("当前图纸页", StringComparison.Ordinal), "范围是当前图纸页");
     Equal("hole-flow,dowel-symbol,center-mark,hole-position,hole-callout,dowel-fit,outline,"
-        + "drawing-auto,drawing-create,drawing-project,drawing-iso,drawing-arrange,arc-center-all,arc-all,chamfer-all,symmetry-axes,arc-center,arc,chamfer,check-dimension,check-dangling,check-overlap,snapshot,tech-ai",
+        + "drawing-auto,drawing-create,drawing-project,drawing-iso,drawing-arrange,symmetry-axes,arc-center-all,arc-all,chamfer-all,arc-center,arc,chamfer,check-dimension,check-dangling,check-overlap,snapshot,tech-ai",
         string.Join(",", QuickCommands.All.Select(command => command.Key)));
 }
 
@@ -1306,7 +1310,7 @@ static void TestDowelFitSpans()
 static void TestDowelFitShared()
 {
     // 两个销孔 A(0.10,0.20)、B(0.15,0.20)；普通孔 P(0.10,0.10)、Q(0.15,0.10) 同一种、各在销孔的正下方——
-    // 普通模式下 P→Q 这段与 A→B 重叠，去重只标一次：销孔间尺寸要写「(仅销孔)」。
+    // 普通模式下 P→Q 这段与 A→B 重叠，去重只标一次：销孔间尺寸要写「(公差仅对销孔)」。
     HoleEdge[] edges =
     [
         new(0, 0.10, 0.20, 0.003, "/销孔", Dowel: true),
@@ -2854,6 +2858,106 @@ static void TestArcCenter()
     Equal("Horizontal:9,Horizontal:11", string.Join(",", withMeasured.Targets.Select(target => $"{target.Axis}:{target.ArcIndex}")));
     Equal(1, withMeasured.CenterLinks.Count);
     True(withMeasured.CenterLinks[0].Axis == PositionAxis.Vertical, "Y 相同连横线");
+}
+
+static void TestChamferAvoid()
+{
+    // 1.15.0（用户：倒角标注没做避障）：近的那一档压着别的标注就往外让一档、或沿尺寸线滑开，不再只在两个固定位置里挑压得少的。
+    static double M(double mm) => mm / 1000;
+    SheetSegment S(double x1, double y1, double x2, double y2) => new(M(x1), M(y1), M(x2), M(y2));
+    var chamferLine = S(15, 0, 20, 5);
+    var lines = new List<SheetSegment> { S(0, 0, 0, 30), S(20, 5, 20, 30), S(0, 30, 20, 30), S(0, 0, 15, 0), chamferLine };
+    var chamfers = new List<ChamferEdge> { new(0, chamferLine, M(5), M(5), "B") };
+    var none = new HashSet<string>();
+    // 右边整条被占着（例如外轮廓尺寸的字）：竖直尺寸放哪一档都压。
+    var rightBlock = new TextBox(M(26), M(-2), M(4), M(10));
+
+    // 下边近档压着一段文字，尺寸线、尺寸界线都会穿过它：往外让一档（-14 mm），不滑。
+    var low = new TextBox(M(16), M(-9), M(3), M(3));
+    var stepped = ChamferPlanner.Plan(chamfers, lines, lines, [], none, texts: [low, rightBlock]).Targets[0].Placements[0];
+    Equal(PositionAxis.Horizontal, stepped.Axis);
+    Near(-ChamferPlanner.Offsets[1], stepped.At.Y);
+    Near(M(17.5), stepped.At.X);
+
+    // 文字框压着、尺寸线不穿：同一档沿尺寸线滑开（往右 5 mm）。
+    var high = new TextBox(M(16), M(-6.5), M(3), M(2));
+    var slid = ChamferPlanner.Plan(chamfers, lines, lines, [], none, texts: [high, rightBlock]).Targets[0].Placements[0];
+    Equal(PositionAxis.Horizontal, slid.Axis);
+    Near(-ChamferPlanner.Offset, slid.At.Y);
+    Near(M(17.5) + ChamferPlanner.Slides[1], slid.At.X);
+
+    // 避障关：照旧近档不滑。
+    var off = ChamferPlanner.Plan(chamfers, lines, lines, [], none, texts: [low, rightBlock], avoid: false).Targets[0].Placements[0];
+    Equal(PositionAxis.Horizontal, off.Axis);
+    Near(-ChamferPlanner.Offset, off.At.Y);
+
+    // 尺寸自己的线：水平尺寸两条界线从斜边两端竖下来，尺寸线跨两条界线。
+    var leaders = ChamferPlanner.Leaders(chamferLine, new ChamferPlacement(PositionAxis.Horizontal, new SheetPoint(M(17.5), M(-8))),
+        new TextBox(M(15), M(-7), M(5), M(3))).ToList();
+    Equal(3, leaders.Count);
+    Equal(S(15, 0, 15, -8), leaders[0]);
+    Equal(S(20, 5, 20, -8), leaders[1]);
+}
+
+static void TestHoleCoverage()
+{
+    // 1.15.0（用户定）：同一页视线平行的视图（顶视图对底视图）里，同一种孔只标一个孔标注、同一个孔的位置只标一处；
+    // 沉孔在背面时孔标注留给看得见沉孔的视图，没有才写「(反面)」。
+    var box = new ModelBox(0, 0, 0, 0.1, 0.06, 0.01);
+    var cbore = new PartCylinder(new ModelDirection(0, 0, 1), new ModelDirection(0.05, 0.03, 0), 0.003, true, true, "CB", [new ModelDirection(0, 0, 1)], 0.006, 0.01);
+    var drill = new PartCylinder(new ModelDirection(0, 0, -1), new ModelDirection(0.05, 0.03, 0), 0.0017, true, true, "CB", [], -0.006, 0);
+    var part = new PartGeometry(box, [cbore, drill], []);
+    // 沉孔朝 +Z（沉孔那截在 z 6–10，底孔在 0–6）。
+    Equal(new ModelDirection(0, 0, 1), part.Holes.Single().Counterbore);
+    True(new PartGeometry(box, [drill], []).Holes.Single().Counterbore is null, "单段孔不是沉孔");
+    True(new PartGeometry(box, [cbore with { Feature = "扩口" }, drill], []).Holes.Single().Counterbore is null, "两个特征叠出来的不算（孔标注里没有沉孔那行）");
+
+    // 同一个孔从两头看：轴向相反、取的点不同，仍是同一条轴线；别的组件、挪开 0.1 mm 的不是。
+    var top = HoleAxis.Of("", new ModelDirection(0.05, 0.03, 0.01), new ModelDirection(0, 0, 1));
+    var bottom = HoleAxis.Of("", new ModelDirection(0.05, 0.03, 0), new ModelDirection(0, 0, -1));
+    True(top.Same(bottom), "两头看同一个孔");
+    True(!top.Same(HoleAxis.Of("别的-1", new ModelDirection(0.05, 0.03, 0), new ModelDirection(0, 0, 1))), "别的组件");
+    True(!top.Same(HoleAxis.Of("", new ModelDirection(0.0501, 0.03, 0), new ModelDirection(0, 0, 1))), "挪开 0.1 mm");
+    True(top.Matches(part.Holes.Single()), "对得上零件里的孔");
+
+    var hole = new HoleEdge(0, 0.05, 0.03, 0.0017, "/CB", Axis: top);
+    IReadOnlyList<HoleEdge> kind = [hole];
+    var up = new ModelDirection(0, 0, 1);
+    var down = new ModelDirection(0, 0, -1);
+    var counterbore = HoleCoveragePlanner.Counterbore(kind, part);
+    Equal(up, counterbore);
+    // 沉孔朝着看图人（顶视图）：标在这里。
+    Equal((CalloutPlace.Here, (string?)null), HoleCoveragePlanner.Callout(kind, [], counterbore, up));
+    // 底视图、这一页没有顶视图：标在这里写「(反面)」。
+    Equal((CalloutPlace.HereBack, (string?)null), HoleCoveragePlanner.Callout(kind, [], counterbore, down));
+    // 底视图、有看得见这个孔的顶视图：留给它。
+    var topView = new CoveringView("顶视图", up, [top], [], []);
+    Equal((CalloutPlace.Deferred, (string?)"顶视图"), HoleCoveragePlanner.Callout(kind, [topView], counterbore, down));
+    // 顶视图看不见这个孔（别处的孔）：还是标在这里写「(反面)」。
+    var blind = new CoveringView("顶视图", up, [HoleAxis.Of("", new ModelDirection(0.01, 0.01, 0), up)], [], []);
+    Equal(CalloutPlace.HereBack, HoleCoveragePlanner.Callout(kind, [blind], counterbore, down).Place);
+    // 别的视图已有这一种的孔标注：不论沉孔朝哪都不再标。
+    var labeled = new CoveringView("底视图", down, [bottom], [bottom], [bottom]);
+    Equal((CalloutPlace.Elsewhere, (string?)"底视图"), HoleCoveragePlanner.Callout(kind, [labeled], counterbore, up));
+    Equal(CalloutPlace.Elsewhere, HoleCoveragePlanner.Callout(kind, [labeled], null, up).Place);
+    // 位置：别的视图标过的孔去掉；读不到轴线的不算标过。
+    True(HoleCoveragePlanner.PositionedElsewhere(hole, [labeled]), "底视图标过位置");
+    True(!HoleCoveragePlanner.PositionedElsewhere(hole, [topView]), "顶视图只看得见、没标");
+    True(!HoleCoveragePlanner.PositionedElsewhere(hole with { Axis = null }, [labeled]), "没有轴线的不算");
+
+    // 孔标注规划：别处标过的种跳过、记下视图名；其余照旧。
+    var other = new HoleEdge(1, 0.02, 0.03, 0.002, "/M5", Axis: HoleAxis.Of("", new ModelDirection(0.02, 0.03, 0), up));
+    var plan = HoleCalloutPlanner.Plan([hole, other], [],
+        k => k.Any(h => h.Kind == "/CB") ? HoleCoveragePlanner.Callout(k, [labeled], null, up) : (CalloutPlace.Here, null));
+    Equal(1, plan.Targets.Count);
+    Equal(1, plan.Targets[0].EdgeIndex);
+    Equal(1, plan.Elsewhere!.Count);
+    Equal((CalloutPlace.Elsewhere, "底视图"), plan.Elsewhere[0]);
+
+    // 「(反面)」：只在沉孔朝背面时；认显示文字里有没有（空格不论）。
+    True(HoleCoveragePlanner.IsBack(up, down) && !HoleCoveragePlanner.IsBack(up, up) && !HoleCoveragePlanner.IsBack(null, down), "背面判定");
+    True(HoleCoveragePlanner.HasBackMarker(["6 x ⌀5.5 完全贯穿", "⌴⌀9.5 ↓5.5 ( 反面 )"]), "认得出「(反面)」");
+    True(!HoleCoveragePlanner.HasBackMarker(["⌀3.30 ↓10.10 (含对面)"]), "「(含对面)」不是「(反面)」");
 }
 
 sealed class Registrar : ICommandRegistrar

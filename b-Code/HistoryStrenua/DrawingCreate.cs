@@ -13,7 +13,7 @@ namespace HistoryStrenua;
 /// 热处理、设计、日期、比例），「其余 6.3」与公司名在模板里，所以出图类只管视图与技术要求。</para>
 /// <para>图幅与比例按整套视图估（主视图、该有的投影视图、轴测图、技术要求都要排得下，<see cref="DrawingPlanner.ChooseSheet"/>），
 /// 所以只建主视图时纸看着偏大；主视图放在整套排好时它该在的位置。用户拆开用时（1.9.0 用户定）可以先改主视图、模板或比例再接着按后面几步。</para>
-/// <para>不保存（PowerSW 不替用户存文件）；SolidWorks 第一次保存时默认文件名就是零件名。</para>
+/// <para>不保存（PowerSW 不替用户存文件）。新图名字改成零件名（1.15.0，用户定：原来是「工程图1」），第一次保存时默认文件名就是它；「一键出图」也走这里。</para>
 /// </remarks>
 internal static class DrawingCreate
 {
@@ -22,7 +22,7 @@ internal static class DrawingCreate
         CommandName: StrenuaIdentity.Domain + ".drawing.create",
         Title: "新建工程图",
         Summary: "给当前零件（或装配体里选中的零件）按工程图模板建图：按整套视图自动选图幅与比例、放主视图，不保存。",
-        Usage: "在 SolidWorks 里打开要出图的零件（或在装配体里选中一个零件，先选后按、先按后选都行，60 秒内）再按：按「零件」工程图模板建一张新图，主视图取孔、窗口和圆弧最多的那一面；图幅（A4 横 / A3 / A2）与比例按零件大小、孔的疏密，以及整套视图（主视图、该有的投影视图、轴测图、技术要求）排不排得下自动选，标题栏由模板的属性链接自动带出。只放主视图：接着按「投影视图」「轴测图」「技术要求」「排版」补齐摆好，或直接用「一键出图」全做并标注。新图不保存。",
+        Usage: "在 SolidWorks 里打开要出图的零件（或在装配体里选中一个零件，先选后按、先按后选都行，60 秒内）再按：按「零件」工程图模板建一张新图，主视图取孔、窗口和圆弧最多的那一面；图幅（A4 横 / A3 / A2）与比例按零件大小、孔的疏密，以及整套视图（主视图、该有的投影视图、轴测图、技术要求）排不排得下自动选，标题栏由模板的属性链接自动带出，新图名字与零件一致（保存时默认文件名）。只放主视图：接着按「投影视图」「轴测图」「技术要求」「排版」补齐摆好，或直接用「一键出图」全做并标注。新图不保存。",
         Run: context => Create(context).Outcome);
 
     /// <summary>建图的结论，另带新图（<c>IModelDoc2</c>）、主视图（<c>IView</c>）与零件几何给「一键出图」接着用；失败时为 null。</summary>
@@ -68,6 +68,7 @@ internal static class DrawingCreate
         context.Report($"新建工程图：用模板「{Path.GetFileNameWithoutExtension(templatePath)}」{templateNote}。");
         var drawing = api.Call(application, "ISldWorks", "NewDocument", templatePath, 0, 0.0, 0.0)
             ?? throw new QuickCommandException($"SolidWorks 没能用模板新建工程图：{templatePath}");
+        var named = Rename(api, drawing, Path.GetFileNameWithoutExtension(partPath));
         Activate(api, application, drawing);
         var sheet = api.Call(drawing, "IDrawingDoc", "GetCurrentSheet")
             ?? throw new QuickCommandException("新工程图没有图纸页。");
@@ -106,7 +107,8 @@ internal static class DrawingCreate
         var lines = new List<string>
         {
             $"新建工程图：零件「{partTitle}」→ 新图「{api.CallString(drawing, "IModelDoc2", "GetTitle")}」（未保存），" +
-            $"模板「{Path.GetFileNameWithoutExtension(templatePath)}」{(choice is null ? string.Empty : "（" + choice.Template.SizeName + "）")}，比例 {scaleText}，用时 {stopwatch.Elapsed.TotalSeconds:0.0} 秒。",
+            $"模板「{Path.GetFileNameWithoutExtension(templatePath)}」{(choice is null ? string.Empty : "（" + choice.Template.SizeName + "）")}，比例 {scaleText}，用时 {stopwatch.Elapsed.TotalSeconds:0.0} 秒"
+            + (named ? "。" : $"；图名没能改成零件名「{Path.GetFileNameWithoutExtension(partPath)}」（可能已开着同名的文档），保存时请自己改。"),
             $"· 主视图「{mainName}」{main.View.Names[0]}：{main.Reason}。",
         };
         var plannedText = sides.Select((side, index) => $"{DrawingSheet.SlotName(slots[index])}投影视图（{side.Reason}）").Append("轴测图").Append("技术要求");
@@ -176,6 +178,16 @@ internal static class DrawingCreate
         }
 
         throw new QuickCommandException($"{HoleScan.SelectionTimeout.TotalSeconds:0} 秒内没有在装配体里选零件，新建工程图已放弃。");
+    }
+
+    /// <summary>
+    /// 新图的名字改成零件名（1.15.0，用户定）：<c>IModelDoc2.SetTitle2</c> 只对没保存过的新文档有效，改的是窗口标题，
+    /// 也是第一次保存时「另存为」里默认的文件名（不改就是「工程图1」）。读回标题核对，没改成返回 false。
+    /// </summary>
+    private static bool Rename(SolidWorksApi api, object drawing, string name)
+    {
+        api.Call(drawing, "IModelDoc2", "SetTitle2", name);
+        return api.CallString(drawing, "IModelDoc2", "GetTitle").StartsWith(name, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>把新图切成活动窗口（NewDocument 之后活动窗口有时还停在零件上，后面按活动文档干活的步骤会做错图）。</summary>

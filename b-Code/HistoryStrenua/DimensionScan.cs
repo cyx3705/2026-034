@@ -39,7 +39,7 @@ internal static class DimensionScan
         var type = api.CallInt(display, "IDisplayDimension", "get_Type2");
         var value = double.NaN;
         var tolerance = 0;
-        // 公差与前后缀只有线性尺寸用得上（销孔间 ±0.02、阵列前缀、「(仅销孔)」）；坐标尺寸一组几十个，少问几次快得多。
+        // 公差与前后缀只有线性尺寸用得上（销孔间 ±0.02、阵列前缀、「(公差仅对销孔)」）；坐标尺寸一组几十个，少问几次快得多。
         var linear = !callout && HolePositionPlanner.IsLinear(type);
         if (!callout && api.Call(display, "IDisplayDimension", "GetDimension2", 0) is { } dimension)
         {

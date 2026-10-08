@@ -102,7 +102,8 @@ internal static class Outline
                     if (axisStations.Count == 0)
                         continue;
                     var datum = axis == PositionAxis.Horizontal ? l : t;
-                    var (count, already, lost) = ExtendGroup(api, scan, ordinates, axis, scan.LineEdges[datum], scan.Lines[datum], axisStations, left, top);
+                    var stops = axisStations.Select(station => new GroupStop(scan.LineEdges[station.LineIndex], station.Value)).ToList();
+                    var (count, already, lost) = ExtendGroup(api, scan, ordinates, axis, scan.LineEdges[datum], scan.Lines[datum], stops, left, top);
                     added += count;
                     present += already;
                     failed += lost;
@@ -152,11 +153,12 @@ internal static class Outline
 
     /// <summary>
     /// 尺寸链模式一个方向：找 0 点连在基准边上的那组坐标尺寸（孔位尺寸建的），没有就新建 0 点；把组里还没有的站一次加进去，核对值。
+    /// 外轮廓的站（直边）与「圆心位置」（1.14.2）的圆弧共用。
     /// </summary>
     /// <returns>加上的个数、组里已有同值跳过的站数、没加上的站数。</returns>
-    private static (int Added, int Present, int Failed) ExtendGroup(
+    internal static (int Added, int Present, int Failed) ExtendGroup(
         SolidWorksApi api, ScannedView scan, IReadOnlyList<ScannedDimension> ordinates, PositionAxis axis, object datumEdge, SheetSegment datumLine,
-        IReadOnlyList<OutlineStation> stations, double left, double top)
+        IReadOnlyList<GroupStop> stations, double left, double top)
     {
         bool OnDatum(DimensionAnchor anchor) => anchor.Segment is { } segment && DimensionGeometry.SameSegment(segment, datumLine);
 
@@ -175,17 +177,18 @@ internal static class Outline
             members = [];
         }
 
-        var groupValues = members.Select(item => item.Geometry.Value).Append(0.0).ToList();
-        var missing = OutlinePlanner.MissingFromGroup(stations, groupValues);
+        var groupValues = members.Select(item => Math.Abs(item.Geometry.Value)).Append(0.0).ToList();
+        var missing = OutlinePlanner.MissingFromGroup(stations, station => station.Value, groupValues);
         if (missing.Count == 0)
             return (0, stations.Count, 0);
 
         var before = HolePosition.OrdinateNames(api, scan);
         HolePosition.ExtendOrdinate(api, scan, zero, () =>
-            missing.All(station => HolePosition.SelectEdge(api, scan, scan.LineEdges[station.LineIndex], true)));
+            missing.All(station => HolePosition.SelectEdge(api, scan, station.Edge, true)));
         var added = HolePosition.NewOrdinates(api, scan, before);
+        // 圆弧的圆心可能在基准外侧（凹弧），值取绝对值比。
         var expected = missing.Select(station => station.Value).Order().ToList();
-        if (HolePositionPlanner.SameValues(expected, HolePosition.OrdinateValues(api, added)))
+        if (HolePositionPlanner.SameValues(expected, HolePosition.OrdinateValues(api, added).Select(Math.Abs).Order().ToList()))
             return (added.Count + (created ? 1 : 0), stations.Count - missing.Count, 0);
 
         HolePosition.Discard(api, scan, added);
@@ -222,7 +225,7 @@ internal static class Outline
     }
 
     /// <summary>视图里现有尺寸（注解）的名字：加之前、加之后各读一次，差就是这一轮新加的。</summary>
-    private static HashSet<string> DimensionNames(SolidWorksApi api, ScannedView scan)
+    internal static HashSet<string> DimensionNames(SolidWorksApi api, ScannedView scan)
         => DimensionScan.Read(api, scan).Select(item => api.CallString(item.Annotation, "IAnnotation", "GetName")).ToHashSet(StringComparer.Ordinal);
 
     /// <summary>选基准边与站的那条边，按方向加水平 / 竖直尺寸；建出来的不是线性尺寸就删掉。</summary>
@@ -243,7 +246,7 @@ internal static class Outline
     /// <summary>
     /// 普通模式第一层放多远：视图里现有尺寸（孔标注除外）文字离上侧 / 左侧基准最远的再往外一层（<see cref="OutlinePlanner.FirstTier"/>）。
     /// </summary>
-    private static (double Horizontal, double Vertical) FirstTiers(SolidWorksApi api, ScannedView scan, double left, double top)
+    internal static (double Horizontal, double Vertical) FirstTiers(SolidWorksApi api, ScannedView scan, double left, double top)
     {
         var above = new List<double>();
         var beside = new List<double>();
@@ -259,3 +262,6 @@ internal static class Outline
         return (OutlinePlanner.FirstTier(above), OutlinePlanner.FirstTier(beside));
     }
 }
+
+/// <summary>尺寸链模式往坐标尺寸组里加的一站：选哪条边、离基准多远（模型长度，米，正值）。</summary>
+internal readonly record struct GroupStop(object Edge, double Value);

@@ -219,9 +219,9 @@ internal static class OutlinePlanner
         return covered.Order().ToList();
     }
 
-    /// <summary>坐标尺寸组里还没有的站：组里已有同值（孔或外轮廓）的就不再加。</summary>
-    public static List<OutlineStation> MissingFromGroup(IReadOnlyList<OutlineStation> stations, IReadOnlyList<double> groupValues)
+    /// <summary>坐标尺寸组里还没有的站：组里已有同值（孔、外轮廓或圆心）的就不再加。</summary>
+    public static List<T> MissingFromGroup<T>(IReadOnlyList<T> stations, Func<T, double> valueOf, IReadOnlyList<double> groupValues)
         => stations
-            .Where(station => !groupValues.Any(value => Math.Abs(value - station.Value) <= DimensionGeometry.ValueTolerance))
+            .Where(station => !groupValues.Any(value => Math.Abs(value - valueOf(station)) <= DimensionGeometry.ValueTolerance))
             .ToList();
 }

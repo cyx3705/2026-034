@@ -424,7 +424,8 @@ internal static class HoleScan
                 var from = ToSheet(transforms, "CreatePoint", "IMathPoint", s[0], s[1], s[2]);
                 var to = ToSheet(transforms, "CreatePoint", "IMathPoint", e[0], e[1], e[2]);
                 var sweep = FilletPlanner.SweepOf(new SheetPoint(center[0], center[1]), new SheetPoint(from[0], from[1]), new SheetPoint(to[0], to[1]), new SheetPoint(mid[0], mid[1]));
-                return new FilletArc(index, new SheetPoint(center[0], center[1]), circle[6] * Scale, circle[6], new SheetPoint(mid[0], mid[1]), concave, sweep);
+                return new FilletArc(index, new SheetPoint(center[0], center[1]), circle[6] * Scale, circle[6], new SheetPoint(mid[0], mid[1]), concave, sweep,
+                    new SheetPoint(from[0], from[1]), new SheetPoint(to[0], to[1]));
             }
             catch (Exception ex) when (ex is System.Runtime.InteropServices.COMException or InvalidCastException or System.Reflection.TargetException)
             {

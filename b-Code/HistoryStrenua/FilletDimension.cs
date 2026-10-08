@@ -3,7 +3,7 @@ using HistoryStrenua.SolidWorks;
 namespace HistoryStrenua;
 
 /// <summary>
-/// 快捷指令「圆角标注」（1.9.0，出图类）：点一个工程图视图，视图里正对图纸的圆角弧每个加一个 R 尺寸（R1 按技术要求不标，
+/// 快捷指令「圆弧标注」（1.9.0「圆角标注」，1.14.2 改名，出图类）：点一个工程图视图，视图里正对图纸的圆角弧每个加一个 R 尺寸（R1 按技术要求不标，
 /// 同半径 3 段以上合标「N x R」），已有 R / 直径尺寸的跳过。
 /// </summary>
 /// <remarks>
@@ -15,11 +15,11 @@ namespace HistoryStrenua;
 internal static class FilletDimension
 {
     public static QuickCommand Command { get; } = new(
-        Key: "fillet",
-        CommandName: StrenuaIdentity.Domain + ".drawing.fillet",
-        Title: "圆角标注",
-        Summary: "点一个工程图视图，给视图里的圆角弧各加一个 R 尺寸（R1 不标，同半径 3 个以上合标 N x R），不是孔的整圆加 Ø，已标的跳过。",
-        Usage: "在工程图里点一个视图（先点后按、先按后点都行，60 秒内），该视图里正对图纸的圆角（外圆角、内圆角、凹弧）每个加一个 R 尺寸，文字放在零件外的空处（「避障」开着时尽量不压线、不压已有标注，关着时放在弧外正方向）；R1 不标（技术要求「未注圆角R1」），同一半径有 3 个以上时只标一个并写「N x R」；已有 R 或直径尺寸的跳过。视图里的圆先减去孔（认得出是孔的一律不管，孔归孔类指令），剩下的整圆（凸台、轴端）加 Ø 尺寸，同直径 3 个以上合标「N x Ø」。",
+        Key: "arc",
+        CommandName: StrenuaIdentity.Domain + ".drawing.arc",
+        Title: "圆弧标注",
+        Summary: "点一个工程图视图，给视图里的圆弧各加一个 R 尺寸（R1 不标，同半径 3 个以上合标 N x R），不是孔的整圆加 Ø，已标的跳过；圆心位置另由「圆心位置」标。",
+        Usage: "在工程图里点一个视图（先点后按、先按后点都行，60 秒内），该视图里正对图纸的圆角（外圆角、内圆角、凹弧）每个加一个 R 尺寸，文字放在零件外的空处（「避障」开着时尽量不压线、不压已有标注，关着时放在弧外正方向）；R1 不标（技术要求「未注圆角R1」），同一半径有 3 个以上时只标一个并写「N x R」；已有 R 或直径尺寸的跳过。视图里的圆先减去孔（认得出是孔的一律不管，孔归孔类指令），剩下的整圆（凸台、轴端）加 Ø 尺寸，同直径 3 个以上合标「N x Ø」。圆心的位置尺寸不在这里，按「圆心位置」。",
         Run: context => Run(context, null));
 
     // swDimensionType_e
@@ -34,7 +34,7 @@ internal static class FilletDimension
     internal static QuickOutcome Run(QuickCommandContext context, object? view)
     {
         var api = context.Api;
-        var scan = HoleScan.Scan(context, "圆角标注", withLines: true, view: view, withArcs: true);
+        var scan = HoleScan.Scan(context, "圆弧标注", withLines: true, view: view, withArcs: true);
         var (document, viewName) = (scan.Document, scan.ViewName);
         if (scan.Arcs.Count == 0)
             return QuickOutcome.Ok($"视图「{viewName}」里没有正对图纸的圆角与（孔以外的）整圆，没有加尺寸。"
@@ -54,7 +54,7 @@ internal static class FilletDimension
             return QuickOutcome.Ok($"视图「{viewName}」：{found}{skipped}，没有新加。");
 
         context.SetState("加圆角尺寸");
-        context.Report($"圆角标注：视图「{viewName}」认出 {found}，加 {plan.Targets.Count} 个 R / Ø 尺寸。");
+        context.Report($"圆弧标注：视图「{viewName}」认出 {found}，加 {plan.Targets.Count} 个 R / Ø 尺寸。");
         var added = 0;
         var addedDiameters = 0;
         var failed = 0;

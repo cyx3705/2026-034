@@ -74,6 +74,7 @@ var tests = new (string Name, Action Run)[]
     ("chamfer: side views and margins", TestChamferViews),
     ("fillet: which arcs, grouping and text side", TestFilletPlan),
     ("fillet: holes subtracted from all circles, the rest get Ø", TestFilletCircles),
+    ("arc center: tangency decides which positions to dimension", TestArcCenter),
     ("check: overlapping annotations", TestOverlapCheck),
     ("clearance switch: fillet, chamfer, note, side views", TestClearanceSwitch),
     ("snapshot: file name", TestSnapshotName),
@@ -278,10 +279,12 @@ static void TestCommandRegistration()
         "strenua.drawing.project",
         "strenua.drawing.iso",
         "strenua.drawing.arrange",
-        "strenua.drawing.filletall",
+        "strenua.drawing.arccenterall",
+        "strenua.drawing.arcall",
         "strenua.drawing.chamferall",
         "strenua.drawing.symmetry",
-        "strenua.drawing.fillet",
+        "strenua.drawing.arccenter",
+        "strenua.drawing.arc",
         "strenua.drawing.chamfer",
         "strenua.tech.apply",
         "strenua.tech.default",
@@ -314,7 +317,8 @@ static void TestCommandRegistration()
     True(registry.TryGet("strenua.hole.centermark", out var centerMark) && !centerMark!.Readonly, "中心符号线会改工程图，不是只读");
     True(registry.TryGet("strenua.quick.list", out var list) && list!.Readonly, "列表是只读的");
     foreach (var name in new[] { "strenua.drawing.create", "strenua.drawing.auto", "strenua.drawing.project", "strenua.drawing.iso", "strenua.tech.apply",
-                 "strenua.drawing.arrange", "strenua.drawing.filletall", "strenua.drawing.chamferall", "strenua.drawing.fillet", "strenua.drawing.chamfer",
+                 "strenua.drawing.arrange", "strenua.drawing.arcall", "strenua.drawing.chamferall", "strenua.drawing.arc", "strenua.drawing.chamfer",
+                 "strenua.drawing.arccenter", "strenua.drawing.arccenterall",
                  "strenua.drawing.symmetry", "strenua.check.snapshot" })
         True(registry.TryGet(name, out var drawing) && !drawing!.Readonly && drawing.HiddenReason is null, $"{name} 要能在控制台直接敲（建图、加尺寸、写图片都不是只读）");
     True(registry.TryGet("strenua.quick.run", out var run) && !run!.Readonly, "按 key 执行会改工程图，不是只读");
@@ -517,7 +521,7 @@ static void TestClassPanels()
     foreach (var group in QuickCommands.All.GroupBy(c => c.CommandClass).Where(g => g.Key != "tech"))
         Equal(string.Join(",", group.Select(c => c.Title)), Row(group.Key));
     Equal("孔标注全流程,销钉符号,中心符号线,孔位尺寸,孔标注,销孔标注,外轮廓", Row("hole"));
-    Equal("一键出图,新建工程图,投影视图,轴测图,排版,全图圆角,全图倒角,对称轴,圆角标注,倒角标注", Row("drawing"));
+    Equal("一键出图,新建工程图,投影视图,轴测图,排版,全图圆心,全图圆弧,全图倒角,对称轴,圆心位置,圆弧标注,倒角标注", Row("drawing"));
     // 1.13.0（用户定）：旧「技术要求」按钮删掉，「技术要求」类整支就是模板表格；1.14.0 的「写入」按钮不在这里，在最下面一行和 AI 开关并排（见 switches 那组）。
     var tech = branches.Single(branch => branch.GetProperty("case").GetString() == "技术要求");
     Equal("table", tech.GetProperty("type").GetString()!);
@@ -1235,7 +1239,7 @@ static void TestFlowCommand()
         && usage.IndexOf("→ 孔标注", StringComparison.Ordinal) < usage.IndexOf("→ 销孔标注", StringComparison.Ordinal), "步骤顺序");
     True(usage.Contains("当前图纸页", StringComparison.Ordinal), "范围是当前图纸页");
     Equal("hole-flow,dowel-symbol,center-mark,hole-position,hole-callout,dowel-fit,outline,"
-        + "drawing-auto,drawing-create,drawing-project,drawing-iso,drawing-arrange,fillet-all,chamfer-all,symmetry-axes,fillet,chamfer,check-dimension,check-dangling,check-overlap,snapshot,tech-ai",
+        + "drawing-auto,drawing-create,drawing-project,drawing-iso,drawing-arrange,arc-center-all,arc-all,chamfer-all,symmetry-axes,arc-center,arc,chamfer,check-dimension,check-dangling,check-overlap,snapshot,tech-ai",
         string.Join(",", QuickCommands.All.Select(command => command.Key)));
 }
 
@@ -1407,7 +1411,7 @@ static void TestOutlineStations()
     Near(0.02 + HolePositionPlanner.TierStep, OutlinePlanner.FirstTier([0.008, 0.02, -0.1]));
 
     // 组里已有 0.3（孔恰好在台阶那条线上）就不再加。
-    Equal("0.1,0.14,0.4", string.Join(",", OutlinePlanner.MissingFromGroup(h, [0.0, 0.3 + 1e-7]).Select(s => s.Value.ToString("0.##", invariant))));
+    Equal("0.1,0.14,0.4", string.Join(",", OutlinePlanner.MissingFromGroup(h, s => s.Value, [0.0, 0.3 + 1e-7]).Select(s => s.Value.ToString("0.##", invariant))));
 }
 
 static void TestOutlineObsolete()
@@ -2020,7 +2024,7 @@ static void TestClearanceSwitch()
     True(below.Y < start.Y && Math.Abs(below.X - start.X) < 1e-12, "下视图往下让");
 
     // 开关说明里写到出图类（页面动作与指令自描述共用一句）。
-    True(StrenuaPage.ClearanceSummary.Contains("圆角") && StrenuaPage.ClearanceSummary.Contains("外轮廓"), "避障开关说明要写到出图类与外轮廓");
+    True(StrenuaPage.ClearanceSummary.Contains("圆弧") && StrenuaPage.ClearanceSummary.Contains("圆心位置") && StrenuaPage.ClearanceSummary.Contains("外轮廓"), "避障开关说明要写到出图类与外轮廓");
 }
 
 static void TestDrawingSlotOf()
@@ -2125,9 +2129,9 @@ static void TestDrawingSpots()
 
 static void TestDrawingSteps()
 {
-    // 一键出图 = 出图类各步 + 孔标注全流程（不拆）+ 全图圆角，顺序写在用法里；每一步都是一条单独的指令（用户定）。
+    // 一键出图 = 出图类各步 + 孔标注全流程（不拆）+ 全图圆心、圆弧、倒角，顺序写在用法里；每一步都是一条单独的指令（用户定）。
     var auto = QuickCommands.All.Single(command => command.Key == "drawing-auto");
-    string[] steps = ["新建工程图", "投影视图", "轴测图", "技术要求", "排版", "孔标注全流程", "全图圆角", "全图倒角"];
+    string[] steps = ["新建工程图", "投影视图", "轴测图", "技术要求", "排版", "孔标注全流程", "全图圆心", "全图圆弧", "全图倒角"];
     var positions = steps.Select(step => auto.Usage.IndexOf(step, StringComparison.Ordinal)).ToList();
     True(positions.All(index => index >= 0) && positions.Zip(positions.Skip(1)).All(pair => pair.First < pair.Second), "一键出图用法里的步骤顺序：" + auto.Usage);
     var titles = QuickCommands.All.Select(command => command.Title).ToHashSet();
@@ -2697,6 +2701,86 @@ static void TestOverlapCheck()
     True(sheet.Any(i => i.Reason.Contains("图纸注释「技术要求」", StringComparison.Ordinal)), "压技术要求");
     True(sheet.Any(i => i.Reason.Contains("图框 / 标题栏线", StringComparison.Ordinal)), "压标题栏线");
     Equal("中心符号线", AnnotationCheckPlanner.KindName(13));
+}
+
+static void TestArcCenter()
+{
+    // 1.14.2（用户定）：圆弧两端与直线相切不标圆心；都不相切标两个；一端相切只标一个——切线水平只标水平、竖直只标竖直、斜的取水平。
+    // 板：左边 x = 0、上边 y = 0.100（图纸，比例 1:2）。
+    const double scale = 0.5;
+    FilletArc Arc(int index, double cx, double cy, double r, SheetPoint? start, SheetPoint? end, double sweep = Math.PI / 2)
+        => new(index, new SheetPoint(cx, cy), r, r / scale, new SheetPoint(cx + r, cy), false, sweep, start, end);
+    var left = new SheetSegment(0, 0, 0, 0.100);
+    var top = new SheetSegment(0, 0.100, 0.200, 0.100);
+
+    // 右上角 R5：上边接 (0.190,0.100)，右边接 (0.200,0.090)，两端都切。
+    var corner = Arc(0, 0.190, 0.090, 0.010, new SheetPoint(0.190, 0.100), new SheetPoint(0.200, 0.090));
+    var topToCorner = new SheetSegment(0, 0.100, 0.190, 0.100);
+    var rightSide = new SheetSegment(0.200, 0.090, 0.200, 0);
+    var lines = new List<SheetSegment> { left, topToCorner, rightSide };
+    Equal(2, ArcCenterPlanner.Tangents(corner, lines).Count);
+    Equal(0, ArcCenterPlanner.Needs(ArcCenterPlanner.Tangents(corner, lines)).Count);
+
+    // 整圆凸台：没有端点 → 两个。
+    var boss = Arc(1, 0.050, 0.050, 0.008, null, null, 2 * Math.PI);
+    Equal("Horizontal,Vertical", string.Join(",", ArcCenterPlanner.Needs(ArcCenterPlanner.Tangents(boss, lines))));
+
+    // 一端切水平线（另一端接斜线、不相切）→ 只标水平尺寸（以上侧基准的竖直尺寸不能标）。
+    var bottom = new SheetSegment(0.100, 0, 0.140, 0);
+    var halfTangent = Arc(2, 0.100, 0.010, 0.010, new SheetPoint(0.100, 0), new SheetPoint(0.090, 0.010));
+    var slanted = new SheetSegment(0.090, 0.010, 0.080, 0.030);
+    var needs = ArcCenterPlanner.Needs(ArcCenterPlanner.Tangents(halfTangent, [bottom, slanted]));
+    Equal("Horizontal", string.Join(",", needs));
+    // 一端切竖直线 → 只标竖直。
+    var wall = new SheetSegment(0.150, 0.060, 0.150, 0.020);
+    var verticalTangent = Arc(3, 0.140, 0.060, 0.010, new SheetPoint(0.150, 0.060), new SheetPoint(0.140, 0.070));
+    Equal("Vertical", string.Join(",", ArcCenterPlanner.Needs(ArcCenterPlanner.Tangents(verticalTangent, [wall]))));
+    // 一端切斜线 → 只标一个，取水平。
+    var (ux, uy) = (Math.Sqrt(0.5), Math.Sqrt(0.5));
+    var obliqueArc = Arc(4, 0.060, 0.060, 0.010, new SheetPoint(0.060 + 0.010 * ux, 0.060 - 0.010 * uy), new SheetPoint(0.050, 0.060));
+    var oblique = new SheetSegment(0.060 + 0.010 * ux, 0.060 - 0.010 * uy, 0.060 + 0.010 * ux + 0.020 * ux, 0.060 - 0.010 * uy + 0.020 * uy);
+    Equal("Horizontal", string.Join(",", ArcCenterPlanner.Needs(ArcCenterPlanner.Tangents(obliqueArc, [oblique]))));
+    // 两端切的线平行（腰形端头切上下两条水平边）→ 按一端相切，只标水平。
+    var slotEnd = Arc(5, 0.180, 0.050, 0.010, new SheetPoint(0.180, 0.060), new SheetPoint(0.180, 0.040), Math.PI);
+    var upper = new SheetSegment(0.120, 0.060, 0.180, 0.060);
+    var lower = new SheetSegment(0.120, 0.040, 0.180, 0.040);
+    Equal("Horizontal", string.Join(",", ArcCenterPlanner.Needs(ArcCenterPlanner.Tangents(slotEnd, [upper, lower]))));
+    // 端点接上了直线但不相切（直线沿半径方向）不算。
+    var radial = new SheetSegment(0.150, 0.060, 0.170, 0.060);
+    Equal(0, ArcCenterPlanner.Tangents(verticalTangent, [radial]).Count);
+
+    // 整体规划：角 R 不标；凸台两个；与孔同心的跳过；已有水平尺寸量到凸台圆心的只补竖直。
+    var ear = Arc(6, 0.120, 0.080, 0.012, new SheetPoint(0.130, 0.080), new SheetPoint(0.120, 0.090));
+    var hole = new HoleEdge(0, 0.120, 0.080, 0.004);
+    var plan = ArcCenterPlanner.Plan([corner, boss, ear, halfTangent], [left, top, topToCorner, rightSide, bottom, slanted], [hole],
+        0, 0.100, scale, [], 0.020, 0.020);
+    Equal(4, plan.CenterCount);
+    Equal(1, plan.Tangent);
+    Equal(1, plan.OnHole);
+    Equal("Horizontal:1:0.1,Horizontal:2:0.2,Vertical:1:0.1", string.Join(",", plan.Targets.Select(target =>
+        $"{target.Axis}:{target.ArcIndex}:{(target.Value).ToString("0.###", System.Globalization.CultureInfo.InvariantCulture)}")));
+    // 水平尺寸在上侧基准上方从 20 mm 起一层一层、近的在里；竖直尺寸在左侧基准左边。
+    bool At(SheetPoint actual, double x, double y) => Math.Abs(actual.X - x) < 1e-12 && Math.Abs(actual.Y - y) < 1e-12;
+    True(At(plan.Targets[0].TextAt, 0.025, 0.120), "第一个水平尺寸：圆心与基准正中、上侧基准上方 20 mm");
+    True(At(plan.Targets[1].TextAt, 0.050, 0.120 + HolePositionPlanner.TierStep), "第二个水平尺寸外一层");
+    True(At(plan.Targets[2].TextAt, -0.020, 0.075), "竖直尺寸在左侧基准左边");
+
+    var measured = new ViewDimension(0, 2, false, 0.050 / scale, [L(0, 0, 0, 0.100), C(0.050, 0.050)]);
+    var partial = ArcCenterPlanner.Plan([boss], [left, top], [], 0, 0.100, scale, [measured], 0.020, 0.020);
+    Equal("Vertical", string.Join(",", partial.Targets.Select(target => target.Axis)));
+    Equal(1, partial.Present);
+
+    // 同心的两段弧：各自一端相切、切线一横一竖 → 合起来定死，不标。
+    var a = Arc(7, 0.100, 0.050, 0.010, new SheetPoint(0.100, 0.040), new SheetPoint(0.090, 0.050));
+    var b = Arc(8, 0.100, 0.050, 0.020, new SheetPoint(0.120, 0.050), new SheetPoint(0.100, 0.070));
+    var together = ArcCenterPlanner.Plan([a, b], [left, top, new SheetSegment(0.100, 0.040, 0.110, 0.040), new SheetSegment(0.120, 0.050, 0.120, 0.030)], [],
+        0, 0.100, scale, [], 0.020, 0.020);
+    Equal(0, together.Targets.Count);
+    Equal(1, together.Tangent);
+
+    // 圆心落在对称轴上的那个方向不标。
+    var onAxis = ArcCenterPlanner.Plan([boss], [left, top], [], 0, 0.100, scale, [], 0.020, 0.020, [new SymmetryAxis(PositionAxis.Horizontal, 0.050, 0, 1)]);
+    Equal("Vertical", string.Join(",", onAxis.Targets.Select(target => target.Axis)));
 }
 
 sealed class Registrar : ICommandRegistrar

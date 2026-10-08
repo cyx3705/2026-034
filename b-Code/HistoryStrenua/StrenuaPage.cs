@@ -27,7 +27,7 @@ namespace HistoryStrenua;
 /// <para>
 /// 1.14.0（用户定）：「技术要求」类下面的开关不是避障、尺寸链，换成「AI 填写技术要求」。最下面一格因此也是一个跟着「类」走的切换容器
 /// <see cref="OptionSwitchId"/>：第一支（不写 case，别的类都落到它）是避障 + 尺寸链，「技术要求」那一支是 <see cref="TechSwitchPanelId"/>。
-/// 避障、尺寸链仍对所有类生效（出图类标圆角、倒角时也要能选），只是在「技术要求」类下面不显示；「技术要求」类自己插技术要求也照旧吃避障（存的值）。
+/// 避障、尺寸链仍对所有类生效（出图类标圆心、圆弧、倒角时也要能选），只是在「技术要求」类下面不显示；「技术要求」类自己插技术要求也照旧吃避障（存的值）。
 /// 「技术要求」类的按钮（「写入」= AI 填写技术要求）不单占一行，和这个开关并排在最下面一行（用户定：并排空间更大），中间那一支只有模板表格。
 /// </para>
 /// <para>按钮、类选项、动作声明全部从 <see cref="QuickCommands.All"/> 生成——加指令不改这里。</para>
@@ -67,11 +67,11 @@ internal static class StrenuaPage
     public const string TechAiActionId = StrenuaIdentity.Domain + ".option.techai";
 
     /// <summary>「避障」开关管哪些指令（动作说明与指令自描述共用）。</summary>
-    public const string ClearanceSummary = "开着时往图纸上加东西的指令都躲开已有的：孔标注、孔位尺寸、销孔标注、外轮廓挪开压线的文字，"
-        + "圆角、倒角、技术要求、轴测图、投影视图找不压的地方；关着放默认位置（默认开）";
+    public const string ClearanceSummary = "开着时往图纸上加东西的指令都躲开已有的：孔标注、孔位尺寸、销孔标注、外轮廓、圆心位置挪开压线的文字，"
+        + "圆弧、倒角、技术要求、轴测图、投影视图找不压的地方；关着放默认位置（默认开）";
 
     /// <summary>「尺寸链」开关管哪些指令。</summary>
-    public const string ChainSummary = "开着时孔位尺寸与外轮廓改用 SW 尺寸链（坐标尺寸），每方向一组、0 点在零件左 / 上侧直边；"
+    public const string ChainSummary = "开着时孔位尺寸、外轮廓与圆心位置改用 SW 尺寸链（坐标尺寸），每方向一组、0 点在零件左 / 上侧直边；"
         + "建图、投影视图留尺寸空间也照它估（默认关）";
 
     /// <summary>「AI 填写技术要求」开关管哪些地方。</summary>

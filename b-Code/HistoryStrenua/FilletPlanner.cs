@@ -10,7 +10,11 @@ namespace HistoryStrenua;
 /// <param name="Middle">弧中点。</param>
 /// <param name="Concave">内凹（内圆角、凹弧：圆心在零件外）；外圆角为 false。</param>
 /// <param name="Sweep">圆心角（弧度，1.12.0）：带一个端点的整圈为 2π；0 = 没量（不参与整圆判定）。</param>
-internal readonly record struct FilletArc(int Index, SheetPoint Center, double Radius, double ModelRadius, SheetPoint Middle, bool Concave, double Sweep = 0);
+/// <param name="Start">起点（1.14.2「圆心位置」判两端相切用）；没有端点的整圈为 null。</param>
+/// <param name="End">终点；没有端点的整圈为 null。</param>
+internal readonly record struct FilletArc(
+    int Index, SheetPoint Center, double Radius, double ModelRadius, SheetPoint Middle, bool Concave, double Sweep = 0,
+    SheetPoint? Start = null, SheetPoint? End = null);
 
 /// <summary>要加的一个 R 尺寸（整圆是 Ø 尺寸，1.12.0）：标哪段弧、文字放哪、前缀（几段同半径的合标时「N x 」）。</summary>
 internal readonly record struct FilletTarget(int Index, SheetPoint TextAt, int Count, bool Diameter = false)

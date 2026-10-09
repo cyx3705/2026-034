@@ -80,6 +80,23 @@ internal sealed class QuickCommandContext(
         => bus is null
             ? CommandResult.Fail("没有命令总线（离线运行），调不到别的模块。")
             : bus.InvokeAsync(commandText, TechAi.CommandSource, Cancellation).GetAwaiter().GetResult();
+
+    /// <summary>
+    /// 经命令总线发一条别的模块的指令、不等它回来（1.16.0，检查结果弹窗 <c>aurora.ui.dialog</c>：它要等人关窗才回）。
+    /// 失败只进控制台不影响本指令；没有总线（离线测试）时什么都不做。
+    /// </summary>
+    public void Post(string commandText)
+    {
+        if (bus is null)
+            return;
+        _ = bus.InvokeAsync(commandText, TechAi.CommandSource, CancellationToken.None).ContinueWith(task =>
+        {
+            if (!task.IsCompletedSuccessfully)
+                report("弹窗没弹出来：" + (task.Exception?.GetBaseException().Message ?? "已取消"));
+            else if (!task.Result.Success)
+                report("弹窗没弹出来：" + task.Result.Message);
+        }, TaskScheduler.Default);
+    }
 }
 
 /// <summary>用户能自己纠正的前置条件不满足（SolidWorks 没开、当前不是工程图……）。消息原样给人看。</summary>
@@ -90,6 +107,7 @@ internal static class QuickCommands
 {
     public static IReadOnlyList<QuickCommand> All { get; } =
     [
+        OneKeyDrawing.Command,
         HoleFlow.Command,
         DowelSymbol.Command,
         CenterMark.Command,
@@ -97,12 +115,13 @@ internal static class QuickCommands
         HoleCallout.Command,
         DowelFit.Command,
         Outline.Command,
-        DrawingAuto.Command,
+        DrawingBasic.Command,
         DrawingCreate.Command,
         DrawingProject.Command,
         DrawingIso.Command,
         DrawingArrange.Command,
         SymmetryAxes.Command,
+        FilletFlow.Command,
         ArcCenterAll.Command,
         FilletAll.Command,
         ChamferAll.Command,
@@ -110,6 +129,7 @@ internal static class QuickCommands
         FilletDimension.Command,
         ChamferDimension.Command,
         DimensionCheck.Command,
+        DecimalCheck.Command,
         DanglingCheck.Command,
         OverlapCheck.Command,
         DrawingSnapshot.Command,
@@ -120,17 +140,20 @@ internal static class QuickCommands
     /// 页面上类的顺序（1.13.0）。「技术要求」类 1.13.0 一度没有按钮、只有模板表格，从登记表里分组推不出它的位置，所以顺序单独写；
     /// 1.14.0 起它有「AI 填写技术要求」一个按钮。登记表里出现了这里没有的类就排在最后。
     /// 1.15.0（用户定）：圆心位置、圆弧、倒角及其全图版从「出图」拆出，单成「倒圆倒角」类，排在出图后面。
+    /// 1.16.0（用户定）：「出图」改名「基础」、「倒圆倒角」改名「倒圆」、「技术要求」改名「要求」（命令类名不变，MCP 调用照旧）；
+    /// 新类「一键」只有「一键出图」（把各类的一键都做一遍），排最前。
     /// </summary>
-    public static IReadOnlyList<string> ClassOrder { get; } = ["hole", "drawing", "fillet", "tech", "check"];
+    public static IReadOnlyList<string> ClassOrder { get; } = ["onekey", "hole", "drawing", "fillet", "tech", "check"];
 
     /// <summary>命令类 → 页面上的类名。新类不登记也能用，只是显示成英文类名。</summary>
     private static readonly IReadOnlyDictionary<string, string> ClassTitles =
         new Dictionary<string, string>(StringComparer.Ordinal)
         {
+            ["onekey"] = "一键",
             ["hole"] = "孔",
-            ["drawing"] = "出图",
-            ["fillet"] = "倒圆倒角",
-            ["tech"] = "技术要求",
+            ["drawing"] = "基础",
+            ["fillet"] = "倒圆",
+            ["tech"] = "要求",
             ["check"] = "检查",
         };
 

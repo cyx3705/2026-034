@@ -139,6 +139,39 @@ internal static class DrawingPlanner
 
     internal static ModelDirection Negate(ModelDirection d) => new(-d.X, -d.Y, -d.Z);
 
+    /// <summary>
+    /// 按名字建的主视图朝向不对时（1.16.0），接着试哪几个命名视图：把建出来的那个实际朝向 <paramref name="actual"/> 当作零件自己的标准视图定义，
+    /// 推出每个命名视图在这个零件里实际朝哪，实际视线最接近 <paramref name="desired"/> 的排最前（其余兜底）。
+    /// </summary>
+    /// <remarks>
+    /// 真机滑动板：回执写「*前视，沿 Z 看」，建出来却是沿 +X 看——零件改过标准视图（「更新标准视图」），「*前视」不再是 +Z。
+    /// 改过之后六个命名视图之间的关系不变（后视 = 前视反过来、上视 = 前视往下翻 90°……），所以知道一个就能推出全部。
+    /// </remarks>
+    /// <param name="tried">刚按名字建的那个命名视图。</param>
+    /// <param name="actual">它建出来的实际朝向（真机读回）。</param>
+    /// <param name="desired">主视图想要的视线（<see cref="MainView"/> 选的那一面）。</param>
+    public static IReadOnlyList<StandardView> RetryViews(StandardView tried, ViewFrame actual, ModelDirection desired)
+        => StandardView.All
+            .Where(view => view.Key != tried.Key)
+            .OrderByDescending(view => ActualNormal(tried, actual, view).Dot(desired))
+            .ToList();
+
+    /// <summary>
+    /// 命名视图 <paramref name="target"/> 在这个零件里的实际视线：<paramref name="tried"/> 的三个方向按表（<see cref="StandardView.All"/>，前视 = Z / X / Y）
+    /// 与实际读回的三个方向一一对应，<paramref name="target"/> 的视线在表里由 <paramref name="tried"/> 的三个方向怎么组合，实际也怎么组合。
+    /// </summary>
+    public static ModelDirection ActualNormal(StandardView tried, ViewFrame actual, StandardView target)
+    {
+        var (a, b, c) = (tried.Right.Dot(target.Normal), tried.Up.Dot(target.Normal), tried.Normal.Dot(target.Normal));
+        return new ModelDirection(
+            a * actual.SheetX.X + b * actual.SheetY.X + c * actual.Normal.X,
+            a * actual.SheetX.Y + b * actual.SheetY.Y + c * actual.Normal.Y,
+            a * actual.SheetX.Z + b * actual.SheetY.Z + c * actual.Normal.Z);
+    }
+
+    /// <summary>建出来的视图视线是不是想要的那面（同向，差 2.6° 以内）。</summary>
+    public static bool Facing(ViewFrame actual, ModelDirection desired) => actual.Normal.Dot(desired) >= AxisCosine;
+
     private static string AxisName(ModelDirection axis)
         => Math.Abs(axis.X) > 0.5 ? "X" : Math.Abs(axis.Y) > 0.5 ? "Y" : "Z";
 

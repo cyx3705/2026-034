@@ -61,8 +61,10 @@ internal static class HolePosition
         var (candidates, elsewhere) = WithoutPositionedElsewhere(context, scan);
         // 1.14.1：整个视图关于某根轴对称就以对称轴为基准（尺寸链模式不管，照旧从直边量）；孔全归别的视图标时不加轴。
         var symmetry = chain || HoleCalloutPlanner.Recognize(candidates).Count == 0 ? [] : SymmetryPlanner.Axes(scan.Lines, scan.CurveSegments, holes);
+        // 1.16.0：避障开着时躲图纸禁区（标题栏、修改栏、图号框、图纸注解、别的视图、出图框）——上方压到了就整组放到下方（竖直的换到右侧）。
+        var space = context.Options.Clearance && !chain ? Space(api, scan) : null;
         var plan = HolePositionPlanner.Plan(candidates, scan.Lines[l].X1, scan.Lines[t].Y1, scan.Geometry.Scale, chain,
-            symmetry.Select(axis => axis.Axis).ToList());
+            symmetry.Select(axis => axis.Axis).ToList(), space);
         context.Report($"孔位尺寸：视图「{viewName}」认出 {plan.Summary}，"
             + (symmetry.Count > 0 ? $"关于{string.Join("、", symmetry.Select(axis => axis.Name))}对称，" : string.Empty)
             + $"删掉孔上的旧位置尺寸后标 {plan.Count} 个"
@@ -132,7 +134,7 @@ internal static class HolePosition
             if (context.Options.Clearance)
             {
                 context.SetState("避障");
-                clearance = Clearance.ClearDimensions(context, scan, holes);
+                clearance = Clearance.ClearDimensions(context, scan, holes, Clearance.SheetKeepOuts(api, scan.Document));
             }
         }
         finally
@@ -152,6 +154,30 @@ internal static class HolePosition
             + clearance.Describe("尺寸数字")
             + "。";
         return added == 0 && plan.Count > 0 ? QuickOutcome.Fail(message) : QuickOutcome.Ok(message);
+    }
+
+    /// <summary>
+    /// 孔位尺寸放哪一边要躲的（1.16.0）：零件轮廓最右、最下沿；标题栏、修改栏、图号框与图纸注解（<see cref="DrawingSheet.KeepOutRects"/>）、
+    /// 同一页别的视图外框；图框（往里缩 3 mm）。
+    /// </summary>
+    private static PositionSpace Space(SolidWorksApi api, ScannedView scan)
+    {
+        var outline = scan.Lines.Concat(scan.CurveSegments).ToList();
+        var blocked = new List<SheetRect>(DrawingSheet.KeepOutRects(api, scan.Document));
+        foreach (var view in HoleScan.SheetViews(api, scan.Document))
+        {
+            if (DrawingSheet.Name(api, view) == scan.ViewName)
+                continue;
+            var rect = DrawingSheet.Outline(api, view);
+            if (rect.Width > 0 && rect.Height > 0)
+                blocked.Add(rect);
+        }
+
+        return new PositionSpace(
+            outline.Count > 0 ? outline.Max(line => Math.Max(line.X1, line.X2)) : scan.Lines[0].X1,
+            outline.Count > 0 ? outline.Min(line => Math.Min(line.Y1, line.Y2)) : scan.Lines[0].Y1,
+            blocked,
+            DrawingSheet.FrameRect(api, scan.Document));
     }
 
     /// <summary>

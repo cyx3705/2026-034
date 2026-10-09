@@ -43,9 +43,18 @@ internal static class Clearance
     /// <summary>一个注解在图纸上的样子（孔相关的；外轮廓避障时还有不连孔的线性尺寸）。</summary>
     private sealed record Shape(object Annotation, string Name, Role Role, IReadOnlyList<SheetSegment> Lines, IReadOnlyList<TextBox> Texts, IReadOnlyList<SheetPoint> Centers);
 
-    /// <summary>孔位尺寸的数字压线就沿尺寸线滑开。</summary>
-    public static ClearanceResult ClearDimensions(QuickCommandContext context, ScannedView scan, IReadOnlyList<HoleEdge> holes)
-        => Clear(context, scan, holes, shape => shape.Role == Role.Dimension, SlideDimension);
+    /// <summary>
+    /// 孔位尺寸的数字压线就沿尺寸线滑开。<c>sheet</c> 是另外要躲的（1.16.0 孔位尺寸：<see cref="SheetKeepOuts"/>，修改栏、图号框这些整块不许压）；null 只躲孔相关注解。
+    /// </summary>
+    public static ClearanceResult ClearDimensions(QuickCommandContext context, ScannedView scan, IReadOnlyList<HoleEdge> holes, Obstacles? sheet = null)
+        => Clear(context, scan, holes, shape => shape.Role == Role.Dimension, SlideDimension, sheet: sheet);
+
+    /// <summary>
+    /// 图框里整块不许压的地方（1.16.0，用户指出孔位尺寸的避障不管修改栏、图号框）：标题栏、修改栏、图号框与图纸注解
+    /// （<see cref="DrawingSheet.KeepOutRects"/>），当文字框——数字落进格子里没碰边线也算压。
+    /// </summary>
+    public static Obstacles SheetKeepOuts(SolidWorksApi api, object drawing)
+        => new([], DrawingSheet.KeepOutRects(api, drawing).Select(rect => new TextBox(rect.Left, rect.Bottom, rect.Width, rect.Height)).ToList());
 
     /// <summary>
     /// 外轮廓尺寸（1.11.0，用户定：往图上加东西的指令都挂上避障）：<paramref name="names"/> 这几个尺寸（这一轮新加的）的数字
@@ -119,7 +128,8 @@ internal static class Clearance
         IReadOnlyList<HoleEdge> holes,
         Func<Shape, bool> target,
         Func<SolidWorksApi, List<Shape>, int, Obstacles, int, bool> move,
-        bool allLinear = false)
+        bool allLinear = false,
+        Obstacles? sheet = null)
     {
         var api = context.Api;
         var shapes = ReadShapes(api, scan, holes, allLinear);
@@ -131,6 +141,8 @@ internal static class Clearance
             if (!target(shapes[i]) || shapes[i].Texts.Count == 0)
                 continue;
             var obstacles = ObstaclesFor(shapes, i);
+            if (sheet is not null)
+                obstacles = new Obstacles(obstacles.Lines.Concat(sheet.Lines).ToList(), obstacles.Texts.Concat(sheet.Texts).ToList());
             var hits = ClearancePlanner.Hits(shapes[i].Texts, obstacles);
             if (hits == 0)
                 continue;

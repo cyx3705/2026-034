@@ -51,7 +51,10 @@ var tests = new (string Name, Action Run)[]
     ("outline: view frames, planes and axonometric views", TestViewFrames),
     ("outline: stations already fixed by other views", TestOutlineCoverage),
     ("outline: chain-mode members fixed by other views", TestCoveredOrdinates),
-    ("check: callouts, positions, dowels and outline", TestDimensionCheck),
+    ("check: dimension network, sizes, cross-view and symmetry", TestDimensionCheck),
+    ("check: two-decimal numbers", TestDecimalCheck),
+    ("drawing: named view orientation is verified", TestMainViewRetry),
+    ("hole position: avoids title block and revision block", TestPositionAvoidsKeepOuts),
     ("distinct holes stay distinct", TestDistinctHoles),
     ("targets read top-down, left-right", TestTargetOrder),
     ("placement sits up-left of the hole", TestPlacement),
@@ -69,7 +72,7 @@ var tests = new (string Name, Action Run)[]
     ("drawing steps: side view beside the main view", TestDrawingBeside),
     ("drawing steps: flexible side on the current sheet", TestDrawingChooseSlots),
     ("drawing steps: iso and note on their own", TestDrawingSpots),
-    ("drawing steps: one-click runs the steps in order", TestDrawingSteps),
+    ("drawing steps: basic, fillet and one-key run the steps in order", TestDrawingSteps),
     ("chamfer: which chamfers, grouping, which leg and where", TestChamferPlan),
     ("chamfer: side views and margins", TestChamferViews),
     ("chamfer: steps out and slides to avoid annotations (1.15.0)", TestChamferAvoid),
@@ -276,12 +279,14 @@ static void TestCommandRegistration()
         "strenua.hole.flow",
         "strenua.hole.dowelfit",
         "strenua.hole.outline",
-        "strenua.drawing.auto",
+        "strenua.onekey.drawing",
+        "strenua.drawing.basic",
         "strenua.drawing.create",
         "strenua.drawing.project",
         "strenua.drawing.iso",
         "strenua.drawing.arrange",
         "strenua.drawing.symmetry",
+        "strenua.fillet.all",
         "strenua.fillet.arccenterall",
         "strenua.fillet.arcall",
         "strenua.fillet.chamferall",
@@ -292,6 +297,7 @@ static void TestCommandRegistration()
         "strenua.tech.default",
         "strenua.tech.ai",
         "strenua.check.dimension",
+        "strenua.check.decimal",
         "strenua.check.dangling",
         "strenua.check.overlap",
         "strenua.check.snapshot",
@@ -318,7 +324,8 @@ static void TestCommandRegistration()
     True(hole.HiddenReason is null, "快捷指令要能在控制台直接敲");
     True(registry.TryGet("strenua.hole.centermark", out var centerMark) && !centerMark!.Readonly, "中心符号线会改工程图，不是只读");
     True(registry.TryGet("strenua.quick.list", out var list) && list!.Readonly, "列表是只读的");
-    foreach (var name in new[] { "strenua.drawing.create", "strenua.drawing.auto", "strenua.drawing.project", "strenua.drawing.iso", "strenua.tech.apply",
+    True(!registry.TryGet("strenua.drawing.auto", out _), "1.16.0：出图类的一键出图拆成基础出图与一键类的一键出图");
+    foreach (var name in new[] { "strenua.drawing.create", "strenua.drawing.basic", "strenua.onekey.drawing", "strenua.fillet.all", "strenua.drawing.project", "strenua.drawing.iso", "strenua.tech.apply",
                  "strenua.drawing.arrange", "strenua.fillet.arcall", "strenua.fillet.chamferall", "strenua.fillet.arc", "strenua.fillet.chamfer",
                  "strenua.fillet.arccenter", "strenua.fillet.arccenterall",
                  "strenua.drawing.symmetry", "strenua.check.snapshot" })
@@ -449,7 +456,7 @@ static void TestSwitchPanel()
     Equal(StrenuaPage.SwitchPanelId, areas[0].GetProperty("id").GetString()!);
     True(!areas[0].TryGetProperty("case", out _), "第一支不写 case：技术要求以外的类都落到它");
     Equal(StrenuaPage.TechSwitchPanelId, areas[1].GetProperty("id").GetString()!);
-    Equal("技术要求", areas[1].GetProperty("case").GetString()!);
+    Equal("要求", areas[1].GetProperty("case").GetString()!);
     // 用户定（第三轮）：「写入」按钮与 AI 开关并排一行，空间更大。
     var tech = areas[1].GetProperty("rows")[0].GetProperty("widgets").EnumerateArray().ToList();
     Equal("button,switch", string.Join(",", tech.Select(w => w.GetProperty("kind").GetString())));
@@ -492,8 +499,8 @@ static void TestToolbar()
     True(widgets[1].GetProperty("flex").GetBoolean(), "占位文字应占余宽");
     Equal("select", widgets[2].GetProperty("mode").GetString()!);
     Equal(StrenuaPage.ClassChannel, widgets[2].GetProperty("channel").GetString()!);
-    Equal("孔", widgets[2].GetProperty("options")[0].GetString()!);
-    Equal("孔", widgets[2].GetProperty("value").GetString()!);
+    Equal("一键", widgets[2].GetProperty("options")[0].GetString()!);
+    Equal("一键", widgets[2].GetProperty("value").GetString()!);
     Equal(StrenuaPage.CancelActionId, widgets[3].GetProperty("action").GetString()!);
 }
 
@@ -523,18 +530,20 @@ static void TestClassPanels()
     foreach (var group in QuickCommands.All.GroupBy(c => c.CommandClass).Where(g => g.Key != "tech"))
         Equal(string.Join(",", group.Select(c => c.Title)), Row(group.Key));
     Equal("孔标注全流程,销钉符号,中心符号线,孔位尺寸,孔标注,销孔标注,外轮廓", Row("hole"));
-    Equal("一键出图,新建工程图,投影视图,轴测图,排版,对称轴", Row("drawing"));
-    // 1.15.0（用户定）：圆心、圆弧、倒角拆成单独的「倒圆倒角」类。
-    Equal("全图圆心,全图圆弧,全图倒角,圆心位置,圆弧标注,倒角标注", Row("fillet"));
+    // 1.16.0（用户定）：出图类改名「基础」、一键出图改成「基础出图」只做这一类；倒圆倒角改名「倒圆」并加「全图倒圆倒角」；新类「一键」只有一键出图。
+    Equal("基础出图,新建工程图,投影视图,轴测图,排版,对称轴", Row("drawing"));
+    Equal("全图倒圆倒角,全图圆心,全图圆弧,全图倒角,圆心位置,圆弧标注,倒角标注", Row("fillet"));
+    Equal("一键出图", Row("onekey"));
     // 1.13.0（用户定）：旧「技术要求」按钮删掉，「技术要求」类整支就是模板表格；1.14.0 的「写入」按钮不在这里，在最下面一行和 AI 开关并排（见 switches 那组）。
-    var tech = branches.Single(branch => branch.GetProperty("case").GetString() == "技术要求");
+    var tech = branches.Single(branch => branch.GetProperty("case").GetString() == "要求");
     Equal("table", tech.GetProperty("type").GetString()!);
     Equal(StrenuaPage.TechTableId, tech.GetProperty("id").GetString()!);
     True(!panels.Any(panel => panel.GetProperty("id").GetString() == StrenuaPage.ClassPanelId("tech")), "技术要求类中间没有按钮面板");
     True(QuickCommands.All.All(command => command.Title != "技术要求"), "技术要求按钮已删");
     // 检查类 1.12.0 加「悬空标注」「注解重叠」。
-    Equal("未标尺寸,悬空标注,注解重叠,图纸截图", Row("check"));
-    Equal("孔,出图,倒圆倒角,技术要求,检查", string.Join(",", StrenuaPage.ClassOptions(QuickCommands.All)));
+    // 1.16.0：加「两位小数」。
+    Equal("未标尺寸,两位小数,悬空标注,注解重叠,图纸截图", Row("check"));
+    Equal("一键,孔,基础,倒圆,要求,检查", string.Join(",", StrenuaPage.ClassOptions(QuickCommands.All)));
     // 类面板里只有按钮，没有开关（1.11.0 开关挪到窗口最下面）。
     True(panels.SelectMany(branch => branch.GetProperty("rows").EnumerateArray())
         .SelectMany(row => row.GetProperty("widgets").EnumerateArray())
@@ -1242,8 +1251,9 @@ static void TestFlowCommand()
         && usage.IndexOf("→ 外轮廓", StringComparison.Ordinal) < usage.IndexOf("→ 孔标注", StringComparison.Ordinal)
         && usage.IndexOf("→ 孔标注", StringComparison.Ordinal) < usage.IndexOf("→ 销孔标注", StringComparison.Ordinal), "步骤顺序");
     True(usage.Contains("当前图纸页", StringComparison.Ordinal), "范围是当前图纸页");
-    Equal("hole-flow,dowel-symbol,center-mark,hole-position,hole-callout,dowel-fit,outline,"
-        + "drawing-auto,drawing-create,drawing-project,drawing-iso,drawing-arrange,symmetry-axes,arc-center-all,arc-all,chamfer-all,arc-center,arc,chamfer,check-dimension,check-dangling,check-overlap,snapshot,tech-ai",
+    Equal("onekey-drawing,hole-flow,dowel-symbol,center-mark,hole-position,hole-callout,dowel-fit,outline,"
+        + "drawing-basic,drawing-create,drawing-project,drawing-iso,drawing-arrange,symmetry-axes,fillet-flow,arc-center-all,arc-all,chamfer-all,arc-center,arc,chamfer,"
+        + "check-dimension,check-decimal,check-dangling,check-overlap,snapshot,tech-ai",
         string.Join(",", QuickCommands.All.Select(command => command.Key)));
 }
 
@@ -1552,51 +1562,119 @@ static void TestCoveredOrdinates()
 
 static void TestDimensionCheck()
 {
-    var lines = Part();
-    // 比例 1。两个同种孔 A(0.03,0.06)、B(0.03,0.03) 同一列；两个销孔 D(0.12,0.07)、E(0.13,0.07) 同一行。
-    HoleEdge[] edges =
+    // 1.16.0 重写：尺寸网。比例 1、视图正对 +Z，图纸坐标就是模型坐标。100 × 50 的板，右上角 R5 圆角（两头与直边相切），孔 A(30, 20) ⌀6。
+    var frame = new ViewFrame(new ModelDirection(1, 0, 0), new ModelDirection(0, 1, 0), new ModelDirection(0, 0, 1), new SheetPoint(0, 0), 1);
+    SheetSegment[] lines =
     [
-        new(0, 0.03, 0.06, 0.003, "/Cut"),
-        new(1, 0.03, 0.03, 0.003, "/Cut"),
-        new(2, 0.12, 0.07, 0.002, "/销孔", Dowel: true),
-        new(3, 0.13, 0.07, 0.002, "/销孔", Dowel: true),
+        new(0, 0, 0, 0.05),          // 0 左
+        new(0, 0.05, 0.095, 0.05),   // 1 上（到圆角）
+        new(0.1, 0.045, 0.1, 0),     // 2 右（从圆角）
+        new(0.1, 0, 0, 0),           // 3 下
     ];
+    HoleEdge[] holes = [new(0, 0.03, 0.02, 0.003, "/Cut")];
+    FilletArc[] arcs = [new(0, new SheetPoint(0.095, 0.045), 0.005, 0.005, new SheetPoint(0.0985, 0.0485), false, Math.PI / 2,
+        new SheetPoint(0.1, 0.045), new SheetPoint(0.095, 0.05))];
     var left = DimensionAnchor.Line(lines[0], true);
+    var right = DimensionAnchor.Line(lines[2], true);
     var top = DimensionAnchor.Line(lines[1], true);
-    ViewDimension[] existing =
-    [
-        new(0, 0, true, double.NaN, [C(0.03, 0.06)]),                         // 孔标注（普通孔）
-        new(1, 0, true, double.NaN, [C(0.12, 0.07)]),                         // 孔标注（销孔，带 H7）
-        new(2, 2, false, 0.03, [left, C(0.03, 0.06)]),                        // 左边 → A 水平（B 同一列也算）
-        new(3, 2, false, 0.04, [top, C(0.03, 0.06)]),                         // 上边 → A 竖直
-        new(4, 2, false, 0.03, [C(0.03, 0.06), C(0.03, 0.03)]),               // A → B 竖直
-        new(5, 2, false, 0.12, [left, C(0.12, 0.07)]),                        // 左边 → D 水平
-        new(6, 2, false, 0.01, [C(0.12, 0.07), C(0.13, 0.07)]),               // D → E 水平（没有公差）
-        new(7, 2, false, 0.2, [left, DimensionAnchor.Line(lines[8], true)]),  // 总长
-    ];
-    var check = DimensionCheckPlanner.Check(edges, lines, [], existing, new HashSet<int> { 1 }, 1.0);
-    var texts = check.Issues.Select(issue => issue.Text).ToList();
-    var all = string.Join(" | ", texts);
-    Equal(4, check.HoleCount);
-    // D、E 缺竖直位置；水平都定位了（E 由 D→E 那个尺寸定位）。
-    True(texts.Count(t => t.Contains("缺竖直位置尺寸", StringComparison.Ordinal)) == 2, all);
-    True(!texts.Any(t => t.Contains("缺水平", StringComparison.Ordinal)), all);
-    True(texts.Any(t => t.Contains("没有 ±0.02", StringComparison.Ordinal)), "D→E 没公差：" + all);
-    True(!texts.Any(t => t.Contains("没有孔标注", StringComparison.Ordinal)), "两种孔都有孔标注：" + all);
-    True(!texts.Any(t => t.Contains("没有 H7", StringComparison.Ordinal)), "销孔孔标注已带 H7：" + all);
-    // 外轮廓 7 站，只标了总长 → 6 站本视图没有。
-    Equal(7, check.StationCount);
-    Equal(6, check.Outline.Count);
-    True(DimensionCheckPlanner.DescribeStation(check.Outline[0]).Contains("左起 50", StringComparison.Ordinal), DimensionCheckPlanner.DescribeStation(check.Outline[0]));
+    var bottom = DimensionAnchor.Line(lines[3], true);
+    var dimensions = new List<ViewDimension>
+    {
+        new(0, 2, false, 0.1, [left, right]),          // 总长
+        new(1, 2, false, 0.05, [bottom, top]),         // 总宽
+        new(2, 2, false, 0.03, [left, C(0.03, 0.02)]), // 孔水平
+        new(3, 0, true, double.NaN, [C(0.03, 0.02)]),  // 孔标注
+    };
+    CheckView View(IReadOnlyList<ViewDimension> d, IReadOnlyList<SheetSegment>? centerLines = null, IReadOnlyList<HoleEdge>? h = null)
+        => new("前视", "PART|默认", frame, lines, h ?? holes, arcs, d, centerLines ?? []);
 
-    // 阵列标法跨度里的孔算定位：前缀「4 x 10 =」，跨 0.02→0.06，中间 0.04 的孔不缺。
-    ViewDimension[] pattern = [new(0, 2, false, 0.04, [C(0.02, 0.05), C(0.06, 0.05)], Prefix: "4 x 10 =")];
-    True(DimensionCheckPlanner.Located(pattern, PositionAxis.Horizontal, 0.04, 1.0), "阵列跨度里");
-    True(!DimensionCheckPlanner.Located(pattern, PositionAxis.Vertical, 0.05, 1.0), "阵列尺寸不管竖直");
-    // 不带 H7 的销孔孔标注、没有孔标注的种都报出来。
-    var bare = DimensionCheckPlanner.Check(edges, lines, [], existing.Skip(1).ToList(), new HashSet<int>(), 1.0);
-    True(bare.Issues.Any(issue => issue.Text.Contains("没有 H7", StringComparison.Ordinal)), "没有 H7");
-    True(bare.Issues.Any(issue => issue.Text.Contains("没有孔标注", StringComparison.Ordinal) && issue.EdgeIndex == 0), "普通孔那种没有孔标注");
+    var missing = DimensionCheckPlanner.Check([View(dimensions)]);
+    var all = string.Join(" | ", missing.Select(item => item.Text));
+    // 孔缺竖直位置；圆角缺 R，圆心两头相切跟着直边、不报位置；直边都在网里。
+    True(missing.Count == 2, all);
+    True(missing.Any(item => item.Target == CheckTarget.Hole && item.Text.Contains("缺竖直位置尺寸", StringComparison.Ordinal) && !item.Text.Contains("孔标注", StringComparison.Ordinal)), all);
+    True(missing.Any(item => item.Target == CheckTarget.Arc && item.Text.Contains("没有 R 尺寸", StringComparison.Ordinal) && !item.Text.Contains("圆心缺", StringComparison.Ordinal)), all);
+
+    dimensions.Add(new(4, 2, false, 0.03, [top, C(0.03, 0.02)]));
+    dimensions.Add(new(5, 5, false, 0.005, [C(0.095, 0.045)]));
+    True(DimensionCheckPlanner.Check([View(dimensions)]).Count == 0, "补齐后没有漏标");
+
+    // 没有孔标注 → 报孔径；没有总宽 → 上下两条水平边自成一块，报漏标并一起选中（不在主网就报）。
+    var bare = DimensionCheckPlanner.Check([View(dimensions.Where(d => d.Index is not 1 and not 3).ToList())]);
+    all = string.Join(" | ", bare.Select(item => item.Text));
+    True(bare.Any(item => item.Target == CheckTarget.Hole && item.Text.Contains("没有孔标注或 Ø 尺寸", StringComparison.Ordinal)), all);
+    True(bare.Any(item => item.Target == CheckTarget.Line && item.Text.Contains("水平边", StringComparison.Ordinal)), all);
+
+    // 跨视图：总宽标在同一模型的另一个视图里也算（同朝向、原点挪开）。
+    var otherFrame = frame with { Origin = new SheetPoint(0.2, 0) };
+    SheetSegment Shift(SheetSegment line) => new(line.X1 + 0.2, line.Y1, line.X2 + 0.2, line.Y2);
+    var other = new CheckView("另一个", "PART|默认", otherFrame, lines.Select(Shift).ToList(), [], [],
+        [new(0, 2, false, 0.05, [DimensionAnchor.Line(Shift(lines[3]), true), DimensionAnchor.Line(Shift(lines[1]), true)]),
+         new(1, 2, false, 0.1, [DimensionAnchor.Line(Shift(lines[0]), true), DimensionAnchor.Line(Shift(lines[2]), true)])], []);
+    var cross = DimensionCheckPlanner.Check([View(dimensions.Where(d => d.Index != 1).ToList()), other]);
+    True(cross.Count == 0, "总宽在别的视图标了：" + string.Join(" | ", cross.Select(item => item.Text)));
+
+    // 对称轴：x = 50 的中心线，两侧孔 B(20)、C(80) 互标 60，轴上的孔 D(50) 不报水平位置。
+    HoleEdge[] symmetric = [new(0, 0.02, 0.02, 0.002, "/S"), new(1, 0.08, 0.02, 0.002, "/S"), new(2, 0.05, 0.02, 0.002, "/S")];
+    var sym = new List<ViewDimension>
+    {
+        new(0, 2, false, 0.1, [left, right]),
+        new(1, 2, false, 0.05, [bottom, top]),
+        new(2, 2, false, 0.06, [C(0.02, 0.02), C(0.08, 0.02)]),
+        new(3, 2, false, 0.03, [top, C(0.02, 0.02)]),
+        new(4, 0, true, double.NaN, [C(0.02, 0.02)]),
+        new(5, 5, false, 0.005, [C(0.095, 0.045)]),
+    };
+    var axis = DimensionCheckPlanner.Check([View(sym, [new SheetSegment(0.05, -0.005, 0.05, 0.055)], symmetric)]);
+    True(axis.Count == 0, "对称轴两侧连通、轴上的孔跟着轴：" + string.Join(" | ", axis.Select(item => item.Text)));
+    var noAxis = DimensionCheckPlanner.Check([View(sym, [], symmetric)]);
+    True(noAxis.Count == 3 && noAxis.All(item => item.Text.Contains("缺水平位置尺寸", StringComparison.Ordinal)),
+        "没有对称轴时三个孔的水平位置都没连进主网：" + string.Join(" | ", noAxis.Select(item => item.Text)));
+}
+
+static void TestDecimalCheck()
+{
+    // 1.16.0「两位小数」：取与尺寸值对得上的那段字当主数字，公差不算。
+    Equal("12.50", DecimalCheck.MainNumber(["12.50"], 12.5)!);
+    Equal(2, DecimalCheck.Decimals("12.50"));
+    Equal("12.81", DecimalCheck.MainNumber(["±0.02", "12.81"], 12.81)!);
+    Equal(string.Empty, DecimalCheck.MainNumber(["30", "±0.02"], 30)!);
+    Equal(0, DecimalCheck.Decimals(string.Empty));
+    Equal("2.5", DecimalCheck.MainNumber(["4 x 2.5 =", "10"], 2.5)!);
+    True(DecimalCheck.MainNumber([], 3) is null, "没有字算读不出");
+}
+
+static void TestMainViewRetry()
+{
+    // 1.16.0 真机滑动板：零件改过标准视图，「*前视」实际沿 +X 看（右 = −Z、上 = +Y）。想要沿 +Z 看 → 应改用「*左视」。
+    var actual = new ViewFrame(new ModelDirection(0, 0, -1), new ModelDirection(0, 1, 0), new ModelDirection(1, 0, 0), new SheetPoint(0, 0), 1);
+    var front = StandardView.Of("front");
+    True(!DrawingPlanner.Facing(actual, front.Normal), "朝向不对要认出来");
+    var retry = DrawingPlanner.RetryViews(front, actual, front.Normal);
+    Equal("left", retry[0].Key);
+    Equal(5, retry.Count);
+    // 没改过的零件：表里每个视图实际就是表上的方向。
+    var standard = new ViewFrame(front.Right, front.Up, front.Normal, new SheetPoint(0, 0), 1);
+    foreach (var view in StandardView.All)
+        True(DrawingPlanner.ActualNormal(front, standard, view).Dot(view.Normal) > 0.999, view.Key);
+    Equal("+X", DrawingCreate.DescribeNormal(new ModelDirection(1, 0, 0)));
+}
+
+static void TestPositionAvoidsKeepOuts()
+{
+    // 1.16.0：孔位尺寸放上方会压修改栏（避障开）→ 水平尺寸整组换到视图下方；竖直尺寸左侧不压，照旧。
+    HoleEdge[] holes = [new(0, 0.03, 0.02, 0.003, "/Cut"), new(1, 0.06, 0.02, 0.003, "/Cut")];
+    var blocked = new List<SheetRect> { new(0, 0.052, 0.2, 0.08) };
+    var space = new PositionSpace(0.1, 0, blocked, new SheetRect(-0.05, -0.05, 0.25, 0.1));
+    var plan = HolePositionPlanner.Plan(holes, 0, 0.05, 1.0, space: space);
+    var horizontal = plan.Dimensions.Where(d => d.Axis == PositionAxis.Horizontal).ToList();
+    True(horizontal.Count > 0 && horizontal.All(d => d.TextAt.Y < 0), "水平尺寸换到下方：" + string.Join(",", horizontal.Select(d => d.TextAt.Y)));
+    True(plan.Dimensions.Where(d => d.Axis == PositionAxis.Vertical).All(d => d.TextAt.X < 0), "竖直尺寸照旧在左侧");
+    // 不给禁区：照旧在上方。
+    True(HolePositionPlanner.Plan(holes, 0, 0.05, 1.0).Dimensions.Where(d => d.Axis == PositionAxis.Horizontal).All(d => d.TextAt.Y > 0.05), "默认在上方");
+    // 两边都压时不换（换了不更好）。
+    var both = new PositionSpace(0.1, 0, [new(0, 0.052, 0.2, 0.08), new(0, -0.03, 0.2, -0.002)]);
+    True(HolePositionPlanner.Plan(holes, 0, 0.05, 1.0, space: both).Dimensions.Where(d => d.Axis == PositionAxis.Horizontal).All(d => d.TextAt.Y > 0.05), "一样压就不换");
 }
 
 static void TestDistinctHoles()
@@ -2133,17 +2211,27 @@ static void TestDrawingSpots()
 
 static void TestDrawingSteps()
 {
-    // 一键出图 = 出图类各步 + 孔标注全流程（不拆）+ 全图圆心、圆弧、倒角，顺序写在用法里；每一步都是一条单独的指令（用户定）。
-    var auto = QuickCommands.All.Single(command => command.Key == "drawing-auto");
-    string[] steps = ["新建工程图", "投影视图", "轴测图", "技术要求", "排版", "孔标注全流程", "全图圆心", "全图圆弧", "全图倒角"];
-    var positions = steps.Select(step => auto.Usage.IndexOf(step, StringComparison.Ordinal)).ToList();
-    True(positions.All(index => index >= 0) && positions.Zip(positions.Skip(1)).All(pair => pair.First < pair.Second), "一键出图用法里的步骤顺序：" + auto.Usage);
+    // 1.16.0（用户定）：基础出图只做基础类各步；全图倒圆倒角做倒圆类三条全图；一键类的一键出图把各类的一键都做一遍。顺序写在用法里。
+    void InOrder(string key, params string[] steps)
+    {
+        var command = QuickCommands.All.Single(item => item.Key == key);
+        var positions = steps.Select(step => command.Usage.IndexOf(step, StringComparison.Ordinal)).ToList();
+        True(positions.All(index => index >= 0) && positions.Zip(positions.Skip(1)).All(pair => pair.First < pair.Second), $"{command.Title}用法里的步骤顺序：" + command.Usage);
+    }
+
+    InOrder("drawing-basic", "新建工程图", "投影视图", "轴测图", "排版", "对称轴");
+    InOrder("fillet-flow", "全图圆心", "全图圆弧", "全图倒角");
+    InOrder("onekey-drawing", "基础出图", "技术要求", "孔标注全流程", "全图倒圆倒角");
+    Equal("drawing", QuickCommands.All.Single(command => command.Key == "drawing-basic").CommandClass);
+    Equal("fillet", QuickCommands.All.Single(command => command.Key == "fillet-flow").CommandClass);
+    Equal("onekey", QuickCommands.All.Single(command => command.Key == "onekey-drawing").CommandClass);
+    Equal("一键", QuickCommands.ClassTitle("onekey"));
     var titles = QuickCommands.All.Select(command => command.Title).ToHashSet();
-    // 1.13.0：「技术要求」这一步没有自己的按钮了（用户删掉旧按钮，单独放走模板表格），一键出图里照旧有这一步。
-    True(steps.Where(step => step != "技术要求").All(titles.Contains), "除技术要求外每一步都要有自己的按钮与指令");
-    True(!titles.Contains("技术要求"), "技术要求按钮已删");
+    foreach (var step in new[] { "新建工程图", "投影视图", "轴测图", "排版", "对称轴", "全图圆心", "全图圆弧", "全图倒角", "孔标注全流程", "基础出图", "全图倒圆倒角" })
+        True(titles.Contains(step), $"「{step}」要有自己的按钮与指令");
+    True(!titles.Contains("技术要求"), "技术要求按钮已删（走模板表格）");
     Equal("hole", QuickCommands.All.Single(command => command.Title == "孔标注全流程").CommandClass);
-    True(QuickCommands.All.Where(command => command.CommandClass == "drawing").All(command => command.Title != "孔标注全流程"), "孔标注全流程留在孔类，不拆进出图类");
+    True(QuickCommands.All.Where(command => command.CommandClass == "drawing").All(command => command.Title != "孔标注全流程"), "孔标注全流程留在孔类");
 }
 
 static void TestChamferPlan()

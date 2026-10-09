@@ -210,7 +210,7 @@ internal static class TechAiEdit
         foreach (var (after, raw) in adds)
         {
             var text = Clean(raw);
-            if (text.Length == 0 || added.Count >= maxAdd || kept.Contains(Normalize(text)))
+            if (text.Length == 0 || added.Count >= maxAdd || kept.Contains(Normalize(text)) || TitleBlockItem.IsMatch(text))
             {
                 dropped++;
                 continue;
@@ -237,6 +237,13 @@ internal static class TechAiEdit
             added,
             dropped);
     }
+
+    /// <summary>
+    /// 标题栏里已有的那几格（1.16.0，用户定：技术要求不写右下角标题栏已经写了的内容）：「材料：45」「表面处理：发黑」这类以栏目名开头的新条目不采用。
+    /// 提示词里也说了，这里兜底；只拦以栏目名加冒号开头的，「材料去应力退火」这种工艺要求照常。
+    /// </summary>
+    private static readonly Regex TitleBlockItem = new(
+        "^(材料|材质|表面处理|热处理|重量|质量|数量|比例|图号|代号|名称|零件名称)\\s*[：:]", RegexOptions.Compiled);
 
     /// <summary>基础条目编成「编号：正文」一行一条，交给模型。</summary>
     public static IReadOnlyList<string> Numbered(TechItems items)

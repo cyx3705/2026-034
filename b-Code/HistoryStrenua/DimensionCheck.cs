@@ -3,13 +3,14 @@ using HistoryStrenua.SolidWorks;
 namespace HistoryStrenua;
 
 /// <summary>
-/// 快捷指令「未标尺寸」（1.8.0，检查类）：当前图纸页全部视图查孔与外轮廓有没有漏标的尺寸，列进控制台，并在 SolidWorks 里选中漏标的孔与边。
+/// 快捷指令「未标尺寸」（1.8.0，检查类；1.16.0 重写）：当前图纸页全部视图（轴测图除外）查有没有边、孔、圆弧没标尺寸，
+/// 在 SolidWorks 里选中（高亮）漏标的边，并弹窗列出来。
 /// </summary>
 /// <remarks>
-/// <para>查什么、怎么算标过见 <see cref="DimensionCheckPlanner"/>。只读：不加、不删、不挪任何注解，只改选择。</para>
-/// <para>范围同「孔标注全流程」：当前图纸页、不用点视图，轴测图不查（1.8.1）。外轮廓站本视图没标、而这一页同一模型的别的视图里
-/// 已有尺寸把它定了（见 <see cref="OutlineCoverage"/>，1.8.1 起按模型面判，替换 1.8.0 的「同值」）也算标过。</para>
-/// <para>查出缺漏也回执成功（检查本身做完了），消息里写明几处。</para>
+/// <para>判法与标注指令无关（1.16.0 用户定：别依赖标注那一侧），见 <see cref="DimensionCheckPlanner"/>：同一模型的全部视图连成一张尺寸网，
+/// 没连进主网的边、孔心、圆弧圆心就是漏了位置尺寸；孔、圆弧另查大小。只读：不加、不删、不挪任何注解，只改选择。</para>
+/// <para>查出缺漏也回执成功（检查本身做完了）。弹窗经总线调 Aurora 的 <c>aurora.ui.dialog</c>，不等人关窗（<see cref="QuickCommandContext.Post"/>）；
+/// 没装 Aurora 时只进控制台。</para>
 /// </remarks>
 internal static class DimensionCheck
 {
@@ -17,12 +18,15 @@ internal static class DimensionCheck
         Key: "check-dimension",
         CommandName: StrenuaIdentity.Domain + ".check.dimension",
         Title: "未标尺寸",
-        Summary: "当前图纸页全部视图（轴测图除外）查孔（孔标注、两向位置、销孔 H7 与 ±0.02）和外轮廓台阶有没有漏标的尺寸，只列出不改图。",
-        Usage: "不用点视图：当前图纸页上全部视图（轴测图不查）逐个检查——每种孔有没有孔标注、每个孔水平竖直有没有定位尺寸（按中心线算，阵列标法跨度里的也算）、销孔孔标注带没带 H7、相邻销孔间尺寸在不在且带 ±0.02、外轮廓每个台阶有没有尺寸（同一零件别的视图标过的也算）。缺的列进控制台，并在 SolidWorks 里选中漏标的孔和边；不加、不删任何尺寸。",
+        Summary: "当前图纸页全部视图（轴测图除外）查边、孔、圆弧有没有没标的尺寸（位置按尺寸网连通判，孔径、R 另查），选中漏标的边并弹窗列出，不改图。",
+        Usage: "不用点视图：当前图纸页上全部视图（轴测图不查）一起检查，与标注按钮怎么标无关——同一零件的全部尺寸（各视图合起来）连成一张网，竖直边的左右位置、水平边的上下位置、孔心与 R1 以上圆弧圆心的两向位置，没连进这张网的就是漏标（与直边相切的圆弧、阵列「N x」跨度里的、对称轴上的、腰型孔另一端算已定）；孔要有孔标注或 Ø、圆弧要有 R（同尺寸有一个标了就算）；斜边要连着尺寸或两端都定了（C1 小倒角不查）。查完在 SolidWorks 里选中（高亮）漏标的边，并弹窗列出；不加、不删任何尺寸。",
         Run: Run);
 
-    // swCalloutVariableType_e
-    private const int CalloutLength = 1;
+    // swAnnotationType_e
+    private const int AnnotationCenterLine = 15;
+
+    /// <summary>弹窗正文最多列几条（多的写「另有 N 处」，全文在控制台）。</summary>
+    private const int DialogLimit = 60;
 
     private static QuickOutcome Run(QuickCommandContext context)
     {
@@ -33,7 +37,8 @@ internal static class DimensionCheck
             return QuickOutcome.Ok("当前图纸页上没有视图，没有可检查的。");
 
         context.SetState("检查");
-        var checks = new List<(ScannedView Scan, ViewCheck Check, string Model, IReadOnlyList<ViewDimension> Dimensions)>();
+        var scans = new List<ScannedView>();
+        var checks = new List<CheckView>();
         var axonometric = new List<string>();
         for (var i = 0; i < views.Count; i++)
         {
@@ -48,63 +53,84 @@ internal static class DimensionCheck
                 continue;
             }
 
-            context.Report($"未标尺寸：检查视图 {i + 1}/{views.Count}「{viewName}」。");
-            var scan = HoleScan.Scan(context, "未标尺寸", withLines: true, view: view);
-            var dimensions = DimensionScan.Read(api, scan);
-            var geometry = dimensions.Select(item => item.Geometry).ToList();
-            var h7 = dimensions
-                .Where(item => item.Geometry.HoleCallout && HasH7(api, item.Display))
-                .Select(item => item.Geometry.Index)
-                .ToHashSet();
-            checks.Add((scan, DimensionCheckPlanner.Check(scan.Candidates, scan.Lines, scan.CurveSegments, geometry, h7, scan.Geometry.Scale),
-                HoleScan.ModelKey(api, view), geometry));
+            context.Report($"未标尺寸：读视图 {i + 1}/{views.Count}「{viewName}」。");
+            var scan = HoleScan.Scan(context, "未标尺寸", withLines: true, view: view, withArcs: true, quiet: true);
+            var dimensions = DimensionScan.Read(api, scan).Select(item => item.Geometry).ToList();
+            scans.Add(scan);
+            checks.Add(new CheckView(viewName, HoleScan.ModelKey(api, view), scan.Geometry.Frame,
+                scan.Lines, scan.Candidates, scan.Arcs, dimensions, CenterLines(api, view)));
         }
 
-        var lines = new List<string>();
-        if (axonometric.Count > 0)
-            lines.Add($"轴测图不查：{string.Join("、", axonometric.Select(name => $"「{name}」"))}。");
-        var total = 0;
+        var missing = DimensionCheckPlanner.Check(checks);
         api.Call(document, "IModelDoc2", "ClearSelection2", true);
-        foreach (var (scan, check, model, _) in checks)
+        foreach (var item in missing)
         {
-            // 外轮廓站本视图没标的，同一模型别的视图已经定了也算标过（同「外轮廓」的跨视图去重，1.8.1 起按面判，不再按同值）。
-            var coverage = new OutlineCoverage();
-            foreach (var other in checks.Where(other => other.Scan != scan && other.Model == model))
-                coverage.AddView(other.Scan.Geometry.Frame, other.Dimensions);
-            var issues = check.Issues
-                .Concat(check.Outline
-                    .Where(station => !coverage.Determined(scan.Geometry.Frame, station.Axis, check.Datum(station.Axis), station.Coordinate))
-                    .Select(station => new CheckIssue(DimensionCheckPlanner.DescribeStation(station), LineIndex: station.LineIndex)))
-                .ToList();
-            if (issues.Count == 0)
+            var scan = scans[item.View];
+            foreach (var index in item.Indexes)
             {
-                lines.Add($"视图「{scan.ViewName}」：{check.HoleCount} 个孔、外轮廓 {check.StationCount} 站，没有漏标。");
-                continue;
-            }
-
-            total += issues.Count;
-            lines.Add($"视图「{scan.ViewName}」：{issues.Count} 处漏标——");
-            lines.AddRange(issues.Select(issue => "  · " + issue.Text));
-            foreach (var issue in issues)
-            {
-                var entity = issue.EdgeIndex is { } edge ? scan.Edges[edge] : issue.LineIndex is { } line ? scan.LineEdges[line] : null;
+                var entity = item.Target switch
+                {
+                    CheckTarget.Line => scan.LineEdges[index],
+                    CheckTarget.Hole => scan.Edges[index],
+                    _ => scan.ArcEdges is { } arcs && index < arcs.Count ? arcs[index] : null,
+                };
                 if (entity is not null)
                     api.CallBool(scan.View, "IView", "SelectEntity", entity, true);
             }
         }
 
         api.Call(document, "IModelDoc2", "GraphicsRedraw2");
-        var head = total == 0
+        var lines = new List<string>();
+        if (axonometric.Count > 0)
+            lines.Add($"轴测图不查：{string.Join("、", axonometric.Select(name => $"「{name}」"))}。");
+        for (var v = 0; v < checks.Count; v++)
+        {
+            var here = missing.Where(item => item.View == v).ToList();
+            lines.Add(here.Count == 0 ? $"视图「{checks[v].Name}」：没有漏标。" : $"视图「{checks[v].Name}」：{here.Count} 处漏标——");
+            lines.AddRange(here.Select(item => "  · " + item.Text));
+        }
+
+        var head = missing.Count == 0
             ? $"未标尺寸：当前图纸页 {checks.Count} 个视图都没有查出漏标。"
-            : $"未标尺寸：当前图纸页 {checks.Count} 个视图共 {total} 处漏标，已在 SolidWorks 里选中漏标的孔和边。";
+            : $"未标尺寸：当前图纸页 {checks.Count} 个视图共 {missing.Count} 处漏标，已在 SolidWorks 里选中（高亮）漏标的边。";
+        if (missing.Count > 0)
+            Popup(context, "未标尺寸", head, lines);
         return QuickOutcome.Ok(head + Environment.NewLine + string.Join(Environment.NewLine, lines));
     }
 
-    /// <summary>孔标注里有没有长度变量是「配合（带公差）」H7。</summary>
-    private static bool HasH7(SolidWorksApi api, object callout)
-        => api.CallArray(callout, "IDisplayDimension", "GetHoleCalloutVariables").Any(variable =>
-            variable is not null
-            && api.CallInt(variable, "ICalloutVariable", "get_Type") == CalloutLength
-            && api.CallInt(variable, "ICalloutVariable", "get_ToleranceType") is DimensionGeometry.ToleranceFitWithTolerance or 7 or 9
-            && api.CallString(variable, "ICalloutVariable", "get_HoleFit") == DowelFitPlanner.HoleFit);
+    /// <summary>视图里中心线注解（对称轴）的线条。读不了的跳过。</summary>
+    private static List<SheetSegment> CenterLines(SolidWorksApi api, object view)
+    {
+        var result = new List<SheetSegment>();
+        foreach (var annotation in api.CallArray(view, "IView", "GetAnnotations"))
+        {
+            if (annotation is null)
+                continue;
+            try
+            {
+                if (api.CallInt(annotation, "IAnnotation", "GetType") == AnnotationCenterLine)
+                    result.AddRange(Clearance.DisplayGeometry(api, annotation).Lines);
+            }
+            catch (Exception ex) when (ex is System.Runtime.InteropServices.COMException or InvalidCastException or System.Reflection.TargetException)
+            {
+            }
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// 检查结果弹窗（1.16.0，用户要：查完弹出来）：Aurora 的 content 弹窗，标题 + 一句摘要 + 列表正文，不等人关窗。
+    /// 列表过长只列前 <see cref="DialogLimit"/> 条，全文在控制台。
+    /// </summary>
+    internal static void Popup(QuickCommandContext context, string title, string summary, IReadOnlyList<string> lines)
+    {
+        var shown = lines.Take(DialogLimit).ToList();
+        if (lines.Count > DialogLimit)
+            shown.Add($"……另有 {lines.Count - DialogLimit} 行，全文见控制台。");
+        context.Post("aurora.ui.dialog kind=content"
+                     + " title=" + HistoryVulcan.Core.Commands.CommandParser.QuoteArg(title)
+                     + " body=" + HistoryVulcan.Core.Commands.CommandParser.QuoteArg(summary)
+                     + " content=" + HistoryVulcan.Core.Commands.CommandParser.QuoteArg(string.Join("\n", shown)));
+    }
 }

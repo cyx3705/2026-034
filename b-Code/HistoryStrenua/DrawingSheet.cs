@@ -70,7 +70,7 @@ internal sealed record DrawingSheet(
         var model = api.Call(main, "IView", "get_ReferencedDocument")
             ?? throw new QuickCommandException($"视图「{mainName}」没有引用模型（空视图，或模型是轻化 / 未加载状态）。");
         if (api.CallInt(model, "IModelDoc2", "GetType") != DocumentPart)
-            throw new QuickCommandException($"视图「{mainName}」引用的是装配体。出图类目前只给零件图出图（装配体总图还没做）。");
+            throw new QuickCommandException($"视图「{mainName}」引用的是装配体。基础类目前只给零件图出图（装配体总图还没做）。");
         if (part is null)
         {
             context.SetState("读零件");

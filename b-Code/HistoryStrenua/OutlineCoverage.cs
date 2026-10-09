@@ -150,6 +150,9 @@ internal sealed class OutlineCoverage
         return (remaining, covered);
     }
 
+    /// <summary>这个面所在的连通块编号（没收过的面先收进来、自成一块）。1.16.0「未标尺寸」按它找主尺寸网。</summary>
+    public int Component(ModelPlane plane) => Find(Node(plane));
+
     private int Node(ModelPlane plane)
     {
         var index = _planes.FindIndex(existing => existing.Same(plane));

@@ -6,7 +6,7 @@ namespace HistoryStrenua;
 /// <summary>
 /// 快捷指令「新建工程图」（1.9.0，出图类）：给当前零件（或装配体里选中的零件）按用户的工程图模板建一张图——
 /// 选图幅与比例、放主视图。不保存。投影视图、轴测图、技术要求、排版各是一条指令（<see cref="DrawingProject"/>、<see cref="DrawingIso"/>、
-/// <see cref="TechApply"/>、<see cref="DrawingArrange"/>），「一键出图」（<see cref="DrawingAuto"/>）依次全做。
+/// <see cref="TechApply"/>、<see cref="DrawingArrange"/>），「基础出图」（<see cref="DrawingBasic"/>）依次做完这一类，一键类「一键出图」（<see cref="OneKeyDrawing"/>）再加要求与标注。
 /// </summary>
 /// <remarks>
 /// <para>依据是用户 2026-025 台面2机器 15 张手工图的共同做法（DEC-021）：标题栏由模板的属性链接带出（图号、名称、材料、表面处理、
@@ -87,10 +87,7 @@ internal static class DrawingCreate
 
         context.SetState("建主视图");
         context.Report($"新建工程图：主视图「{main.View.Names[0]}」（{main.Reason}）。");
-        var mainView = main.View.Names
-            .Select(name => api.Call(drawing, "IDrawingDoc", "CreateDrawViewFromModelView3", partPath, name, plan.Main.X, plan.Main.Y, 0.0))
-            .FirstOrDefault(view => view is not null)
-            ?? throw new QuickCommandException($"SolidWorks 没能建主视图（{string.Join(" / ", main.View.Names)}）。");
+        var (mainView, used, orientation) = CreateMain(context, drawing, partPath, main.View, plan.Main);
         // SolidWorks「自动缩放新视图」开着时，插第一个视图会把图纸比例改成它自己挑的（真机：连接件 A2 上被改成 1:1），这里设回来。
         DrawingSheet.SetSheetScale(api, sheet, scale);
         api.Call(drawing, "IModelDoc2", "EditRebuild3");
@@ -109,13 +106,70 @@ internal static class DrawingCreate
             $"新建工程图：零件「{partTitle}」→ 新图「{api.CallString(drawing, "IModelDoc2", "GetTitle")}」（未保存），" +
             $"模板「{Path.GetFileNameWithoutExtension(templatePath)}」{(choice is null ? string.Empty : "（" + choice.Template.SizeName + "）")}，比例 {scaleText}，用时 {stopwatch.Elapsed.TotalSeconds:0.0} 秒"
             + (named ? "。" : $"；图名没能改成零件名「{Path.GetFileNameWithoutExtension(partPath)}」（可能已开着同名的文档），保存时请自己改。"),
-            $"· 主视图「{mainName}」{main.View.Names[0]}：{main.Reason}。",
+            $"· 主视图「{mainName}」{used.Names[0]}：{main.Reason}{orientation}。",
         };
         var plannedText = sides.Select((side, index) => $"{DrawingSheet.SlotName(slots[index])}投影视图（{side.Reason}）").Append("轴测图").Append("技术要求");
         lines.Add($"· 图幅与比例按整套视图估（主视图、{string.Join("、", plannedText)}）" + (choice is null ? "。" : $"：{choice.Reason}。"));
         if (next)
-            lines.Add("· 接着按「投影视图」「轴测图」「技术要求」「排版」补齐摆好，或用「一键出图」一次做完并标注。");
+            lines.Add("· 接着按「投影视图」「轴测图」「技术要求」「排版」补齐摆好，或用「基础出图」一次建好排好、一键类「一键出图」连标注一起做完。");
         return new Created(QuickOutcome.Ok(string.Join(Environment.NewLine, lines)), drawing, mainView, geometry);
+    }
+
+    /// <summary>
+    /// 建主视图并核对朝向（1.16.0）：按 <paramref name="wanted"/> 的名字建，读回实际视线；不是想要的那面（零件改过标准视图，真机滑动板「*前视」实际沿 +X），
+    /// 删掉它，按读回的朝向推出该用哪个命名视图（<see cref="DrawingPlanner.RetryViews"/>）再建，逐个核对。都对不上就留第一个、回执说明。
+    /// </summary>
+    /// <returns>主视图、实际用的命名视图、接在回执理由后面的一句（没换名字为空）。</returns>
+    private static (object View, StandardView Used, string Note) CreateMain(
+        QuickCommandContext context, object drawing, string partPath, StandardView wanted, SheetPoint at)
+    {
+        var api = context.Api;
+        object? Make(StandardView view) => view.Names
+            .Select(name => api.Call(drawing, "IDrawingDoc", "CreateDrawViewFromModelView3", partPath, name, at.X, at.Y, 0.0))
+            .FirstOrDefault(created => created is not null);
+
+        var first = Make(wanted) ?? throw new QuickCommandException($"SolidWorks 没能建主视图（{string.Join(" / ", wanted.Names)}）。");
+        var frame = HoleScan.Frame(context, first);
+        if (DrawingPlanner.Facing(frame, wanted.Normal))
+            return (first, wanted, string.Empty);
+
+        var actual = DescribeNormal(frame.Normal);
+        context.Report($"新建工程图：「{wanted.Names[0]}」在这个零件里实际是沿 {actual} 看（零件改过标准视图），换命名视图重建主视图。");
+        Delete(api, drawing, first);
+        foreach (var candidate in DrawingPlanner.RetryViews(wanted, frame, wanted.Normal))
+        {
+            if (Make(candidate) is not { } view)
+                continue;
+            if (DrawingPlanner.Facing(HoleScan.Frame(context, view), wanted.Normal))
+                return (view, candidate, $"；零件改过标准视图，「{wanted.Names[0]}」实际沿 {actual} 看，改用「{candidate.Names[0]}」");
+            Delete(api, drawing, view);
+        }
+
+        var fallback = Make(wanted) ?? throw new QuickCommandException($"SolidWorks 没能建主视图（{string.Join(" / ", wanted.Names)}）。");
+        return (fallback, wanted, $"；零件改过标准视图，「{wanted.Names[0]}」实际沿 {actual} 看，六个命名视图都对不上想要的那面，请自己换主视图");
+    }
+
+    /// <summary>删掉一个视图（核对朝向不对的主视图）。</summary>
+    private static void Delete(SolidWorksApi api, object drawing, object view)
+    {
+        api.Call(drawing, "IModelDoc2", "ClearSelection2", true);
+        var extension = api.Call(drawing, "IModelDoc2", "get_Extension");
+        if (extension is not null
+            && api.CallBool(extension, "IModelDocExtension", "SelectByID2", DrawingSheet.Name(api, view), "DRAWINGVIEW", 0.0, 0.0, 0.0, false, 0, null, 0))
+            api.Call(drawing, "IModelDoc2", "EditDelete");
+        api.Call(drawing, "IModelDoc2", "ClearSelection2", true);
+    }
+
+    /// <summary>视线写成「+X」「−Z」；不沿坐标轴时写三个分量。</summary>
+    internal static string DescribeNormal(ModelDirection normal)
+    {
+        foreach (var (value, name) in new[] { (normal.X, "X"), (normal.Y, "Y"), (normal.Z, "Z") })
+        {
+            if (Math.Abs(value) >= 0.999)
+                return (value > 0 ? "+" : "−") + name;
+        }
+
+        return $"({normal.X:0.##}, {normal.Y:0.##}, {normal.Z:0.##})";
     }
 
     /// <summary>

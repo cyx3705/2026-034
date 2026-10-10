@@ -965,7 +965,7 @@
             <remarks>
             <para>1.17.0（用户定）：从孔类挪到基础类（<c>strenua.hole.outline</c> → <c>strenua.drawing.outline</c>），「孔标注全流程」不再含这一步；
             全页做一遍是「全图外轮廓」（<see cref="T:HistoryStrenua.OutlineAll"/>），一键类的各条在孔标注全流程之后调它（尺寸链模式下它往孔的那组里加站，必须在孔位尺寸之后）。
-            钣金的折弯切线不在 <see cref="P:HistoryStrenua.ScannedView.Lines"/> 里（<see cref="T:HistoryStrenua.SheetMetal"/>），这里自然不标、也不当基准。</para>
+            钣金折弯处的线（折弯切线、折弯区里的短边）不在 <see cref="P:HistoryStrenua.ScannedView.Lines"/> 里（<see cref="T:HistoryStrenua.SheetMetal"/>），这里自然不标、也不当基准。</para>
             <para>哪些边算外轮廓、站怎么归见 <see cref="T:HistoryStrenua.OutlinePlanner"/>；基准与孔位尺寸相同（<see cref="M:HistoryStrenua.HolePositionPlanner.Datums(System.Collections.Generic.IReadOnlyList{HistoryStrenua.SheetSegment})"/>）。</para>
             <para>普通模式（「尺寸链」关）：先删旧的外轮廓尺寸（两头都是外轮廓直边的线性尺寸），再每站一个从基准量起的线性尺寸，
             排在现有尺寸最外层之外。尺寸链模式：每个方向把还没有的站加进孔的那组坐标尺寸（0 点是基准边的那组）；还没有组就照孔位尺寸的样子
@@ -3353,7 +3353,7 @@
             快捷指令「方形槽」（1.17.0，孔类，用户定，样图 WTJYQ-04-02 右防护板）：点一个工程图视图，标出视图里封闭的方形槽（矩形窗口）的位置与大小。
             </summary>
             <remarks>
-            <para>认槽与标法见 <see cref="T:HistoryStrenua.SquareSlotPlanner"/>；基准同孔位尺寸（<see cref="M:HistoryStrenua.HolePositionPlanner.Datums(System.Collections.Generic.IReadOnlyList{HistoryStrenua.SheetSegment})"/>），钣金折弯切线不当基准（<see cref="T:HistoryStrenua.SheetMetal"/>）。
+            <para>认槽与标法见 <see cref="T:HistoryStrenua.SquareSlotPlanner"/>；基准同孔位尺寸（<see cref="M:HistoryStrenua.HolePositionPlanner.Datums(System.Collections.Generic.IReadOnlyList{HistoryStrenua.SheetSegment})"/>），钣金折弯处的线不当基准（<see cref="T:HistoryStrenua.SheetMetal"/>）。
             图上分不出槽与凸台，四条边各问一次 SolidWorks（<see cref="M:HistoryStrenua.HoleScan.ViewGeometry.MaterialToward(System.Object,System.Double,System.Double)"/>）：有一条说正对图纸的面往矩形里面延伸就是凸台，不标；
             至少一条说不延伸才算槽。</para>
             <para>普通模式：先删旧的方形槽尺寸再标，排在现有尺寸最外层之外，「避障」开着时数字压线就沿尺寸线滑开（与外轮廓同一套，<see cref="M:HistoryStrenua.Clearance.ClearOutline(HistoryStrenua.QuickCommandContext,HistoryStrenua.ScannedView,System.Collections.Generic.IReadOnlyList{HistoryStrenua.HoleEdge},System.Collections.Generic.IReadOnlySet{System.String})"/>）。
@@ -3450,7 +3450,7 @@
             <remarks>
             <para>四条都先做基础类「基础出图」（排版之前插技术要求），再按零件类别做下面的标注（1.17.0，用户定）：</para>
             <list type="bullet">
-            <item>钣金：孔标注全流程（含方形槽）→ 全图外轮廓。折弯切线在识别层就去掉了（<see cref="T:HistoryStrenua.SheetMetal"/>），不会被标出两位小数。</item>
+            <item>钣金：孔标注全流程（含方形槽）→ 全图外轮廓。折弯处的线（折弯切线、折弯区里的短边）在识别层就去掉了（<see cref="T:HistoryStrenua.SheetMetal"/>），基准是外轮廓。</item>
             <item>框架：全图外轮廓（离别的站不到一个型材宽的不标，<see cref="M:HistoryStrenua.OutlinePlanner.Sparse(System.Collections.Generic.IReadOnlyList{HistoryStrenua.OutlineStation},System.Double)"/>）→ 轴测图上写「采用 xx 铝型材」（<see cref="T:HistoryStrenua.ProfileNote"/>）。</item>
             <item>加工件（其他情况）：孔标注全流程 → 全图外轮廓 → 全图倒圆倒角，即 1.16.0 的一键出图。</item>
             </list>
@@ -3471,7 +3471,7 @@
             <summary>一键类按零件类别出图（1.17.0，用户定）：钣金、框架（铝型材骨架）、加工件（其他情况）。</summary>
         </member>
         <member name="F:HistoryStrenua.PartKind.SheetMetal">
-            <summary>钣金：标孔（含方形槽）与外轮廓，折弯切线不标。</summary>
+            <summary>钣金：标孔（含方形槽）与外轮廓，折弯处的线不标、不当基准。</summary>
         </member>
         <member name="F:HistoryStrenua.PartKind.Frame">
             <summary>框架：只标外轮廓，轴测图上写「采用 xx 铝型材」。</summary>
@@ -4299,7 +4299,7 @@
             <param name="ChamferEdges">倒角斜边本身（只在要求收集倒角时有，1.10.0）；它们同时也在直边里。</param>
             <param name="ChamferItems">倒角斜边在图纸上的样子，与 <paramref name="ChamferEdges"/> 一一对应。</param>
             <param name="CircleArcs">收集圆角时去掉的「其实是圆 / 孔」的弧段数（1.12.0，见 <see cref="M:HistoryStrenua.FilletPlanner.WithoutCircles(System.Collections.Generic.IReadOnlyList{HistoryStrenua.FilletArc},System.Collections.Generic.IReadOnlyList{HistoryStrenua.HoleEdge})"/>）。</param>
-            <param name="BendLines">收集直边时去掉的钣金折弯切线条数（1.17.0，见 <see cref="T:HistoryStrenua.SheetMetal"/>）。</param>
+            <param name="BendLines">收集直边时去掉的钣金折弯处的线条数（折弯切线 + 折弯区里的短边，1.17.0，见 <see cref="T:HistoryStrenua.SheetMetal"/>）。</param>
         </member>
         <member name="M:HistoryStrenua.ScannedView.#ctor(System.Object,System.Object,System.String,HistoryStrenua.HoleScan.ViewGeometry,System.Collections.Generic.IReadOnlyList{System.Object},System.Collections.Generic.IReadOnlyList{HistoryStrenua.HoleEdge},System.Collections.Generic.IReadOnlyList{System.Object},System.Collections.Generic.IReadOnlyList{HistoryStrenua.SheetSegment},System.Collections.Generic.IReadOnlyList{HistoryStrenua.SheetSegment},System.Collections.Generic.IReadOnlyList{System.Object},System.Collections.Generic.IReadOnlyList{HistoryStrenua.FilletArc},System.Collections.Generic.IReadOnlyList{System.Object},System.Collections.Generic.IReadOnlyList{HistoryStrenua.ChamferEdge},System.Int32,System.Int32)">
             <summary>一次识别的结果：用户点的那个视图，以及视图里的候选孔边。</summary>
@@ -4320,7 +4320,7 @@
             <param name="ChamferEdges">倒角斜边本身（只在要求收集倒角时有，1.10.0）；它们同时也在直边里。</param>
             <param name="ChamferItems">倒角斜边在图纸上的样子，与 <paramref name="ChamferEdges"/> 一一对应。</param>
             <param name="CircleArcs">收集圆角时去掉的「其实是圆 / 孔」的弧段数（1.12.0，见 <see cref="M:HistoryStrenua.FilletPlanner.WithoutCircles(System.Collections.Generic.IReadOnlyList{HistoryStrenua.FilletArc},System.Collections.Generic.IReadOnlyList{HistoryStrenua.HoleEdge})"/>）。</param>
-            <param name="BendLines">收集直边时去掉的钣金折弯切线条数（1.17.0，见 <see cref="T:HistoryStrenua.SheetMetal"/>）。</param>
+            <param name="BendLines">收集直边时去掉的钣金折弯处的线条数（折弯切线 + 折弯区里的短边，1.17.0，见 <see cref="T:HistoryStrenua.SheetMetal"/>）。</param>
         </member>
         <member name="P:HistoryStrenua.ScannedView.Document">
             <summary>活动工程图（<c>IModelDoc2</c> / <c>IDrawingDoc</c>）。</summary>
@@ -4368,7 +4368,7 @@
             <summary>收集圆角时去掉的「其实是圆 / 孔」的弧段数（1.12.0，见 <see cref="M:HistoryStrenua.FilletPlanner.WithoutCircles(System.Collections.Generic.IReadOnlyList{HistoryStrenua.FilletArc},System.Collections.Generic.IReadOnlyList{HistoryStrenua.HoleEdge})"/>）。</summary>
         </member>
         <member name="P:HistoryStrenua.ScannedView.BendLines">
-            <summary>收集直边时去掉的钣金折弯切线条数（1.17.0，见 <see cref="T:HistoryStrenua.SheetMetal"/>）。</summary>
+            <summary>收集直边时去掉的钣金折弯处的线条数（折弯切线 + 折弯区里的短边，1.17.0，见 <see cref="T:HistoryStrenua.SheetMetal"/>）。</summary>
         </member>
         <member name="P:HistoryStrenua.ScannedView.Chamfers">
             <summary>倒角斜边（只在要求收集倒角时有，1.10.0），<see cref="P:HistoryStrenua.ChamferEdge.Index"/> 是 <see cref="P:HistoryStrenua.ScannedView.ChamferEdges"/> 的下标。</summary>
@@ -4518,10 +4518,13 @@
             只给零件视图用：方向按视图朝向（<see cref="P:HistoryStrenua.HoleScan.ViewGeometry.Frame"/>）换回模型，装配视图的组件变换没算。
             </summary>
         </member>
-        <member name="M:HistoryStrenua.HoleScan.ViewGeometry.IsBendLine(System.Object)">
+        <member name="M:HistoryStrenua.HoleScan.ViewGeometry.BendTangent(System.Object)">
             <summary>
             钣金折弯切线（1.17.0，判据见 <see cref="T:HistoryStrenua.SheetMetal"/>）：直边旁边贴着一张轴线与它平行的圆柱面，且那张面属于钣金体。
-            直线与圆柱参数都在同一个零件坐标里（装配视图也不用变换）。读不出来一律当不是——宁可多标一条，不能把真边丢了。
+            返回 null = 不是；否则 Radius 是那张圆柱面的半径（模型长度，定折弯区用），Hidden = 该去掉——
+            另一侧的平面侧着（法向垂直视线）时这条线就是折边侧着的外轮廓，Hidden 为 false 要留着。
+            直线、圆柱、面法向都在零件坐标里，视线用 <see cref="P:HistoryStrenua.HoleScan.ViewGeometry.Frame"/>（零件视图；装配视图的组件变换没算）。
+            读不出来一律当不是——宁可多标一条，不能把真边丢了。
             </summary>
         </member>
         <member name="M:HistoryStrenua.HoleScan.ViewGeometry.CurveOutline(System.Object)">
@@ -4958,21 +4961,40 @@
         </member>
         <member name="T:HistoryStrenua.SheetMetal">
             <summary>
-            钣金折弯切线（1.17.0，用户定：折弯处那条线不能标）：钣金件视图里，平板面与折弯圆柱面相切的那条边会画成一条直线
-            （WTJYQ-04-02 右防护板：总宽 450 旁边多出一条 447.79，孔位从它量出 52.79、2.21）。它不是零件的边界，量到它的尺寸带两位小数也没用。
+            钣金折弯处的线（1.17.0，用户定：折弯处的线不能标、不当基准，以外轮廓为基准）。WTJYQ-04-02 右防护板（t1.5、外 R2.5）真机读出两类：
+            <list type="bullet">
+            <item>折弯切线：正对着看的平板面与折弯圆柱面相切的那条边（侧板正视图离顶边 2.5 的那条）。</item>
+            <item>折弯区里的短边：端部折边的内表面（1.5）、侧板让位到 2.207、端板止于 447.793——都离外轮廓不到一个折弯外半径，
+            量出来就是 2.21、447.79、52.79 这类两位小数。</item>
+            </list>
             </summary>
             <remarks>
-            <para>认法：直边旁边贴着一张圆柱面、边与圆柱轴线平行（直边落在圆柱面上只能是母线，即相切处），且这张面属于钣金体
-            （<c>IBody2.IsSheetMetal</c>）。孔壁也是圆柱面，但孔口是圆边、轴线垂直板面，不会对上；机加件的圆角切线不在这里管（不是钣金体）。</para>
-            <para>在 <see cref="M:HistoryStrenua.HoleScan.Scan(HistoryStrenua.QuickCommandContext,System.String,System.Boolean,System.Object,System.Boolean,System.Boolean,System.Boolean)"/> 收直边时就去掉，所以基准、外轮廓、方形槽、孔位尺寸、未标尺寸都看不到它——
-            外轮廓的射线也不再被它挡，但它本来就在零件轮廓里面，不影响判外轮廓。</para>
+            <para>切线的认法：直边旁边贴着一张圆柱面、边与圆柱轴线平行（直边落在圆柱面上只能是母线，即相切处），且这张面属于钣金体
+            （<c>IBody2.IsSheetMetal</c>）。孔壁也是圆柱面，但孔口是圆边、轴线垂直板面，不会对上；机加件的圆角切线不在这里管（不是钣金体）。
+            <b>但贴着的那张平面侧着（法向垂直视线）时不算</b>：这时切线和整块折边侧着的投影叠在一起，就是外轮廓本身
+            （俯视图最左那条；1.17.0 首版把它也去掉了，基准退到 2.207 的短边上，标出 60.79、225.79）。</para>
+            <para>折弯区：视图里见到的折弯圆柱面最大半径（外半径 = 内 R + 板厚）。离视图最外直边不到这么远、又不在最外上的竖直 / 水平边一律去掉（<see cref="M:HistoryStrenua.SheetMetal.InBendZone(System.Collections.Generic.IReadOnlyList{HistoryStrenua.SheetSegment},System.Double,System.Double)"/>）。</para>
+            <para>两类都在 <see cref="M:HistoryStrenua.HoleScan.Scan(HistoryStrenua.QuickCommandContext,System.String,System.Boolean,System.Object,System.Boolean,System.Boolean,System.Boolean)"/> 收直边时去掉，所以基准、外轮廓、方形槽、孔位尺寸、未标尺寸都看不到它们。</para>
             </remarks>
         </member>
         <member name="F:HistoryStrenua.SheetMetal.ParallelTolerance">
             <summary>直边方向与圆柱轴线算平行的容差（夹角正弦，约 0.06°）。</summary>
         </member>
+        <member name="F:HistoryStrenua.SheetMetal.EdgeOnTolerance">
+            <summary>平面法向与视线算垂直（平面侧着）的容差（夹角余弦）。</summary>
+        </member>
         <member name="M:HistoryStrenua.SheetMetal.AlongAxis(HistoryStrenua.ModelDirection,HistoryStrenua.ModelDirection)">
             <summary>直边（方向 <paramref name="line"/>）是不是贴在这张圆柱面（轴线 <paramref name="axis"/>）上的切线：两者平行。</summary>
+        </member>
+        <member name="M:HistoryStrenua.SheetMetal.EdgeOn(HistoryStrenua.ModelDirection,HistoryStrenua.ModelDirection)">
+            <summary>平面（法向 <paramref name="planeNormal"/>）在这个视图（视线 <paramref name="viewNormal"/>）里侧着、投影成一条线。</summary>
+        </member>
+        <member name="M:HistoryStrenua.SheetMetal.InBendZone(System.Collections.Generic.IReadOnlyList{HistoryStrenua.SheetSegment},System.Double,System.Double)">
+            <summary>
+            折弯区里的直边（图纸坐标；<paramref name="zone"/> 是折弯外半径在图纸上的长度，<paramref name="scale"/> 是视图比例）：
+            竖直边离最左 / 最右竖直边、水平边离最上 / 最下水平边大于 0、不超过 <paramref name="zone"/>（各含 0.01 mm 的读数误差）。
+            最外那条自己不算；斜边不管。返回下标，从小到大。
+            </summary>
         </member>
         <member name="T:HistoryStrenua.SymmetryAxis">
             <summary>

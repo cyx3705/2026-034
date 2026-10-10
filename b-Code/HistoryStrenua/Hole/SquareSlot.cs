@@ -4,7 +4,7 @@ namespace HistoryStrenua;
 /// 快捷指令「方形槽」（1.17.0，孔类，用户定，样图 WTJYQ-04-02 右防护板）：点一个工程图视图，标出视图里封闭的方形槽（矩形窗口）的位置与大小。
 /// </summary>
 /// <remarks>
-/// <para>认槽与标法见 <see cref="SquareSlotPlanner"/>；基准同孔位尺寸（<see cref="HolePositionPlanner.Datums"/>），钣金折弯切线不当基准（<see cref="SheetMetal"/>）。
+/// <para>认槽与标法见 <see cref="SquareSlotPlanner"/>；基准同孔位尺寸（<see cref="HolePositionPlanner.Datums"/>），钣金折弯处的线不当基准（<see cref="SheetMetal"/>）。
 /// 图上分不出槽与凸台，四条边各问一次 SolidWorks（<see cref="HoleScan.ViewGeometry.MaterialToward"/>）：有一条说正对图纸的面往矩形里面延伸就是凸台，不标；
 /// 至少一条说不延伸才算槽。</para>
 /// <para>普通模式：先删旧的方形槽尺寸再标，排在现有尺寸最外层之外，「避障」开着时数字压线就沿尺寸线滑开（与外轮廓同一套，<see cref="Clearance.ClearOutline"/>）。
@@ -18,7 +18,7 @@ internal static class SquareSlot
         CommandName: StrenuaIdentity.Domain + ".hole.squareslot",
         Title: "方形槽",
         Summary: "点一个工程图视图，标出封闭方形槽（矩形窗口）的位置与长宽：以零件左、上直边为基准，照「尺寸链」开关出线性或坐标尺寸。",
-        Usage: "在工程图里点一个视图（先点后按、先按后点都行，60 秒内）。视图里四条直边围成的封闭矩形窗口（直角或四角同样大的圆角；开口槽归外轮廓，凸台不标）各标一组：「尺寸链」关时每个方向一层，基准到近边、近边到远边两个尺寸并排，排在已有尺寸外面（重按先删旧的）；「尺寸链」开时四条边加进孔的那组坐标尺寸。基准同孔位尺寸（零件最左、最上直边，钣金折弯切线不算）。「避障」开着时新加尺寸的数字压线就沿尺寸线滑开。",
+        Usage: "在工程图里点一个视图（先点后按、先按后点都行，60 秒内）。视图里四条直边围成的封闭矩形窗口（直角或四角同样大的圆角；开口槽归外轮廓，凸台不标）各标一组：「尺寸链」关时每个方向一层，基准到近边、近边到远边两个尺寸并排，排在已有尺寸外面（重按先删旧的）；「尺寸链」开时四条边加进孔的那组坐标尺寸。基准同孔位尺寸（零件最左、最上直边，钣金折弯处的线不算）。「避障」开着时新加尺寸的数字压线就沿尺寸线滑开。",
         Run: context => Run(context, null));
 
     /// <param name="context">快捷指令上下文。</param>

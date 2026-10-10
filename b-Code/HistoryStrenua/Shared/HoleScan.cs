@@ -21,7 +21,7 @@ namespace HistoryStrenua;
 /// <param name="ChamferEdges">倒角斜边本身（只在要求收集倒角时有，1.10.0）；它们同时也在直边里。</param>
 /// <param name="ChamferItems">倒角斜边在图纸上的样子，与 <paramref name="ChamferEdges"/> 一一对应。</param>
 /// <param name="CircleArcs">收集圆角时去掉的「其实是圆 / 孔」的弧段数（1.12.0，见 <see cref="FilletPlanner.WithoutCircles"/>）。</param>
-/// <param name="BendLines">收集直边时去掉的钣金折弯切线条数（1.17.0，见 <see cref="SheetMetal"/>）。</param>
+/// <param name="BendLines">收集直边时去掉的钣金折弯处的线条数（折弯切线 + 折弯区里的短边，1.17.0，见 <see cref="SheetMetal"/>）。</param>
 internal sealed record ScannedView(
     object Document,
     object View,
@@ -114,6 +114,7 @@ internal static class HoleScan
         var chamferEdges = new List<object>();
         var chamfers = new List<ChamferEdge>();
         var bendLines = 0;
+        var bendZone = 0.0;
         foreach (var component in VisibleComponents(api, view, model))
         {
             foreach (var edge in api.CallArray(view, "IView", "GetVisibleEntities2", component, ViewEntityEdge))
@@ -126,11 +127,15 @@ internal static class HoleScan
                 }
                 else if (withLines && geometry.TryReadLine(edge) is { } line)
                 {
-                    // 1.17.0：钣金折弯切线不是零件边界，谁都不该量到它（SheetMetal）。
-                    if (geometry.IsBendLine(edge))
+                    // 1.17.0：钣金折弯切线不是零件边界，谁都不该量到它；侧着的折边外切线是外轮廓，留着（SheetMetal）。
+                    if (geometry.BendTangent(edge) is { } bend)
                     {
-                        bendLines++;
-                        continue;
+                        bendZone = Math.Max(bendZone, bend.Radius);
+                        if (bend.Hidden)
+                        {
+                            bendLines++;
+                            continue;
+                        }
                     }
 
                     lines.Add(line);
@@ -151,6 +156,20 @@ internal static class HoleScan
                     }
                 }
             }
+        }
+
+        // 1.17.0：离最外直边不到一个折弯外半径的竖直 / 水平边（折边内表面、让位缺口）也是折弯留下的，一并去掉。
+        // 倒角斜边不会落进来，chamferEdges 的下标不受影响。
+        if (withLines && bendZone > 0)
+        {
+            var inZone = SheetMetal.InBendZone(lines, bendZone * geometry.Scale, geometry.Scale);
+            for (var k = inZone.Count - 1; k >= 0; k--)
+            {
+                lines.RemoveAt(inZone[k]);
+                lineEdges.RemoveAt(inZone[k]);
+            }
+
+            bendLines += inZone.Count;
         }
 
         // 1.12.0：整圆、孔口残弧、与孔同圆的弧不是圆角（孔由孔类指令标），在这里就去掉。下标仍指 arcEdges。
@@ -632,35 +651,49 @@ internal static class HoleScan
 
         /// <summary>
         /// 钣金折弯切线（1.17.0，判据见 <see cref="SheetMetal"/>）：直边旁边贴着一张轴线与它平行的圆柱面，且那张面属于钣金体。
-        /// 直线与圆柱参数都在同一个零件坐标里（装配视图也不用变换）。读不出来一律当不是——宁可多标一条，不能把真边丢了。
+        /// 返回 null = 不是；否则 Radius 是那张圆柱面的半径（模型长度，定折弯区用），Hidden = 该去掉——
+        /// 另一侧的平面侧着（法向垂直视线）时这条线就是折边侧着的外轮廓，Hidden 为 false 要留着。
+        /// 直线、圆柱、面法向都在零件坐标里，视线用 <see cref="Frame"/>（零件视图；装配视图的组件变换没算）。
+        /// 读不出来一律当不是——宁可多标一条，不能把真边丢了。
         /// </summary>
-        public bool IsBendLine(object edge)
+        public (bool Hidden, double Radius)? BendTangent(object edge)
         {
             try
             {
                 if (api.Call(edge, "IEdge", "GetCurve") is not { } curve)
-                    return false;
+                    return null;
                 var line = api.CallDoubles(curve, "ICurve", "get_LineParams");
                 if (line.Length < 6)
-                    return false;
+                    return null;
                 var direction = new ModelDirection(line[3], line[4], line[5]);
+                double? radius = null;
+                var edgeOn = false;
                 foreach (var face in api.CallArray(edge, "IEdge", "GetTwoAdjacentFaces2"))
                 {
-                    if (face is null || api.Call(face, "IFace2", "GetSurface") is not { } surface || !api.CallBool(surface, "ISurface", "IsCylinder"))
+                    if (face is null || api.Call(face, "IFace2", "GetSurface") is not { } surface)
+                        continue;
+                    if (api.CallBool(surface, "ISurface", "IsPlane"))
+                    {
+                        var n = api.CallDoubles(face, "IFace2", "get_Normal");
+                        edgeOn |= n.Length >= 3 && SheetMetal.EdgeOn(new ModelDirection(n[0], n[1], n[2]), Frame.Normal);
+                        continue;
+                    }
+
+                    if (!api.CallBool(surface, "ISurface", "IsCylinder"))
                         continue;
                     var cylinder = api.CallDoubles(surface, "ISurface", "get_CylinderParams");
                     if (cylinder.Length < 7 || !SheetMetal.AlongAxis(direction, new ModelDirection(cylinder[3], cylinder[4], cylinder[5])))
                         continue;
                     if (api.Call(face, "IFace2", "GetBody") is { } body && api.CallBool(body, "IBody2", "IsSheetMetal"))
-                        return true;
+                        radius = Math.Max(radius ?? 0, cylinder[6]);
                 }
 
-                return false;
+                return radius is { } r ? (!edgeOn, r) : null;
             }
             catch (Exception ex) when (ex is System.Runtime.InteropServices.COMException or InvalidCastException or System.Reflection.TargetException
                                            or MissingMethodException or ArgumentException)
             {
-                return false;
+                return null;
             }
         }
 

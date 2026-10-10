@@ -107,5 +107,29 @@ internal static partial class Tests
         True(!SheetMetal.AlongAxis(new ModelDirection(1, 0, 0), new ModelDirection(0, 0, 1)), "孔口方向不对");
         True(!SheetMetal.AlongAxis(new ModelDirection(1, 0, 0.01), new ModelDirection(1, 0, 0)), "斜 0.6° 不算");
         True(!SheetMetal.AlongAxis(new ModelDirection(0, 0, 0), new ModelDirection(0, 0, 1)), "退化");
+
+        // 切线旁的平面侧着 = 折边侧着的外轮廓，要留着（右防护板俯视图最左那条）；正对着 = 板面上的折弯切线，去掉。
+        True(SheetMetal.EdgeOn(new ModelDirection(1, 0, 0), new ModelDirection(0, 0, 1)), "折边侧着");
+        True(!SheetMetal.EdgeOn(new ModelDirection(0, 0, 1), new ModelDirection(0, 0, -1)), "顶板正对着");
+        True(!SheetMetal.EdgeOn(new ModelDirection(0, 0, 0), new ModelDirection(0, 0, 1)), "退化");
+
+        // 右防护板真机读数（1:5，毫米，外 R2.5），已去掉正对着的切线。俯视图：端部折边止于 2.207 / 447.793、侧板让位到 2.207，都离外轮廓不到 2.5。
+        const double scale = 0.2;
+        SheetSegment M(double x1, double y1, double x2, double y2) => S(x1 / 1000 * scale, y1 / 1000 * scale, x2 / 1000 * scale, y2 / 1000 * scale);
+        List<SheetSegment> top =
+        [
+            M(0, 2.207, 0, 447.793), M(2.207, 450, 2.207, 448.5), M(2.207, 0, 2.207, 1.5), M(63, 128, 63, 208), M(228, 208, 228, 128), M(700, 447.5, 700, 2.5),
+            M(0, 447.793, 1.5, 447.793), M(0, 2.207, 1.5, 2.207), M(700, 450, 2.207, 450), M(700, 0, 2.207, 0), M(63, 208, 228, 208), M(228, 128, 63, 128),
+        ];
+        var zone = 0.0025 * scale;
+        Equal("1,2,6,7", string.Join(",", SheetMetal.InBendZone(top, zone, scale)));
+        // 侧板正视图：端部折边内表面 1.5、侧板端 2.207、折边顶上到切线的 2.5 都去掉；底边 125、顶边 0（顶板侧着）留着。
+        List<SheetSegment> side =
+        [
+            M(0, 2.5, 0, 125), M(1.5, 2.5, 1.5, 125), M(2.207, 125, 2.207, 2.5), M(700, 2.5, 700, 125),
+            M(1.5, 125, 0, 125), M(0, 2.5, 1.5, 2.5), M(700, 125, 2.207, 125), M(2.5, 0, 700, 0),
+        ];
+        Equal("1,2,5", string.Join(",", SheetMetal.InBendZone(side, zone, scale)));
+        Equal(0, SheetMetal.InBendZone(side, 0, scale).Count);
     }
 }

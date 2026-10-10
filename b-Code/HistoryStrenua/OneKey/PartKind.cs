@@ -6,7 +6,7 @@ namespace HistoryStrenua;
 /// <summary>一键类按零件类别出图（1.17.0，用户定）：钣金、框架（铝型材骨架）、加工件（其他情况）。</summary>
 internal enum PartKind
 {
-    /// <summary>钣金：标孔（含方形槽）与外轮廓，折弯切线不标。</summary>
+    /// <summary>钣金：标孔（含方形槽）与外轮廓，折弯处的线不标、不当基准。</summary>
     SheetMetal,
 
     /// <summary>框架：只标外轮廓，轴测图上写「采用 xx 铝型材」。</summary>

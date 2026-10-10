@@ -67,11 +67,11 @@ internal static class StrenuaPage
     public const string TechAiActionId = StrenuaIdentity.Domain + ".option.techai";
 
     /// <summary>「避障」开关管哪些指令（动作说明与指令自描述共用）。</summary>
-    public const string ClearanceSummary = "开着时往图纸上加东西的指令都躲开已有的：孔标注、孔位尺寸、销孔标注、外轮廓、圆心位置挪开压线的文字，"
+    public const string ClearanceSummary = "开着时往图纸上加东西的指令都躲开已有的：孔标注、孔位尺寸、销孔标注、方形槽、外轮廓、圆心位置挪开压线的文字，"
         + "圆弧、倒角、技术要求、轴测图、投影视图找不压的地方；关着放默认位置（默认开）";
 
     /// <summary>「尺寸链」开关管哪些指令。</summary>
-    public const string ChainSummary = "开着时孔位尺寸、外轮廓与圆心位置改用 SW 尺寸链（坐标尺寸），每方向一组、0 点在零件左 / 上侧直边；"
+    public const string ChainSummary = "开着时孔位尺寸、方形槽、外轮廓与圆心位置改用 SW 尺寸链（坐标尺寸），每方向一组、0 点在零件左 / 上侧直边；"
         + "建图、投影视图留尺寸空间也照它估（默认关）";
 
     /// <summary>「AI 填写技术要求」开关管哪些地方。</summary>
@@ -311,12 +311,21 @@ internal static class StrenuaPage
     private static object ClassBranch(string commandClass, IReadOnlyList<QuickCommand> commands)
         => commandClass == TechClass ? TechTable(QuickCommands.ClassTitle(commandClass)) : ClassPanel(commandClass, commands);
 
-    /// <summary>一类的控制面板：只有一行（1.12.0）——按钮按登记顺序排，放不下由 Aurora 折行。</summary>
+    /// <summary>
+    /// 一类的控制面板：一般只有一行（1.12.0）——按钮按登记顺序排，放不下由 Aurora 折行。
+    /// 1.17.0：按钮登记了 <see cref="QuickCommand.Row"/> 的另起一行（一键类：第一行「一键出图」，第二行钣金 / 框架 / 加工件）。
+    /// </summary>
     private static object ClassPanel(string commandClass, IReadOnlyList<QuickCommand> commands)
     {
-        var widgets = commands.Select(command => (object)new { kind = "button", action = command.ActionId, text = command.Title }).ToArray();
+        var rows = commands.GroupBy(command => command.Row).OrderBy(group => group.Key)
+            .Select(group => (object)new
+            {
+                mode = "even",
+                widgets = group.Select(command => (object)new { kind = "button", action = command.ActionId, text = command.Title }).ToArray(),
+            })
+            .ToArray();
         var title = QuickCommands.ClassTitle(commandClass);
-        return new { type = "panel", id = ClassPanelId(commandClass), @case = title, text = title, rows = new object[] { new { mode = "even", widgets } } };
+        return new { type = "panel", id = ClassPanelId(commandClass), @case = title, text = title, rows };
     }
 
     /// <summary>技术要求模板表格（1.13.0）：一份「通用技术要求」一行；「技术要求」列是按钮，点了插那一份（换掉图上原有的）；「设置」列设默认。</summary>

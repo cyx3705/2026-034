@@ -11,7 +11,7 @@ internal sealed record OutlineStation(PositionAxis Axis, int LineIndex, double C
 internal sealed record OutlineDimension(OutlineStation Station, SheetPoint TextAt);
 
 /// <summary>
-/// 「外轮廓」（1.8.0）的纯几何部分：视图里哪些直边在外轮廓上、每个台阶标在哪、哪些旧尺寸是外轮廓尺寸。
+/// 「外轮廓」（1.8.0；1.17.0 起在基础类）的纯几何部分：视图里哪些直边在外轮廓上、每个台阶标在哪、哪些旧尺寸是外轮廓尺寸。
 /// </summary>
 /// <remarks>
 /// <para>外轮廓边：边两侧各取一点（离边 <see cref="SideOffset"/>），有一侧从那点朝上下左右任一方向射出去什么都碰不到，
@@ -106,6 +106,35 @@ internal static class OutlinePlanner
         }
 
         return stations;
+    }
+
+    /// <summary>
+    /// 框架只标主要的站（1.17.0，「一键出框架」，我定）：型材骨架的每根型材在视图里都是两条边，另一条离它正好一个型材宽，
+    /// 端面的 T 型槽口还会在外轮廓上咬出几毫米的小台阶——这些由「采用 xx 铝型材」就定了，标出来全是噪声。
+    /// 每个方向从最远的一站（总长 / 总宽，一定留）往回挑，离已留下的站或基准不超过 <paramref name="minGap"/> 的不要。
+    /// </summary>
+    /// <param name="stations">外轮廓的站（<see cref="Stations"/>）。</param>
+    /// <param name="minGap">型材宽（模型长度，米）。</param>
+    /// <returns>留下的站，顺序与输入相同。</returns>
+    public static List<OutlineStation> Sparse(IReadOnlyList<OutlineStation> stations, double minGap)
+    {
+        ArgumentNullException.ThrowIfNull(stations);
+        var tolerance = DimensionGeometry.ValueTolerance;
+        var kept = new HashSet<OutlineStation>();
+        foreach (var axis in new[] { PositionAxis.Horizontal, PositionAxis.Vertical })
+        {
+            var axisKept = new List<double>();
+            foreach (var station in stations.Where(station => station.Axis == axis).OrderByDescending(station => station.Value))
+            {
+                var first = axisKept.Count == 0;
+                if (!first && (station.Value <= minGap + tolerance || axisKept.Any(value => Math.Abs(value - station.Value) <= minGap + tolerance)))
+                    continue;
+                axisKept.Add(station.Value);
+                kept.Add(station);
+            }
+        }
+
+        return stations.Where(kept.Contains).ToList();
     }
 
     /// <summary>离尺寸更近：水平尺寸在上方，比谁的上端高；竖直尺寸在左侧，比谁的左端靠左。</summary>

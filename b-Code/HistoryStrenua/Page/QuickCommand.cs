@@ -22,13 +22,18 @@ namespace HistoryStrenua;
 /// <param name="Summary">一句话说明（120 字内）：写进指令自描述的 Summary。</param>
 /// <param name="Usage">怎么用的完整说明：写进按钮动作的说明（悬停可见）。</param>
 /// <param name="Run">在已附着 SolidWorks 的 STA 线程上执行。</param>
+/// <param name="Row">
+/// 在类面板里排第几行（1.17.0，用户定：一键类的「一键出钣金 / 框架 / 加工件」在「一键出图」下面另起一行）。默认 0；
+/// 同一行的按钮仍交给 Aurora 自己折行。
+/// </param>
 internal sealed record QuickCommand(
     string Key,
     string CommandName,
     string Title,
     string Summary,
     string Usage,
-    Func<QuickCommandContext, QuickOutcome> Run)
+    Func<QuickCommandContext, QuickOutcome> Run,
+    int Row = 0)
 {
     /// <summary>页面动作 id。</summary>
     public string ActionId => StrenuaIdentity.Domain + ".quick." + Key;
@@ -108,19 +113,24 @@ internal static class QuickCommands
     public static IReadOnlyList<QuickCommand> All { get; } =
     [
         OneKeyDrawing.Command,
+        OneKeyDrawing.SheetMetalCommand,
+        OneKeyDrawing.FrameCommand,
+        OneKeyDrawing.MachinedCommand,
         HoleFlow.Command,
         DowelSymbol.Command,
         CenterMark.Command,
         HolePosition.Command,
         HoleCallout.Command,
         DowelFit.Command,
-        Outline.Command,
+        SquareSlot.Command,
         DrawingBasic.Command,
         DrawingCreate.Command,
         DrawingProject.Command,
         DrawingIso.Command,
         DrawingArrange.Command,
         SymmetryAxes.Command,
+        OutlineAll.Command,
+        Outline.Command,
         FilletFlow.Command,
         ArcCenterAll.Command,
         FilletAll.Command,

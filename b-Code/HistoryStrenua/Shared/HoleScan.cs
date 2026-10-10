@@ -21,6 +21,7 @@ namespace HistoryStrenua;
 /// <param name="ChamferEdges">倒角斜边本身（只在要求收集倒角时有，1.10.0）；它们同时也在直边里。</param>
 /// <param name="ChamferItems">倒角斜边在图纸上的样子，与 <paramref name="ChamferEdges"/> 一一对应。</param>
 /// <param name="CircleArcs">收集圆角时去掉的「其实是圆 / 孔」的弧段数（1.12.0，见 <see cref="FilletPlanner.WithoutCircles"/>）。</param>
+/// <param name="BendLines">收集直边时去掉的钣金折弯切线条数（1.17.0，见 <see cref="SheetMetal"/>）。</param>
 internal sealed record ScannedView(
     object Document,
     object View,
@@ -35,7 +36,8 @@ internal sealed record ScannedView(
     IReadOnlyList<FilletArc>? FilletArcs = null,
     IReadOnlyList<object>? ChamferEdges = null,
     IReadOnlyList<ChamferEdge>? ChamferItems = null,
-    int CircleArcs = 0)
+    int CircleArcs = 0,
+    int BendLines = 0)
 {
     /// <summary>倒角斜边（只在要求收集倒角时有，1.10.0），<see cref="ChamferEdge.Index"/> 是 <see cref="ChamferEdges"/> 的下标。</summary>
     public IReadOnlyList<ChamferEdge> Chamfers => ChamferItems ?? [];
@@ -111,6 +113,7 @@ internal static class HoleScan
         var arcs = new List<FilletArc>();
         var chamferEdges = new List<object>();
         var chamfers = new List<ChamferEdge>();
+        var bendLines = 0;
         foreach (var component in VisibleComponents(api, view, model))
         {
             foreach (var edge in api.CallArray(view, "IView", "GetVisibleEntities2", component, ViewEntityEdge))
@@ -123,6 +126,13 @@ internal static class HoleScan
                 }
                 else if (withLines && geometry.TryReadLine(edge) is { } line)
                 {
+                    // 1.17.0：钣金折弯切线不是零件边界，谁都不该量到它（SheetMetal）。
+                    if (geometry.IsBendLine(edge))
+                    {
+                        bendLines++;
+                        continue;
+                    }
+
                     lines.Add(line);
                     lineEdges.Add(edge);
                     if (withChamfers && geometry.TryReadChamfer(edge, chamferEdges.Count, line) is { } chamfer)
@@ -145,7 +155,7 @@ internal static class HoleScan
 
         // 1.12.0：整圆、孔口残弧、与孔同圆的弧不是圆角（孔由孔类指令标），在这里就去掉。下标仍指 arcEdges。
         var (fillets, circleArcs) = FilletPlanner.WithoutCircles(arcs, candidates);
-        return new ScannedView(document, view, viewName, geometry, edges, candidates, lineEdges, lines, curves, arcEdges, fillets, chamferEdges, chamfers, circleArcs);
+        return new ScannedView(document, view, viewName, geometry, edges, candidates, lineEdges, lines, curves, arcEdges, fillets, chamferEdges, chamfers, circleArcs, bendLines);
     }
 
     /// <summary>活动文档，必须是工程图。</summary>
@@ -570,6 +580,88 @@ internal static class HoleScan
             var p = ToSheet(transforms, "CreatePoint", "IMathPoint", a[0], a[1], a[2]);
             var q = ToSheet(transforms, "CreatePoint", "IMathPoint", b[0], b[1], b[2]);
             return new SheetSegment(p[0], p[1], q[0], q[1]);
+        }
+
+        /// <summary>
+        /// 贴着这条直边、正对图纸的那张平面，有没有往图纸方向 (<paramref name="sx"/>, <paramref name="sy"/>) 延伸（1.17.0「方形槽」分槽与凸台）：
+        /// 在边中点沿这个方向挪 0.2 mm（模型长度）取一点，它就在那张面所在的平面上，问面上离它最近的点——贴上了就是面往那边延伸。
+        /// 不靠面法向的正负（<c>FaceInSurfaceSense</c> 与文档字面相反的坑见现行约定），只问点在不在面上。读不出返回 null。
+        /// 只给零件视图用：方向按视图朝向（<see cref="Frame"/>）换回模型，装配视图的组件变换没算。
+        /// </summary>
+        public bool? MaterialToward(object edge, double sx, double sy)
+        {
+            try
+            {
+                if (api.Call(edge, "IEdge", "GetStartVertex") is not { } start || api.Call(edge, "IEdge", "GetEndVertex") is not { } end)
+                    return null;
+                var a = api.CallDoubles(start, "IVertex", "GetPoint");
+                var b = api.CallDoubles(end, "IVertex", "GetPoint");
+                if (a.Length < 3 || b.Length < 3)
+                    return null;
+                var frame = Frame;
+                var d = new ModelDirection(
+                    sx * frame.SheetX.X + sy * frame.SheetY.X,
+                    sx * frame.SheetX.Y + sy * frame.SheetY.Y,
+                    sx * frame.SheetX.Z + sy * frame.SheetY.Z).Normalized();
+                const double step = 2e-4;
+                double[] probe = [(a[0] + b[0]) / 2 + d.X * step, (a[1] + b[1]) / 2 + d.Y * step, (a[2] + b[2]) / 2 + d.Z * step];
+                bool? answer = null;
+                foreach (var face in api.CallArray(edge, "IEdge", "GetTwoAdjacentFaces2"))
+                {
+                    if (face is null || api.Call(face, "IFace2", "GetSurface") is not { } surface || !api.CallBool(surface, "ISurface", "IsPlane"))
+                        continue;
+                    var n = api.CallDoubles(face, "IFace2", "get_Normal");
+                    if (n.Length < 3 || Math.Abs(new ModelDirection(n[0], n[1], n[2]).Normalized().Dot(frame.Normal)) < 0.999)
+                        continue;
+                    var closest = api.CallDoubles(face, "IFace2", "GetClosestPointOn", probe[0], probe[1], probe[2]);
+                    if (closest.Length < 3)
+                        continue;
+                    var gap = Math.Sqrt(Math.Pow(closest[0] - probe[0], 2) + Math.Pow(closest[1] - probe[1], 2) + Math.Pow(closest[2] - probe[2], 2));
+                    if (gap < step / 4)
+                        return true;
+                    answer = false;
+                }
+
+                return answer;
+            }
+            catch (Exception ex) when (ex is System.Runtime.InteropServices.COMException or InvalidCastException or System.Reflection.TargetException)
+            {
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// 钣金折弯切线（1.17.0，判据见 <see cref="SheetMetal"/>）：直边旁边贴着一张轴线与它平行的圆柱面，且那张面属于钣金体。
+        /// 直线与圆柱参数都在同一个零件坐标里（装配视图也不用变换）。读不出来一律当不是——宁可多标一条，不能把真边丢了。
+        /// </summary>
+        public bool IsBendLine(object edge)
+        {
+            try
+            {
+                if (api.Call(edge, "IEdge", "GetCurve") is not { } curve)
+                    return false;
+                var line = api.CallDoubles(curve, "ICurve", "get_LineParams");
+                if (line.Length < 6)
+                    return false;
+                var direction = new ModelDirection(line[3], line[4], line[5]);
+                foreach (var face in api.CallArray(edge, "IEdge", "GetTwoAdjacentFaces2"))
+                {
+                    if (face is null || api.Call(face, "IFace2", "GetSurface") is not { } surface || !api.CallBool(surface, "ISurface", "IsCylinder"))
+                        continue;
+                    var cylinder = api.CallDoubles(surface, "ISurface", "get_CylinderParams");
+                    if (cylinder.Length < 7 || !SheetMetal.AlongAxis(direction, new ModelDirection(cylinder[3], cylinder[4], cylinder[5])))
+                        continue;
+                    if (api.Call(face, "IFace2", "GetBody") is { } body && api.CallBool(body, "IBody2", "IsSheetMetal"))
+                        return true;
+                }
+
+                return false;
+            }
+            catch (Exception ex) when (ex is System.Runtime.InteropServices.COMException or InvalidCastException or System.Reflection.TargetException
+                                           or MissingMethodException or ArgumentException)
+            {
+                return false;
+            }
         }
 
         /// <summary>

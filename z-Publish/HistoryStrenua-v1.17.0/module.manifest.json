@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "type": "HistoryVulcan.Module",
+  "name": "HistoryStrenua",
+  "version": "1.17.0",
+  "description": "PowerSW：SolidWorks 运行时快捷指令",
+  "artifact": "HistoryStrenua.dll",
+  "docs": "HistoryStrenua.xml",
+  "mcpExposure": "readonly",
+  "ui": true,
+  "pinned": false
+}

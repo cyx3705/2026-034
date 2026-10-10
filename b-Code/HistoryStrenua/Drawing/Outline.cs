@@ -6,6 +6,9 @@ namespace HistoryStrenua;
 /// 快捷指令「外轮廓」（1.8.0）：点一个工程图视图，以零件左侧、上侧直边为基准标出外轮廓的每个台阶（含总长总宽）。
 /// </summary>
 /// <remarks>
+/// <para>1.17.0（用户定）：从孔类挪到基础类（<c>strenua.hole.outline</c> → <c>strenua.drawing.outline</c>），「孔标注全流程」不再含这一步；
+/// 全页做一遍是「全图外轮廓」（<see cref="OutlineAll"/>），一键类的各条在孔标注全流程之后调它（尺寸链模式下它往孔的那组里加站，必须在孔位尺寸之后）。
+/// 钣金的折弯切线不在 <see cref="ScannedView.Lines"/> 里（<see cref="SheetMetal"/>），这里自然不标、也不当基准。</para>
 /// <para>哪些边算外轮廓、站怎么归见 <see cref="OutlinePlanner"/>；基准与孔位尺寸相同（<see cref="HolePositionPlanner.Datums"/>）。</para>
 /// <para>普通模式（「尺寸链」关）：先删旧的外轮廓尺寸（两头都是外轮廓直边的线性尺寸），再每站一个从基准量起的线性尺寸，
 /// 排在现有尺寸最外层之外。尺寸链模式：每个方向把还没有的站加进孔的那组坐标尺寸（0 点是基准边的那组）；还没有组就照孔位尺寸的样子
@@ -20,15 +23,18 @@ internal static class Outline
 {
     public static QuickCommand Command { get; } = new(
         Key: "outline",
-        CommandName: StrenuaIdentity.Domain + ".hole.outline",
+        CommandName: StrenuaIdentity.Domain + ".drawing.outline",
         Title: "外轮廓",
         Summary: "点一个工程图视图，以零件左侧、上侧直边为基准标出外轮廓每个台阶的位置（含总长总宽），照「尺寸链」开关出线性或坐标尺寸。",
-        Usage: "在工程图里点一个视图（先点后按、先按后点都行，60 秒内）。外轮廓上每条竖直边、水平边各算一站（开口槽、台阶都算，封闭型腔与孔不算，斜边圆弧不标），以零件最左、最上的直边为基准：「尺寸链」关时删掉旧外轮廓尺寸后每站一个尺寸，排在已有尺寸外面；「尺寸链」开时把还没有的站加进孔的那组坐标尺寸（没有就新建一组）。这一页别的视图已经标过的（如高度）不再重复标。「避障」开着时，新加尺寸的数字压在别的尺寸、孔标注、中心符号线上就沿尺寸线滑开。",
+        Usage: "在工程图里点一个视图（先点后按、先按后点都行，60 秒内）。外轮廓上每条竖直边、水平边各算一站（开口槽、台阶都算，封闭型腔与孔不算，斜边圆弧不标；钣金折弯处的切线不算），以零件最左、最上的直边为基准：「尺寸链」关时删掉旧外轮廓尺寸后每站一个尺寸，排在已有尺寸外面；「尺寸链」开时把还没有的站加进孔的那组坐标尺寸（没有就新建一组，所以要在孔位尺寸之后按）。这一页别的视图已经标过的（如高度）不再重复标。「避障」开着时，新加尺寸的数字压在别的尺寸、孔标注、中心符号线上就沿尺寸线滑开。",
         Run: context => Run(context, null));
 
     /// <param name="context">快捷指令上下文。</param>
-    /// <param name="view">直接处理这个视图（全流程用）；null 时取选中的或等用户点选。</param>
-    internal static QuickOutcome Run(QuickCommandContext context, object? view)
+    /// <param name="view">直接处理这个视图（全图外轮廓用）；null 时取选中的或等用户点选。</param>
+    /// <param name="minGap">
+    /// 框架（1.17.0，「一键出框架」）：离已留下的站（或基准）不超过这么远的站不标（模型长度，米；0 不筛），见 <see cref="OutlinePlanner.Sparse"/>。
+    /// </param>
+    internal static QuickOutcome Run(QuickCommandContext context, object? view, double minGap = 0)
     {
         var api = context.Api;
         var scan = HoleScan.Scan(context, "外轮廓", withLines: true, view: view);
@@ -45,6 +51,14 @@ internal static class Outline
         var outer = OutlinePlanner.OuterLines(scan.Lines, scan.CurveSegments);
         var outerSegments = outer.Select(index => scan.Lines[index]).ToList();
         var allStations = OutlinePlanner.Stations(scan.Lines, outer, left, top, scale);
+        var sparse = 0;
+        if (minGap > 0)
+        {
+            var kept = OutlinePlanner.Sparse(allStations, minGap);
+            sparse = allStations.Count - kept.Count;
+            allStations = kept;
+        }
+
         if (allStations.Count == 0)
             return QuickOutcome.Ok($"视图「{viewName}」的外轮廓除基准外没有竖直 / 水平边，没有加尺寸。");
 
@@ -140,6 +154,8 @@ internal static class Outline
         }
 
         var message = $"视图「{viewName}」：外轮廓 {allStations.Count} 站，"
+            + (scan.BendLines > 0 ? $"钣金折弯切线 {scan.BendLines} 条不算，" : string.Empty)
+            + (sparse > 0 ? $"离别的站不到型材宽度的 {sparse} 站不标，" : string.Empty)
             + (skipped.Count > 0 ? $"{skipped.Count} 站别的视图已标跳过，" : string.Empty)
             + (chain
                 ? $"尺寸链模式新加 {added} 个坐标尺寸" + (present > 0 ? $"，{present} 站组里已有同值跳过" : string.Empty)
@@ -228,8 +244,8 @@ internal static class Outline
     internal static HashSet<string> DimensionNames(SolidWorksApi api, ScannedView scan)
         => DimensionScan.Read(api, scan).Select(item => api.CallString(item.Annotation, "IAnnotation", "GetName")).ToHashSet(StringComparer.Ordinal);
 
-    /// <summary>选基准边与站的那条边，按方向加水平 / 竖直尺寸；建出来的不是线性尺寸就删掉。</summary>
-    private static bool Insert(SolidWorksApi api, ScannedView scan, object datumEdge, object edge, PositionAxis axis, SheetPoint textAt)
+    /// <summary>选基准边与站的那条边，按方向加水平 / 竖直尺寸；建出来的不是线性尺寸就删掉（方形槽 1.17.0 也用）。</summary>
+    internal static bool Insert(SolidWorksApi api, ScannedView scan, object datumEdge, object edge, PositionAxis axis, SheetPoint textAt)
     {
         api.Call(scan.Document, "IModelDoc2", "ClearSelection2", true);
         if (!HolePosition.SelectEdge(api, scan, datumEdge, false) || !HolePosition.SelectEdge(api, scan, edge, true))

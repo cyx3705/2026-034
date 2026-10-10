@@ -642,12 +642,12 @@ internal static partial class Tests
         var usage = flow.Usage;
         True(usage.IndexOf("销钉符号", StringComparison.Ordinal) < usage.IndexOf("中心符号线", StringComparison.Ordinal)
             && usage.IndexOf("中心符号线", StringComparison.Ordinal) < usage.IndexOf("孔位尺寸", StringComparison.Ordinal)
-            && usage.IndexOf("孔位尺寸", StringComparison.Ordinal) < usage.IndexOf("→ 外轮廓", StringComparison.Ordinal)
-            && usage.IndexOf("→ 外轮廓", StringComparison.Ordinal) < usage.IndexOf("→ 孔标注", StringComparison.Ordinal)
+            && usage.IndexOf("孔位尺寸", StringComparison.Ordinal) < usage.IndexOf("→ 方形槽", StringComparison.Ordinal)
+            && usage.IndexOf("→ 方形槽", StringComparison.Ordinal) < usage.IndexOf("→ 孔标注", StringComparison.Ordinal)
             && usage.IndexOf("→ 孔标注", StringComparison.Ordinal) < usage.IndexOf("→ 销孔标注", StringComparison.Ordinal), "步骤顺序");
         True(usage.Contains("当前图纸页", StringComparison.Ordinal), "范围是当前图纸页");
-        Equal("onekey-drawing,hole-flow,dowel-symbol,center-mark,hole-position,hole-callout,dowel-fit,outline,"
-            + "drawing-basic,drawing-create,drawing-project,drawing-iso,drawing-arrange,symmetry-axes,fillet-flow,arc-center-all,arc-all,chamfer-all,arc-center,arc,chamfer,"
+        Equal("onekey-drawing,onekey-sheetmetal,onekey-frame,onekey-machined,hole-flow,dowel-symbol,center-mark,hole-position,hole-callout,dowel-fit,square-slot,"
+            + "drawing-basic,drawing-create,drawing-project,drawing-iso,drawing-arrange,symmetry-axes,outline-all,outline,fillet-flow,arc-center-all,arc-all,chamfer-all,arc-center,arc,chamfer,"
             + "check-dimension,check-decimal,check-dangling,check-overlap,snapshot,tech-ai",
             string.Join(",", QuickCommands.All.Select(command => command.Key)));
     }

@@ -16,8 +16,13 @@ internal static partial class Tests
             "strenua.hole.dowel",
             "strenua.hole.flow",
             "strenua.hole.dowelfit",
-            "strenua.hole.outline",
+            "strenua.hole.squareslot",
+            "strenua.drawing.outline",
+            "strenua.drawing.outlineall",
             "strenua.onekey.drawing",
+            "strenua.onekey.sheetmetal",
+            "strenua.onekey.frame",
+            "strenua.onekey.machined",
             "strenua.drawing.basic",
             "strenua.drawing.create",
             "strenua.drawing.project",
@@ -63,6 +68,7 @@ internal static partial class Tests
         True(registry.TryGet("strenua.hole.centermark", out var centerMark) && !centerMark!.Readonly, "中心符号线会改工程图，不是只读");
         True(registry.TryGet("strenua.quick.list", out var list) && list!.Readonly, "列表是只读的");
         True(!registry.TryGet("strenua.drawing.auto", out _), "1.16.0：出图类的一键出图拆成基础出图与一键类的一键出图");
+        True(!registry.TryGet("strenua.hole.outline", out _), "1.17.0：外轮廓挪到基础类 strenua.drawing.outline");
         foreach (var name in new[] { "strenua.drawing.create", "strenua.drawing.basic", "strenua.onekey.drawing", "strenua.fillet.all", "strenua.drawing.project", "strenua.drawing.iso", "strenua.tech.apply",
                      "strenua.drawing.arrange", "strenua.fillet.arcall", "strenua.fillet.chamferall", "strenua.fillet.arc", "strenua.fillet.chamfer",
                      "strenua.fillet.arccenter", "strenua.fillet.arccenterall",
@@ -256,22 +262,24 @@ internal static partial class Tests
 
         // 1.12.0（用户定）：每类面板只有一行，这一类的按钮全排进去；放不下由 Aurora 折行，浮窗拖宽拖窄时均匀伸缩。
         var panels = branches.SelectMany(Descendants).Where(node => node.TryGetProperty("type", out var type) && type.GetString() == "panel").ToList();
+        // 行之间用「|」隔开：一般只有一行，1.17.0 起一键类两行。
         string Row(string commandClass)
         {
             var panel = panels.Single(branch => branch.GetProperty("id").GetString() == StrenuaPage.ClassPanelId(commandClass));
-            Equal(1, panel.GetProperty("rows").GetArrayLength());
-            var row = panel.GetProperty("rows")[0];
-            Equal("even", row.GetProperty("mode").GetString()!);
-            return string.Join(",", row.GetProperty("widgets").EnumerateArray().Select(w => w.GetProperty("text").GetString()));
+            var rows = panel.GetProperty("rows").EnumerateArray().ToList();
+            True(rows.All(row => row.GetProperty("mode").GetString() == "even"), "每行都按 even 分宽");
+            return string.Join("|", rows.Select(row => string.Join(",", row.GetProperty("widgets").EnumerateArray().Select(w => w.GetProperty("text").GetString()))));
         }
 
         foreach (var group in QuickCommands.All.GroupBy(c => c.CommandClass).Where(g => g.Key != "tech"))
-            Equal(string.Join(",", group.Select(c => c.Title)), Row(group.Key));
-        Equal("孔标注全流程,销钉符号,中心符号线,孔位尺寸,孔标注,销孔标注,外轮廓", Row("hole"));
-        // 1.16.0（用户定）：出图类改名「基础」、一键出图改成「基础出图」只做这一类；倒圆倒角改名「倒圆」并加「全图倒圆倒角」；新类「一键」只有一键出图。
-        Equal("基础出图,新建工程图,投影视图,轴测图,排版,对称轴", Row("drawing"));
+            Equal(string.Join("|", group.GroupBy(c => c.Row).OrderBy(r => r.Key).Select(r => string.Join(",", r.Select(c => c.Title)))), Row(group.Key));
+        // 1.17.0（用户定）：外轮廓挪到基础类，孔类加「方形槽」。
+        Equal("孔标注全流程,销钉符号,中心符号线,孔位尺寸,孔标注,销孔标注,方形槽", Row("hole"));
+        // 1.16.0（用户定）：出图类改名「基础」、一键出图改成「基础出图」只做这一类；倒圆倒角改名「倒圆」并加「全图倒圆倒角」。
+        Equal("基础出图,新建工程图,投影视图,轴测图,排版,对称轴,全图外轮廓,外轮廓", Row("drawing"));
         Equal("全图倒圆倒角,全图圆心,全图圆弧,全图倒角,圆心位置,圆弧标注,倒角标注", Row("fillet"));
-        Equal("一键出图", Row("onekey"));
+        // 1.17.0（用户定）：钣金、框架、加工件三个在一键出图下面另起一行。
+        Equal("一键出图|一键出钣金,一键出框架,一键出加工件", Row("onekey"));
         // 1.13.0（用户定）：旧「技术要求」按钮删掉，「技术要求」类整支就是模板表格；1.14.0 的「写入」按钮不在这里，在最下面一行和 AI 开关并排（见 switches 那组）。
         var tech = branches.Single(branch => branch.GetProperty("case").GetString() == "要求");
         Equal("table", tech.GetProperty("type").GetString()!);

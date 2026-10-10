@@ -337,7 +337,16 @@ internal static partial class Tests
 
         InOrder("drawing-basic", "新建工程图", "投影视图", "轴测图", "排版", "对称轴");
         InOrder("fillet-flow", "全图圆心", "全图圆弧", "全图倒角");
-        InOrder("onekey-drawing", "基础出图", "技术要求", "孔标注全流程", "全图倒圆倒角");
+        // 1.17.0（用户定）：一键出图建好图后由 AI 判类别；三类各有一个按钮。外轮廓移出孔标注全流程，放在它后面。
+        InOrder("onekey-drawing", "基础出图", "技术要求", "AI", "钣金", "框架", "加工件");
+        InOrder("onekey-machined", "基础出图", "孔标注全流程", "全图外轮廓", "全图倒圆倒角");
+        InOrder("onekey-sheetmetal", "基础出图", "孔标注全流程", "方形槽", "全图外轮廓");
+        InOrder("onekey-frame", "基础出图", "全图外轮廓", "采用 xx 铝型材");
+        True(!QuickCommands.All.Single(item => item.Key == "onekey-frame").Usage.Contains("孔标注全流程", StringComparison.Ordinal), "框架不标孔");
+        foreach (var key in new[] { "onekey-sheetmetal", "onekey-frame", "onekey-machined" })
+            Equal("onekey", QuickCommands.All.Single(item => item.Key == key).CommandClass);
+        Equal("drawing", QuickCommands.All.Single(command => command.Key == "outline").CommandClass);
+        Equal("drawing", QuickCommands.All.Single(command => command.Key == "outline-all").CommandClass);
         Equal("drawing", QuickCommands.All.Single(command => command.Key == "drawing-basic").CommandClass);
         Equal("fillet", QuickCommands.All.Single(command => command.Key == "fillet-flow").CommandClass);
         Equal("onekey", QuickCommands.All.Single(command => command.Key == "onekey-drawing").CommandClass);

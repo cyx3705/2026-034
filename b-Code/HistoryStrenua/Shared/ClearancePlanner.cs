@@ -61,8 +61,8 @@ internal static class ClearancePlanner
     /// <summary>孔标注折点离孔心比半径多出的几档（图纸 12 / 18 / 24 mm），第一档就是 <see cref="HoleCalloutPlanner.LeaderReach"/>。</summary>
     public static readonly double[] CalloutReaches = [HoleCalloutPlanner.LeaderReach, 0.018, 0.024];
 
-    /// <summary>孔标注的四个角位，按偏好排：左上（默认）、右上、左下、右下。</summary>
-    private static readonly (int X, int Y)[] Corners = [(-1, 1), (1, 1), (-1, -1), (1, -1)];
+    /// <summary>孔标注的四个角位，按偏好排：左下优先，左侧空间不足再往上，最后考虑右侧。</summary>
+    private static readonly (int X, int Y)[] Corners = [(-1, -1), (-1, 1), (1, -1), (1, 1)];
 
     /// <summary><paramref name="texts"/> 压到了几样障碍（线条、文字各算一样）。</summary>
     public static int Hits(IReadOnlyList<TextBox> texts, Obstacles obstacles)

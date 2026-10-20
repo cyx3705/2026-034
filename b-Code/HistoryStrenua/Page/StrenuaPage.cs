@@ -75,7 +75,7 @@ internal static class StrenuaPage
         + "建图、投影视图留尺寸空间也照它估（默认关）";
 
     /// <summary>「AI 填写技术要求」开关管哪些地方。</summary>
-    public const string TechAiSummary = "开着时模板表格点哪一份、「一键出图」插技术要求，都改由 AI 看图从全部模板里选基础再克制地增删（AI 没成退回原来那份）；"
+    public const string TechAiSummary = "开着时模板表格点哪一份、「一键出图」插技术要求，都改由 AI 看图从全部模板里选基础并只删除不适用条目（AI 没成退回原来那份）；不能添加或修改条目。"
         + "关着照旧原样插模板（默认关）";
 
     private static readonly JsonSerializerOptions Options = new()

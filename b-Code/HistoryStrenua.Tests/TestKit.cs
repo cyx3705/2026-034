@@ -96,7 +96,7 @@ internal static partial class Tests
         ("tech note: views move out of the way", TestTechNoteMakeRoom),
         ("tech note: replacing keeps the old slot", TestTechNoteReplace),
         ("tech ai: template items split and rejoined", TestTechAiParse),
-        ("tech ai: restrained edits with limits", TestTechAiApply),
+        ("tech ai: deletions only", TestTechAiApply),
         ("tech ai: reading the model's answers", TestTechAiAnswers),
         ("tech ai: apollo command line and receipt", TestTechAiCommand),
     };

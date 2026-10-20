@@ -249,13 +249,13 @@ internal static class HoleCalloutPlanner
     public static bool SameCenter(SheetPoint a, SheetPoint b) => SameCenter(a.X, a.Y, b.X, b.Y);
 
     /// <summary>
-    /// 引线折点——文字下划线的右端——放在孔的左上方 45°，离孔心「半径 + <see cref="LeaderReach"/>」。
+    /// 引线折点——文字下划线的右端——放在孔的左下方 45°，离孔心「半径 + <see cref="LeaderReach"/>」。
     /// 文字从折点往左排，引线从折点斜向右下指到孔：用户在移动底板上手工摆出来的样子（1.1.0 起）。
     /// </summary>
     public static SheetPoint Placement(HoleEdge hole)
     {
         var offset = (hole.Radius + LeaderReach) * Math.Sqrt(0.5);
-        return new SheetPoint(hole.X - offset, hole.Y + offset);
+        return new SheetPoint(hole.X - offset, hole.Y - offset);
     }
 
     /// <summary>

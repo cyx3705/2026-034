@@ -75,12 +75,12 @@ internal static partial class Tests
         (dx, _) = ClearancePlanner.CalloutShift(texts, M(68.84), new CalloutSpot(new SheetPoint(M(81.25), M(68.84)), TextLeft: false));
         True(Math.Abs(dx - M(50)) < 1e-5, $"换到右侧应平移 50 mm，实际 {dx * 1000:0.###}");
 
-        // 孔在 (100,100) mm、半径 2 mm；左上角位压着一条水平线：换到右上。
+        // 孔在 (100,100) mm、半径 2 mm；左下优先，左下压线后向上找位。
         var hole = new HoleEdge(0, M(100), M(100), M(2));
         var spots = ClearancePlanner.CalloutSpots(hole).ToList();
         Equal(12, spots.Count);
-        True(spots[0].TextLeft && spots[0].Shoulder.X < hole.X && spots[0].Shoulder.Y > hole.Y, "第一个是左上（默认）");
-        True(!spots[1].TextLeft && spots[1].Shoulder.X > hole.X && spots[1].Shoulder.Y > hole.Y, "第二个是右上，文字在右");
+        True(spots[0].TextLeft && spots[0].Shoulder.X < hole.X && spots[0].Shoulder.Y < hole.Y, "第一个是左下（默认）");
+        True(spots[1].TextLeft && spots[1].Shoulder.X < hole.X && spots[1].Shoulder.Y > hole.Y, "左下空间不够时向上");
         var first = ClearancePlanner.CalloutShift(texts, M(68.84), spots[0]);
         var block = ClearancePlanner.Shift(texts, first.Dx, first.Dy);
         var top = block.SelectMany(text => text.Corners()).Max(p => p.Y);

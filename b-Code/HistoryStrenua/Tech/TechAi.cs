@@ -5,14 +5,13 @@ using HistoryVulcan.Core.Commands;
 namespace HistoryStrenua;
 
 /// <summary>
-/// 快捷指令「AI 填写技术要求」（1.14.0，技术要求类，用户定）：AI 看当前图纸，从「通用技术要求」里选一份做基础（或判定没有合适的），
-/// 再按这张图克制地增删几条，插进图框（标题栏上方或左侧，换掉原有的技术要求）。
+/// 快捷指令「AI 填写技术要求」：AI 看当前图纸，从「通用技术要求」里选一份，只删除不适用的条目后插进图框。
 /// </summary>
 /// <remarks>
 /// <para>两问，都经命令总线调 HistoryApollo 的 <c>apollo.chat.ask</c>（模块统一接口，本模块不引用 Apollo 的程序集）：</para>
 /// <list type="number">
 /// <item>选基础——输入：图纸截图、候选模板标题、图纸基本信息 JSON（<see cref="TechAiInfo"/>）；输出：哪份模板，或 null。</item>
-/// <item>微调——输入：截图、基础的各条（带编号）、同一份 JSON；输出：删哪几条、在哪条后加哪几条（<see cref="TechAiEdit"/>，有上限）。</item>
+/// <item>删减——输入：截图、基础的各条（带编号）、同一份 JSON；输出：删除哪些条目（<see cref="TechAiEdit"/>，有上限）。</item>
 /// </list>
 /// <para>截图附在 <c>images=</c> 上：Apollo 0.5.0 起带图片的请求自动走识图供应商（DeepSeek 看不到图，见 Apollo 的现行约定）。
 /// 用 <c>InvokeAsync</c>（安静执行）而不是 <c>ExecuteAsync</c>：提示词里整段 JSON 回显进控制台没人看得下去；
@@ -28,9 +27,9 @@ internal static class TechAi
         CommandName: StrenuaIdentity.Domain + ".tech.ai",
         // 按钮上的字（用户定「写入」）；做的事见 Summary：AI 填写技术要求。
         Title: "写入",
-        Summary: "AI 填写技术要求：看当前工程图选一份「通用技术要求」做基础（或判定没有合适的），再克制地增删几条，插到标题栏上方或左侧（换掉原有的）。",
+        Summary: "AI 填写技术要求：看当前工程图选择一份「通用技术要求」，只删除不适用的条目，插到标题栏上方或左侧（换掉原有的）。",
         Usage: "切到要加技术要求的工程图再按：先把当前图纸页截一张图，连同图纸信息（材料、属性、特征类型、图幅比例）和模板标题交给 AI（经 HistoryApollo 的识图供应商）选基础；"
-            + $"再让 AI 按这张图在基础上最多删 {TechAiEdit.MaxDelete} 条、加 {TechAiEdit.MaxAdd} 条（已有条目原样保留、不改写），没有合适基础时由 AI 写不超过 {TechAiEdit.MaxFresh} 条。"
+            + $"再让 AI 按这张图最多删除 {TechAiEdit.MaxDelete} 条；不能添加或修改条目。"
             + "插的位置与换法同模板表格：标题栏上方或左侧，图框里已有技术要求就删掉换上。AI 的思考与答复逐轮进控制台。需要先在 HistoryApollo 配好识图供应商密钥（apollo.key.set provider=qwen token=…）。"
             + "下面开关「AI 填写技术要求」开着时，模板表格与「一键出图」插技术要求也走这条。",
         Run: context => Run(context));
@@ -43,26 +42,20 @@ internal static class TechAi
 
     private const string ChooseSystem =
         "你是机械设计工程师，负责给 SolidWorks 工程图选技术要求模板。看图纸截图与图纸基本信息 JSON，判断零件类别（机加件、焊接件、钣金、铝型材、装配图……）、"
-        + "材料与工艺，从候选模板标题里选一份最贴近的作为基础；候选里没有这一类就选 null。"
-        + "只输出一个 JSON 对象，不要别的文字：{\"base\": \"候选标题原文之一，或 null\", \"reason\": \"一句话理由\"}。";
+        + "材料与工艺，从候选模板标题里必须选一份最贴近的作为基础；只能选给出的标题，不得新写技术要求。"
+        + "只输出一个 JSON 对象，不要别的文字：{\"base\": \"候选标题原文之一\", \"reason\": \"一句话理由\"}。";
 
     /// <summary>
     /// 1.16.0（用户定）：标题栏（图纸右下角，模板属性链接带出）已经写了的不进技术要求。两问的提示词都带这句，
-    /// 新条目以栏目名加冒号开头的另由 <see cref="TechAiEdit.Apply"/> 兜底拦掉。
+    /// 1.18.0：只允许删除；任何新增或改写都不接受。
     /// </summary>
     private const string TitleBlockRule =
         "图纸右下角的标题栏已经写了名称、图号、材料、表面处理、热处理、比例、重量、数量等，这些内容不要写进技术要求（例如不要加「材料：45钢」「表面处理：发黑」这样的条目）。";
 
     private const string EditSystem =
-        "你是机械设计工程师，按这张工程图克制地修订一份技术要求。原则：只做必要的增删，已有条目不改写、不润色、不重排；"
-        + "与这张图明显不符的条目才删（例如图上没有螺纹却写螺纹要求、材料或工艺不符的表面处理），图纸明显需要而缺失的才加；拿不准就不动，不需要改就给空数组。"
-        + "最多删 3 条、加 3 条。新条目沿用原文的口吻与标点，不带编号，一条一句。" + TitleBlockRule
-        + "只输出一个 JSON 对象，不要别的文字：{\"delete\": [原编号], \"add\": [{\"after\": 原编号（0 表示放最前）, \"text\": \"条目正文\"}], \"reason\": \"一句话说明改了什么、为什么\"}。";
-
-    private const string FreshSystem =
-        "你是机械设计工程师，给这张工程图写技术要求。现有模板都不合适，请按图纸截图与图纸基本信息写简短的技术要求，不超过 10 条，"
-        + "每条一句、不带编号，只写这张图确实需要的（未注公差、去毛刺倒钝、工艺要求等）。" + TitleBlockRule
-        + "只输出一个 JSON 对象，不要别的文字：{\"items\": [\"条目正文\"], \"reason\": \"一句话说明\"}。";
+        "你是机械设计工程师，按这张工程图检查一份技术要求。只能删除明显不适用的原有条目；不得添加、改写、润色或重排任何条目。"
+        + "最多删除 3 条；拿不准就不动，不需要删除就给空数组。" + TitleBlockRule
+        + "只输出一个 JSON 对象，不要别的文字：{\"delete\": [原编号], \"reason\": \"一句话说明删除原因\"}。";
 
     private static readonly JsonSerializerOptions Json = new() { Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
 
@@ -120,45 +113,38 @@ internal static class TechAi
         if (!valid)
             return (null, baseName is null ? "AI 选基础的答复读不出 {\"base\": …}：" + Clip(choose.Message) : $"AI 选的「{baseName}」不在模板里");
 
-        var template = baseName is null ? null : templates.First(item => item.Name == baseName);
-        var based = template is null ? TechItems.Empty : TechAiEdit.Parse(template.Text);
-        context.SetState("AI 微调");
-        var edit = template is null
-            ? Ask(context, FreshSystem, $"图纸基本信息 JSON：{info}", image)
-            : Ask(context, EditSystem, $"基础技术要求「{template.Name}」（编号：正文）：{JsonSerializer.Serialize(TechAiEdit.Numbered(based), Json)}。图纸基本信息 JSON：{info}", image);
+        if (baseName is null)
+            return (null, "AI 没有从现有模板中选出一份；当前只允许选择并删减已有条目");
+        var template = templates.First(item => item.Name == baseName);
+        var based = TechAiEdit.Parse(template.Text);
+        context.SetState("AI 删减");
+        var edit = Ask(context, EditSystem, $"基础技术要求「{template.Name}」（编号：正文）：{JsonSerializer.Serialize(TechAiEdit.Numbered(based), Json)}。图纸基本信息 JSON：{info}", image);
         if (!edit.Success)
-            return (null, "微调时 Apollo 失败：" + FirstLine(edit.Message));
-        if (TechAiEdit.ReadEdit(edit.Message, based, fresh: template is null) is not { } read)
-            return (null, "AI 微调的答复读不出 JSON：" + Clip(edit.Message));
+            return (null, "删减时 Apollo 失败：" + FirstLine(edit.Message));
+        if (TechAiEdit.ReadEdit(edit.Message, based) is not { } read)
+            return (null, "AI 删减的答复读不出 JSON：" + Clip(edit.Message));
 
         var (outcome, editReason) = read;
         if (outcome.Result.Items.Count == 0)
-            return (null, template is null ? "没有合适的模板，AI 也没写出条目" : $"AI 把「{template.Name}」删空了");
+            return (null, $"AI 把「{template.Name}」删空了；没有写入技术要求");
 
-        var label = template is null ? "AI 撰写" : $"{template.Name}（AI 微调）";
-        return (new TechPlan(label, outcome.Result, Describe(template?.Name, chooseReason, outcome, editReason)), string.Empty);
+        var label = outcome.Deleted.Count == 0 ? template.Name : $"{template.Name}（AI 删减）";
+        return (new TechPlan(label, outcome.Result, Describe(template.Name, chooseReason, outcome, editReason)), string.Empty);
     }
 
-    /// <summary>回执里的改动说明：基础与理由、删了哪几条、加了哪几条、没采用几条。</summary>
+    /// <summary>回执里的改动说明：选了哪份模板、删了哪几条、忽略了几项建议。</summary>
     internal static string Describe(string? baseName, string chooseReason, TechEditOutcome outcome, string editReason)
     {
         var parts = new List<string>
         {
-            baseName is null ? "没有合适的模板，由 AI 撰写" : $"以「{baseName}」为基础",
+            $"选择「{baseName}」",
         };
         if (chooseReason.Length > 0)
             parts[0] += $"（{chooseReason}）";
-        if (baseName is not null && outcome.Deleted.Count == 0 && outcome.Added.Count == 0)
-            parts.Add("未增删");
+        if (outcome.Deleted.Count == 0)
+            parts.Add("没有删除条目");
         if (outcome.Deleted.Count > 0)
             parts.Add("删 " + string.Join("、", outcome.Deleted.Select(item => $"第 {item.Number} 条「{TechAiEdit.Plain(item.Text)}」")));
-        if (outcome.Added.Count > 0)
-        {
-            parts.Add(baseName is null
-                ? $"写了 {outcome.Added.Count} 条"
-                : "加" + string.Join("、", outcome.Added.Select(item => $"「{item.Text}」（{(item.After == 0 ? "最前" : $"原第 {item.After} 条后")}）")));
-        }
-
         if (outcome.Dropped > 0)
             parts.Add($"AI 另给的 {outcome.Dropped} 处超出上限或不合规，没采用");
         if (editReason.Length > 0)

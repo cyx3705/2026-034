@@ -192,14 +192,14 @@ internal static class HolePositionPlanner
                     if (Claim(first.Offset, last.Offset))
                     {
                         var prefix = PatternPrefix(stops.Count - 1, (last.Offset - first.Offset) / (stops.Count - 1) / scale);
-                        planned.Add(new Planned(first.Hole.Index, last.Hole, first.Offset, last.Offset, tier, prefix));
+                        planned.Add(new Planned(first.Hole.Index, first.Hole, last.Hole, first.Offset, last.Offset, tier, prefix));
                         patterns++;
                         used++;
                     }
 
                     if (needDatum)
                     {
-                        planned.Add(new Planned(null, first.Hole, 0, first.Offset, tier + used, string.Empty));
+                        planned.Add(new Planned(null, null, first.Hole, 0, first.Offset, tier + used, string.Empty));
                         used++;
                     }
 
@@ -210,7 +210,7 @@ internal static class HolePositionPlanner
                 var added = 0;
                 if (needDatum)
                 {
-                    planned.Add(new Planned(null, first.Hole, 0, first.Offset, tier, string.Empty));
+                    planned.Add(new Planned(null, null, first.Hole, 0, first.Offset, tier, string.Empty));
                     added++;
                 }
 
@@ -218,7 +218,7 @@ internal static class HolePositionPlanner
                 {
                     if (!Claim(stops[i - 1].Offset, stops[i].Offset))
                         continue;
-                    planned.Add(new Planned(stops[i - 1].Hole.Index, stops[i].Hole, stops[i - 1].Offset, stops[i].Offset, tier, string.Empty));
+                    planned.Add(new Planned(stops[i - 1].Hole.Index, stops[i - 1].Hole, stops[i].Hole, stops[i - 1].Offset, stops[i].Offset, tier, string.Empty));
                     added++;
                 }
 
@@ -472,8 +472,7 @@ internal static class HolePositionPlanner
     }
 
     /// <summary>
-    /// 这个方向的尺寸放哪一边（1.16.0，用户指出孔位尺寸压图框里的修改栏、图号框）：先按默认边（水平在上、竖直在左）估每个尺寸占的地方，
-    /// 数压到 <see cref="PositionSpace.Blocked"/> 几处、出了图框几处；换到另一边压得更少才换（一样多不换）。
+    /// 这个方向的尺寸放哪一边：先比较两侧禁区命中数，命中相同时选尺寸界线总长更短的一侧；不按上下标注数量做均衡。
     /// </summary>
     /// <returns>换不换边，以及换边后还压几处（不换时是默认边压几处）。</returns>
     internal static (bool Flip, int Hits) ChooseSide(PositionAxis axis, IReadOnlyList<Planned> planned, Datum datum, PositionSpace space)
@@ -484,11 +483,24 @@ internal static class HolePositionPlanner
             return space.Blocked.Count(box.Overlaps) + (space.Frame is { } frame && !box.Within(frame) ? 1 : 0);
         });
 
+        double ExtensionLength(PositionAxis direction, Planned item, PositionSpace? far)
+        {
+            var at = TextAt(direction, item, datum, far);
+            if (direction == PositionAxis.Horizontal)
+            {
+                return Math.Abs(item.To.Y - at.Y) + (item.FromHole is { } horizontalFrom ? Math.Abs(horizontalFrom.Y - at.Y) : 0);
+            }
+
+            return Math.Abs(item.To.X - at.X) + (item.FromHole is { } verticalFrom ? Math.Abs(verticalFrom.X - at.X) : 0);
+        }
+
         var near = Hits(null);
-        if (near == 0)
-            return (false, 0);
         var other = Hits(space);
-        return other < near ? (true, other) : (false, near);
+        if (near != other)
+            return other < near ? (true, other) : (false, near);
+        var nearLength = planned.Sum(item => ExtensionLength(axis, item, null));
+        var otherLength = planned.Sum(item => ExtensionLength(axis, item, space));
+        return otherLength < nearLength ? (true, other) : (false, near);
     }
 
     /// <summary>
@@ -508,7 +520,7 @@ internal static class HolePositionPlanner
     private const double FootprintText = 0.008;
 
     /// <summary>规划好、还没定放哪一边的一个尺寸：起点孔（null = 基准）、终点孔、两头离基准多远、第几层、前缀。</summary>
-    internal sealed record Planned(int? From, HoleEdge To, double FromOffset, double ToOffset, int Tier, string Prefix);
+    internal sealed record Planned(int? From, HoleEdge? FromHole, HoleEdge To, double FromOffset, double ToOffset, int Tier, string Prefix);
 
     internal readonly record struct Datum(double Left, double Top);
 }

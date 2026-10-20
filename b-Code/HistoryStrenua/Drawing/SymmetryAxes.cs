@@ -39,7 +39,7 @@ internal static class SymmetryAxes
         var message = $"视图「{scan.ViewName}」：{names}"
             + (added > 0 ? $"，加了 {added} 根" : string.Empty)
             + (axes.Count - added - failed > 0 ? $"，{axes.Count - added - failed} 根已有" : string.Empty)
-            + (failed > 0 ? $"，{failed} 根 SolidWorks 没有插上" : string.Empty) + "。";
+            + (failed > 0 ? $"，{failed} 根 SolidWorks 未生成贯穿视图的完整对称轴，已删除" : string.Empty) + "。";
         return failed > 0 && added == 0 ? QuickOutcome.Fail(message) : QuickOutcome.Ok(message);
     }
 
@@ -48,7 +48,7 @@ internal static class SymmetryAxes
     /// 真机（SW 2025 SP5，XJ05A-01 安装板）：生成在两边正中、两头各伸出 5 mm，与用户手工插的那根完全一致；中心线注解类型 15，
     /// 位置读回为空，线段在显示数据里（线型 6）。
     /// </summary>
-    /// <returns>加上的根数与没插上的根数（已有的两样都不算）。</returns>
+    /// <returns>加上的根数与没插上或读回不贯穿视图的根数（已有的两样都不算）。</returns>
     internal static (int Added, int Failed) Insert(SolidWorksApi api, ScannedView scan, IReadOnlyList<SymmetryAxis> axes)
     {
         var drawn = CenterLines(api, scan.View);
@@ -65,11 +65,37 @@ internal static class SymmetryAxes
             api.Call(scan.Document, "IModelDoc2", "ClearSelection2", true);
             if (line is null)
                 failed++;
-            else
+            else if (CoversView(axis, DisplayLines(api, line), scan.Lines.Concat(scan.CurveSegments).ToList()))
                 added++;
+            else
+            {
+                // SolidWorks 偶尔按选中的短边生成短中心线。插入后按显示数据核对完整视图跨度，错误结果立即删掉。
+                api.Call(scan.Document, "IModelDoc2", "ClearSelection2", true);
+                if (api.CallBool(line, "IAnnotation", "Select3", false, null))
+                    api.Call(scan.Document, "IModelDoc2", "EditDelete");
+                failed++;
+            }
         }
 
         return (added, failed);
+    }
+
+    private static bool CoversView(SymmetryAxis axis, IReadOnlyList<SheetSegment> centerLines, IReadOnlyList<SheetSegment> geometry)
+    {
+        if (centerLines.Count == 0 || geometry.Count == 0)
+            return false;
+        var vertical = axis.Axis == PositionAxis.Horizontal;
+        var coordinates = geometry.SelectMany(line => vertical ? new[] { line.Y1, line.Y2 } : new[] { line.X1, line.X2 }).ToList();
+        var min = coordinates.Min();
+        var max = coordinates.Max();
+        var axisLines = centerLines.Where(line => vertical
+            ? Math.Abs(line.X1 - axis.At) <= SymmetryPlanner.Tolerance && Math.Abs(line.X2 - axis.At) <= SymmetryPlanner.Tolerance
+            : Math.Abs(line.Y1 - axis.At) <= SymmetryPlanner.Tolerance && Math.Abs(line.Y2 - axis.At) <= SymmetryPlanner.Tolerance).ToList();
+        if (axisLines.Count == 0)
+            return false;
+        var starts = axisLines.Select(line => Math.Min(vertical ? line.Y1 : line.X1, vertical ? line.Y2 : line.X2));
+        var ends = axisLines.Select(line => Math.Max(vertical ? line.Y1 : line.X1, vertical ? line.Y2 : line.X2));
+        return starts.Min() <= min + SymmetryPlanner.Tolerance && ends.Max() >= max - SymmetryPlanner.Tolerance;
     }
 
     /// <summary>视图里已有中心线注解的线段（图纸坐标）。「圆心位置」（1.14.2）判对齐的圆心连没连上也用它。</summary>

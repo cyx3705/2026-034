@@ -87,8 +87,7 @@ internal static class SymmetryPlanner
         => axes.Any(a => a.Axis == axis && Math.Abs(a.At - coordinate) <= Tolerance);
 
     /// <summary>
-    /// 插中心线用的一对对边：轴一侧离轴最远的那条与轴平行的直边，以及另一侧与它恰好镜像的直边（同长同位）。
-    /// 最远的那条没有恰好镜像的（被切成了几段）就往里找下一条。
+    /// 插中心线用的一对对边：优先选沿轴方向跨度最长的、与轴平行的直边，以及另一侧与它恰好镜像的直边（同长同位）。
     /// </summary>
     private static (int First, int Second)? Pair(IReadOnlyList<SheetSegment> lines, bool vertical, double at)
     {
@@ -97,11 +96,11 @@ internal static class SymmetryPlanner
                 ? Math.Abs(lines[i].X1 - lines[i].X2) <= Tolerance
                 : Math.Abs(lines[i].Y1 - lines[i].Y2) <= Tolerance))
             .ToList();
-        // 竖直轴取左侧（X 小）的边，水平轴取上侧（Y 大）的边，由远到近。
+        // 先选沿轴方向跨度最长的边，避免 SolidWorks 按一段短的对称边生成不贯穿视图的中心线。
         var near = parallel
             .Where(i => vertical ? lines[i].X1 < at - Tolerance : lines[i].Y1 > at + Tolerance)
-            .OrderByDescending(i => Math.Abs((vertical ? lines[i].X1 : lines[i].Y1) - at))
-            .ThenByDescending(i => Length(lines[i]));
+            .OrderByDescending(i => Length(lines[i]))
+            .ThenByDescending(i => Math.Abs((vertical ? lines[i].X1 : lines[i].Y1) - at));
         foreach (var first in near)
         {
             var mirror = Mirror(lines[first], vertical, at);

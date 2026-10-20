@@ -39,26 +39,18 @@ internal static partial class Tests
     static void TestTechAiApply()
     {
         var based = new TechItems("技术要求", "<P>", ["一", "二", "三", "四", "五"]);
-        // 按原编号删、按原编号插：删 2、4，在原 1 后加「甲」，最前加「乙」，原 4（已删）后加「丙」。
+        // 按原编号删除；任何新增条目都忽略。
         var outcome = TechAiEdit.Apply(based, [2, 4], [(1, "甲"), (0, "乙"), (4, "丙")]);
-        Equal("乙,一,甲,三,丙,五", string.Join(",", outcome.Result.Items));
-        Equal("技术要求\n<P>1、乙\n2、一\n3、甲\n4、三\n5、丙\n6、五", outcome.Result.Text);
+        Equal("一,三,五", string.Join(",", outcome.Result.Items));
+        Equal("技术要求\n<P>1、一\n2、三\n3、五", outcome.Result.Text);
         Equal("2:二,4:四", string.Join(",", outcome.Deleted.Select(d => $"{d.Number}:{d.Text}")));
-        Equal(0, outcome.Dropped);
+        Equal(3, outcome.Dropped);
 
-        // 克制：最多删 3、加 3；编号不存在、重复删、空文、与已有重复、自带编号的都处理掉。
-        var greedy = TechAiEdit.Apply(based, [1, 2, 3, 4, 9, 0, 1], [(5, "a"), (5, "b"), (5, "c"), (5, "d"), (5, "  "), (5, "五。")]);
+        // 最多删 3 条，新增全部拒绝；编号不存在和重复删除计入拒绝数。
+        var greedy = TechAiEdit.Apply(based, [1, 2, 3, 4, 9, 0, 1], [(5, "a"), (5, "b")]);
         Equal(3, greedy.Deleted.Count);
-        Equal(3, greedy.Added.Count);
-        Equal(4 + 3, greedy.Dropped);
-        Equal("四,五,a,b,c", string.Join(",", greedy.Result.Items));
-        var numbered = TechAiEdit.Apply(based, [], [(9, "6、未注倒角C0.5；")]);
-        Equal("未注倒角C0.5；", numbered.Result.Items[^1]);
-        Equal(5, numbered.Added[0].After);
-
-        // 超长的截断（一条一句，长段落多半是模型在解释）。
-        var longText = new string('长', TechAiEdit.MaxItemLength + 20);
-        Equal(TechAiEdit.MaxItemLength, TechAiEdit.Apply(based, [], [(0, longText)]).Result.Items[0].Length);
+        Equal(6, greedy.Dropped);
+        Equal("四,五", string.Join(",", greedy.Result.Items));
     }
 
     static void TestTechAiAnswers()
@@ -73,20 +65,17 @@ internal static partial class Tests
         Equal(false, TechAiEdit.ReadChoice("我觉得是钣金", names).Valid);
         Equal("机加件-钢材", TechAiEdit.ReadChoice("{\"base\": \"「机加件-钢材」\"}", names).Base!);
 
-        // 微调：delete / add，编号可能写成字符串；不合规的项计入没采用。
+        // 删除编号可写成字符串；任何 add/items 建议都被拒绝。
         var based = new TechItems("技术要求", string.Empty, ["一", "二", "三"]);
-        var read = TechAiEdit.ReadEdit("{\"delete\": [\"3\", \"x\"], \"add\": [{\"after\": 1, \"text\": \"甲\"}, {\"text\": \"乙\"}, 5], \"reason\": \"图上没有螺纹\"}", based, fresh: false);
+        var read = TechAiEdit.ReadEdit("{\"delete\": [\"3\", \"x\"], \"add\": [{\"after\": 1, \"text\": \"甲\"}, {\"text\": \"乙\"}, 5], \"reason\": \"图上没有螺纹\"}", based);
         True(read is not null, "应读出微调");
-        Equal("一,甲,二,乙", string.Join(",", read!.Value.Outcome.Result.Items));
-        Equal(2, read.Value.Outcome.Dropped);
+        Equal("一,二", string.Join(",", read!.Value.Outcome.Result.Items));
+        Equal(4, read.Value.Outcome.Dropped);
         Equal("图上没有螺纹", read.Value.Reason);
-        // 没有基础：items 是全文条目，最多 MaxFresh 条，标题与格式照模板。
-        var many = string.Join(",", Enumerable.Range(1, TechAiEdit.MaxFresh + 2).Select(i => $"\"第{i}条\""));
-        var fresh = TechAiEdit.ReadEdit($"{{\"items\": [{many}]}}", TechItems.Empty, fresh: true);
-        Equal(TechAiEdit.MaxFresh, fresh!.Value.Outcome.Result.Items.Count);
-        Equal(2, fresh.Value.Outcome.Dropped);
-        True(fresh.Value.Outcome.Result.Text.StartsWith(TechItems.Empty.Heading + "\n" + TechItems.Empty.Prefix + "1、第1条", StringComparison.Ordinal), "没有基础时标题与格式照模板");
-        Equal<object?>(null, TechAiEdit.ReadEdit("没有 JSON", based, fresh: false));
+        var items = TechAiEdit.ReadEdit("{\"items\": [\"乱加的要求\"]}", based);
+        Equal("一,二,三", string.Join(",", items!.Value.Outcome.Result.Items));
+        Equal(1, items.Value.Outcome.Dropped);
+        Equal<object?>(null, TechAiEdit.ReadEdit("没有 JSON", based));
     }
 
     static void TestTechAiCommand()
@@ -103,17 +92,15 @@ internal static partial class Tests
         True(!parsed.Named.ContainsKey("provider"), "不写 provider：带图片时 Apollo 自己走识图供应商");
         Equal("module:HistoryStrenua", TechAi.CommandSource);
 
-        // 回执说明：基础与理由、删了什么、加在哪、没采用几条。
+        // 回执说明：选择的基础与删除项。
         var based = new TechItems("技术要求", string.Empty, ["一", "螺纹嵌钢丝牙套；", "三"]);
         var outcome = TechAiEdit.Apply(based, [2, 7], [(3, "焊后去应力")]);
         var text = TechAi.Describe("机加件-有色金属", "铝合金机加件", outcome, "图上没有螺纹孔");
-        Equal("以「机加件-有色金属」为基础（铝合金机加件）；删 第 2 条「螺纹嵌钢丝牙套；」；加「焊后去应力」（原第 3 条后）；AI 另给的 1 处超出上限或不合规，没采用；AI 说明：图上没有螺纹孔", text);
-        Equal("以「机加件-钢材」为基础；未增删", TechAi.Describe("机加件-钢材", string.Empty, TechAiEdit.Apply(based, [], []), string.Empty));
-        var fresh = TechAiEdit.Apply(TechItems.Empty, [], [(0, "甲"), (0, "乙")], TechAiEdit.MaxFresh);
-        Equal("没有合适的模板，由 AI 撰写；写了 2 条", TechAi.Describe(null, string.Empty, fresh, string.Empty));
+        Equal("选择「机加件-有色金属」（铝合金机加件）；删 第 2 条「螺纹嵌钢丝牙套；」；AI 另给的 2 处超出上限或不合规，没采用；AI 说明：图上没有螺纹孔", text);
+        Equal("选择「机加件-钢材」；没有删除条目", TechAi.Describe("机加件-钢材", string.Empty, TechAiEdit.Apply(based, [], []), string.Empty));
 
         // 按钮、开关的说明写清上限与退路。
-        True(TechAi.Command.Usage.Contains($"最多删 {TechAiEdit.MaxDelete} 条、加 {TechAiEdit.MaxAdd} 条", StringComparison.Ordinal), TechAi.Command.Usage);
+        True(TechAi.Command.Usage.Contains($"最多删除 {TechAiEdit.MaxDelete} 条", StringComparison.Ordinal), TechAi.Command.Usage);
         True(StrenuaPage.TechAiSummary.Contains("AI 没成退回", StringComparison.Ordinal), StrenuaPage.TechAiSummary);
         Equal("tech", TechAi.Command.CommandClass);
     }

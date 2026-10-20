@@ -29,6 +29,17 @@ internal static partial class Tests
         True(SymmetryPlanner.Drawn(axes[0], [new SheetSegment(0.16666, 0.12378, 0.16666, 0.14378)]), "已有的中心线认得出");
         True(!SymmetryPlanner.Drawn(axes[0], [new SheetSegment(0.13, 0.12378, 0.13, 0.14378)]), "别处的中心线不算");
 
+        // 偏外侧有一对短竖边时，不能因离轴更远就优先选它们，应选贯穿视图的长边。
+        List<SheetSegment> shortDecoys =
+        [
+            new(0.10, 0.00, 0.10, 0.02), new(0.20, 0.00, 0.20, 0.02),
+            new(0.11, 0.00, 0.11, 0.10), new(0.19, 0.00, 0.19, 0.10),
+            new(0.11, 0.00, 0.19, 0.00), new(0.11, 0.10, 0.19, 0.10),
+        ];
+        var decoyHoles = new[] { new HoleEdge(0, 0.12, 0.05, 0.001, "/M3"), new HoleEdge(1, 0.18, 0.05, 0.001, "/M3") };
+        var longPairAxis = SymmetryPlanner.Axes(shortDecoys, [], decoyHoles);
+        Equal("2,3", $"{longPairAxis.Single().FirstLine},{longPairAxis.Single().SecondLine}");
+
         // 以对称轴为基准：水平只标两孔之间的 75，不再从左边标 12.5；竖直照旧从上边标 5。
         var plan = HolePositionPlanner.Plan(pair, 0.11666, 0.13878, 1, symmetric: axes.Select(a => a.Axis).ToList());
         var horizontal = plan.Dimensions.Where(d => d.Axis == PositionAxis.Horizontal).ToList();
@@ -882,9 +893,11 @@ internal static partial class Tests
         True(plan.Dimensions.Where(d => d.Axis == PositionAxis.Vertical).All(d => d.TextAt.X < 0), "竖直尺寸照旧在左侧");
         // 不给禁区：照旧在上方。
         True(HolePositionPlanner.Plan(holes, 0, 0.05, 1.0).Dimensions.Where(d => d.Axis == PositionAxis.Horizontal).All(d => d.TextAt.Y > 0.05), "默认在上方");
-        // 两边都压时不换（换了不更好）。
+        // 两边命中数相同时，不做上下负载均衡，按尺寸界线总长选择更短的一侧。
         var both = new PositionSpace(0.1, 0, [new(0, 0.052, 0.2, 0.08), new(0, -0.03, 0.2, -0.002)]);
-        True(HolePositionPlanner.Plan(holes, 0, 0.05, 1.0, space: both).Dimensions.Where(d => d.Axis == PositionAxis.Horizontal).All(d => d.TextAt.Y > 0.05), "一样压就不换");
+        True(HolePositionPlanner.Plan(holes, 0, 0.05, 1.0, space: both).Dimensions.Where(d => d.Axis == PositionAxis.Horizontal).All(d => d.TextAt.Y < 0), "命中数相同就选引线较短的下侧");
+        var free = new PositionSpace(0.1, 0, []);
+        True(HolePositionPlanner.Plan(holes, 0, 0.05, 1.0, space: free).Dimensions.Where(d => d.Axis == PositionAxis.Horizontal).All(d => d.TextAt.Y < 0), "两侧都空时仍按引线较短选择，不做数量均衡");
     }
 
     static void TestDistinctHoles()
@@ -914,8 +927,8 @@ internal static partial class Tests
         var placement = HoleCalloutPlanner.Placement(hole);
         var distance = Math.Sqrt(Math.Pow(placement.X - hole.X, 2) + Math.Pow(placement.Y - hole.Y, 2));
         Near(hole.Radius + HoleCalloutPlanner.LeaderReach, distance);
-        True(placement.X < hole.X && placement.Y > hole.Y, "引线折点在左上方");
-        Near(placement.Y - hole.Y, hole.X - placement.X);
+        True(placement.X < hole.X && placement.Y < hole.Y, "引线折点优先左下方");
+        Near(hole.Y - placement.Y, hole.X - placement.X);
     }
 
     static void TestShoulderEnd()

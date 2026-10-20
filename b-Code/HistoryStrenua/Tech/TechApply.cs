@@ -35,12 +35,12 @@ internal static class TechApply
     public const string SetDefaultText = "设为默认";
 
     public const string Summary = "把「通用技术要求」里的一份插进当前工程图（标题栏上方或左侧）；图框里已有技术要求就删掉、在原处换成这份，避障开时挪视图让地方；"
-        + "「AI 填写技术要求」开关开着时改由 AI 选基础并微调（AI 没成才插这份）。";
+        + "「AI 填写技术要求」开关开着时改由 AI 选基础并删除不适用条目（AI 没成才插这份）。";
 
     public const string DefaultSummary = "把「通用技术要求」里的一份设为默认（记到本机），「一键出图」插的就是它；省略 name 只报当前默认。";
 
     /// <summary>
-    /// 模板表格点一份：「AI 填写技术要求」开关开着时由 AI 从全部模板里重新选基础再微调（1.14.0，用户选的），AI 没成才插点的这份；关着照旧插这份。
+    /// 模板表格点一份：「AI 填写技术要求」开关开着时由 AI 从全部模板里重新选基础并只删条目，AI 没成才插点的这份；关着照旧插这份。
     /// </summary>
     public static QuickCommand Command(string name) => new(
         Key: Key,
@@ -69,7 +69,7 @@ internal static class TechApply
     /// </summary>
     /// <param name="context">快捷指令上下文。</param>
     /// <param name="drawing">工程图。</param>
-    /// <param name="label">写进回执的名字（模板名，或「模板名（AI 微调）」）。</param>
+    /// <param name="label">写进回执的名字（模板名，或 AI 删减后的模板名）。</param>
     /// <param name="note">交给 <c>InsertNote</c> 的全文。</param>
     /// <param name="items">条数。</param>
     /// <param name="detail">回执末尾另起一行的说明（AI 改了什么）；null 不加。</param>

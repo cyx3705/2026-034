@@ -23,7 +23,7 @@ internal static class TechNotePlacement
     {
         if (Space(api, drawing) is not { } space)
             return [];
-        return DrawingSheet.Annotations(api, drawing)
+        return DrawingSheet.Annotations(api, drawing, includeViewNotes: true)
             .Where(item => item.Note is not null && item.Text.Contains("技术要求", StringComparison.Ordinal) && item.Rect.Overlaps(space.Frame))
             .Select(item => new TechNoteOnSheet(item.Annotation, item.Note!, item.Name, item.Rect))
             .ToList();

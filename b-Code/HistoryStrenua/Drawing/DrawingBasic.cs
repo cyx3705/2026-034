@@ -33,6 +33,7 @@ internal static class DrawingBasic
             return new Result(created.Outcome, null);
 
         var steps = new StepLog(context);
+        context.TargetDrawing = drawing;
         steps.Lines.Add(created.Outcome.Message);
         DrawingSheet Sheet() => DrawingSheet.Read(context, drawing, "基础出图", main, part);
         steps.Run("投影视图", () => DrawingProject.Run(context, Sheet()));

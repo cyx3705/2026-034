@@ -66,6 +66,9 @@ internal sealed class QuickCommandContext(
 
     public SolidWorksApi Api => Session.Api;
 
+    /// <summary>本条命令开始处理的工程图。多步流程锁定这张图，避免 SW 激活引用零件后余下步骤跑错文档。</summary>
+    public object? TargetDrawing { get; set; }
+
     /// <summary>页面开关（避障、尺寸链模式）的当前值。</summary>
     public StrenuaOptions Options { get; } = options;
 
@@ -128,6 +131,7 @@ internal static class QuickCommands
         DrawingProject.Command,
         DrawingIso.Command,
         DrawingArrange.Command,
+        DrawingFinish.Command,
         SymmetryAxes.Command,
         OutlineAll.Command,
         Outline.Command,

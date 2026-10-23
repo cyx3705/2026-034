@@ -147,7 +147,7 @@ internal static class TechAiEdit
     }
 
     /// <summary>
-    /// 只按原编号删除；新增条目参数保留兼容测试接口，但永不采用。
+    /// 只按原编号删除；新增条目参数保留兼容测试接口，但永不采用。含「未注」的条目不删（1.19.0）。
     /// </summary>
     public static TechEditOutcome Apply(TechItems based, IReadOnlyList<int> deletes, IReadOnlyList<(int After, string Text)> adds)
     {
@@ -155,7 +155,8 @@ internal static class TechAiEdit
         var deleted = new SortedSet<int>();
         foreach (var number in deletes)
         {
-            if (number < 1 || number > based.Items.Count || deleted.Contains(number) || deleted.Count >= MaxDelete)
+            if (number < 1 || number > based.Items.Count || deleted.Contains(number) || deleted.Count >= MaxDelete
+                || Plain(based.Items[number - 1]).Contains("未注", StringComparison.Ordinal))
                 dropped++;
             else
                 deleted.Add(number);

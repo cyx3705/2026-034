@@ -28,6 +28,7 @@ internal static partial class Tests
             "strenua.drawing.project",
             "strenua.drawing.iso",
             "strenua.drawing.arrange",
+            "strenua.drawing.finish",
             "strenua.drawing.symmetry",
             "strenua.fillet.all",
             "strenua.fillet.arccenterall",
@@ -276,7 +277,7 @@ internal static partial class Tests
         // 1.17.0（用户定）：外轮廓挪到基础类，孔类加「方形槽」。
         Equal("孔标注全流程,销钉符号,中心符号线,孔位尺寸,孔标注,销孔标注,方形槽", Row("hole"));
         // 1.16.0（用户定）：出图类改名「基础」、一键出图改成「基础出图」只做这一类；倒圆倒角改名「倒圆」并加「全图倒圆倒角」。
-        Equal("基础出图,新建工程图,投影视图,轴测图,排版,对称轴,全图外轮廓,外轮廓", Row("drawing"));
+        Equal("基础出图,新建工程图,投影视图,轴测图,排版,整理标注,对称轴,全图外轮廓,外轮廓", Row("drawing"));
         Equal("全图倒圆倒角,全图圆心,全图圆弧,全图倒角,圆心位置,圆弧标注,倒角标注", Row("fillet"));
         // 1.17.0（用户定）：钣金、框架、加工件三个在一键出图下面另起一行。
         Equal("一键出图|一键出钣金,一键出框架,一键出加工件", Row("onekey"));

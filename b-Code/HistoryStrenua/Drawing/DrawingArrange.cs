@@ -107,6 +107,6 @@ internal static class DrawingArrange
         else if (layout.Problem.Length > 0)
             lines.Add($"· {layout.Problem}，请手工挪一下。");
         var message = string.Join(Environment.NewLine, lines);
-        return layout.Fits ? QuickOutcome.Ok(message) : QuickOutcome.Fail(message);
+        return layout.Fits && layout.Problem.Length == 0 ? QuickOutcome.Ok(message) : QuickOutcome.Fail(message);
     }
 }

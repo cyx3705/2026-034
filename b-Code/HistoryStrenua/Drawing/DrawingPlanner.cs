@@ -293,10 +293,10 @@ internal static class DrawingPlanner
     /// </summary>
     public static SheetPoint Beside(SheetRect main, ViewBox mainBox, ViewSlot slot, ViewBox side) => slot switch
     {
-        ViewSlot.Right => new SheetPoint(main.Right + Gap + side.MarginLeft + side.Width / 2, main.Center.Y),
-        ViewSlot.Left => new SheetPoint(main.Left - mainBox.MarginLeft - Gap - side.Width / 2, main.Center.Y),
-        ViewSlot.Below => new SheetPoint(main.Center.X, main.Bottom - Gap - side.MarginTop - side.Height / 2),
-        _ => new SheetPoint(main.Center.X, main.Top + mainBox.MarginTop + Gap + side.Height / 2),
+        ViewSlot.Right => new SheetPoint(main.Right + mainBox.MarginRight + Gap + side.MarginLeft + side.Width / 2, main.Center.Y),
+        ViewSlot.Left => new SheetPoint(main.Left - mainBox.MarginLeft - Gap - side.MarginRight - side.Width / 2, main.Center.Y),
+        ViewSlot.Below => new SheetPoint(main.Center.X, main.Bottom - mainBox.MarginBottom - Gap - side.MarginTop - side.Height / 2),
+        _ => new SheetPoint(main.Center.X, main.Top + mainBox.MarginTop + Gap + side.MarginBottom + side.Height / 2),
     };
 
     private static string Features(int holes, int windows, int chamfers)
@@ -432,6 +432,13 @@ internal static class DrawingPlanner
         // 轴测图、技术要求：技术要求找不到空地时，轴测图从再小一档起重放（轴测图只是看个样子，技术要求要读；
         // 1.10.0 三个限位块为倒角多了下视图，A4 上原比例的轴测图占了技术要求的地方，技术要求压到了轴测图与孔标注）。
         var factors = request.IsoFactors ?? [1.0, 0.5];
+        // REQ-DQ-03：先给只能靠标题栏的技术要求留位置，再试完整轴测比例。
+        // 旧次序会在明明上方有空地时先把轴测图缩到 1:10（移动底板），才尝试交换放置顺序。
+        if (request.NoteWidth > 0 && request.Iso.Width > 0)
+        {
+            var noteFirst = Extras(sheet, request, mainCenter, centers, occupied, factors, noteFirst: true);
+            if (noteFirst.Problem.Length == 0) return noteFirst;
+        }
         LayoutResult? first = null;
         for (var start = 0; start < (request.Iso.Width > 0 ? factors.Count : 1); start++)
         {
@@ -439,14 +446,6 @@ internal static class DrawingPlanner
             if (result.Problem.Length == 0)
                 return result;
             first ??= result;
-        }
-
-        // 1.13.0：技术要求只许标题栏上方、左侧，轴测图先放常把这两处占掉——先把技术要求钉上，轴测图再找剩下的空地。
-        if (request.NoteWidth > 0 && request.Iso.Width > 0)
-        {
-            var noteFirst = Extras(sheet, request, mainCenter, centers, occupied, factors, noteFirst: true);
-            if (noteFirst.Problem.Length == 0)
-                return noteFirst;
         }
 
         return first!;
@@ -633,12 +632,12 @@ internal static class DrawingPlanner
         {
             x += left.MarginLeft;
             leftX = x + left.Width / 2;
-            x += left.Width + Gap;
+            x += left.Width + left.MarginRight + Gap;
         }
 
         x += Math.Max(main.MarginLeft, Math.Max(above?.MarginLeft ?? 0, below?.MarginLeft ?? 0));
         var mainX = x + main.Width / 2;
-        x += main.Width + Gap;
+        x += main.Width + Math.Max(main.MarginRight, Math.Max(above?.MarginRight ?? 0, below?.MarginRight ?? 0)) + Gap;
         if (right is not null)
         {
             x += right.MarginLeft;
@@ -651,12 +650,12 @@ internal static class DrawingPlanner
         {
             y -= above.MarginTop;
             aboveY = y - above.Height / 2;
-            y -= above.Height + Gap;
+            y -= above.Height + above.MarginBottom + Gap;
         }
 
         y -= Math.Max(main.MarginTop, Math.Max(left?.MarginTop ?? 0, right?.MarginTop ?? 0));
         var mainY = y - main.Height / 2;
-        y -= main.Height + Gap;
+        y -= main.Height + Math.Max(main.MarginBottom, Math.Max(left?.MarginBottom ?? 0, right?.MarginBottom ?? 0)) + Gap;
         if (below is not null)
         {
             y -= below.MarginTop;
@@ -688,12 +687,17 @@ internal static class DrawingPlanner
     internal static IReadOnlyList<SheetRect> Occupied(SheetPoint center, ViewBox box)
     {
         var view = new SheetRect(center.X - box.Width / 2, center.Y - box.Height / 2 - Gap, center.X + box.Width / 2 + Gap, center.Y + box.Height / 2);
-        return
-        [
+        var occupied = new List<SheetRect>
+        {
             view,
             new SheetRect(view.Left - box.MarginLeft, view.Bottom, view.Left, view.Top),
             new SheetRect(view.Left, view.Top, view.Right, view.Top + box.MarginTop),
-        ];
+            new SheetRect(view.Right, view.Bottom, view.Right + box.MarginRight, view.Top),
+            new SheetRect(view.Left, view.Bottom - box.MarginBottom, view.Right, view.Bottom),
+        };
+        if (box.AnnotationBounds is not null)
+            occupied.AddRange(box.AnnotationBounds.Select(r => new SheetRect(r.Left + center.X, r.Bottom + center.Y, r.Right + center.X, r.Top + center.Y)));
+        return occupied.Where(r => r.Width > 1e-9 && r.Height > 1e-9).ToList();
     }
 
     /// <summary>网格找空地（2.5 mm 一格）：放得下且离 <paramref name="target"/> 最近的中心点；没有返回 null。</summary>
@@ -859,7 +863,8 @@ internal sealed record SheetSpace(double Width, double Height, SheetRect Frame, 
 }
 
 /// <summary>一个视图在图纸上占多大：外框（含 SolidWorks 视图留白），以及左边、上边要留给尺寸的宽度。</summary>
-internal sealed record ViewBox(double Width, double Height, double MarginLeft, double MarginTop);
+internal sealed record ViewBox(double Width, double Height, double MarginLeft, double MarginTop,
+    double MarginRight = 0, double MarginBottom = 0, IReadOnlyList<SheetRect>? AnnotationBounds = null);
 
 /// <summary>排版要放的东西：主视图、各投影视图、轴测图（及它可以缩成原来的几分之几，依次试）、技术要求注释（宽、高）。</summary>
 internal sealed record LayoutRequest(ViewBox Main, IReadOnlyDictionary<ViewSlot, ViewBox> Sides, ViewBox Iso, double NoteWidth, double NoteHeight,

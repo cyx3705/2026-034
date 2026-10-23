@@ -108,7 +108,7 @@ internal sealed record DrawingSheet(
         }
 
         var inside = SheetSpace.Standard(width, height).Frame;
-        var note = Annotations(api, drawing)
+        var note = Annotations(api, drawing, includeViewNotes: true)
             .Where(item => item.Note is not null && item.Text.Contains("技术要求", StringComparison.Ordinal) && item.Rect.Overlaps(inside))
             .Select(item => new SheetNote(item.Note!, item.Annotation, item.Name))
             .FirstOrDefault();
@@ -171,11 +171,32 @@ internal sealed record DrawingSheet(
         if (!annotations)
             return new ViewBox(outline.Width, outline.Height, 0, 0);
         var kinds = DrawingPlanner.HoleKinds(Part, HoleScan.Frame(context, view).Normal);
-        if (slot is { } side)
-            return DrawingPlanner.SideBox(outline.Width, outline.Height, side, kinds, context.Options.Chain);
         var margin = DrawingPlanner.AnnotationMargin(kinds, context.Options.Chain);
-        return new ViewBox(outline.Width, outline.Height, margin, margin);
+        var estimate = slot is { } side
+            ? DrawingPlanner.SideBox(outline.Width, outline.Height, side, kinds, context.Options.Chain)
+            : new ViewBox(outline.Width, outline.Height, margin, margin);
+        var bounds = new List<SheetRect>();
+        foreach (var annotation in context.Api.CallArray(view, "IView", "GetAnnotations"))
+        {
+            var (lines, texts) = Clearance.DisplayGeometry(context.Api, annotation);
+            var points = texts.SelectMany(t => t.Corners()).Concat(lines.SelectMany(l => new[] { new SheetPoint(l.X1, l.Y1), new SheetPoint(l.X2, l.Y2) })).ToList();
+            if (points.Count == 0) continue;
+            bounds.Add(new SheetRect(points.Min(p => p.X), points.Min(p => p.Y), points.Max(p => p.X), points.Max(p => p.Y)).Inflate(0.001));
+        }
+        return MeasuredBox(outline, estimate, bounds);
     }
+
+    /// <summary>REQ-DQ-03：实际注解四侧占位与角部文字也计入排版；未标注的方向仍保留估计空间。</summary>
+    internal static ViewBox MeasuredBox(SheetRect outline, ViewBox estimate, IReadOnlyList<SheetRect> bounds)
+        => bounds.Count == 0 ? estimate : estimate with
+        {
+            MarginLeft = Math.Max(estimate.MarginLeft, outline.Left - bounds.Min(r => r.Left)),
+            MarginTop = Math.Max(estimate.MarginTop, bounds.Max(r => r.Top) - outline.Top),
+            MarginRight = Math.Max(estimate.MarginRight, bounds.Max(r => r.Right) - outline.Right),
+            MarginBottom = Math.Max(estimate.MarginBottom, outline.Bottom - bounds.Min(r => r.Bottom)),
+            AnnotationBounds = bounds.Select(r => new SheetRect(r.Left - outline.Center.X, r.Bottom - outline.Center.Y,
+                r.Right - outline.Center.X, r.Top - outline.Center.Y)).ToList(),
+        };
 
     /// <summary>
     /// 当前图纸页的图框线与标题栏、修改栏、图号框的边（按国标估计，<see cref="SheetSpace.Standard"/>），圆角、倒角文字找空处时也躲它们
@@ -301,12 +322,18 @@ internal sealed record DrawingSheet(
     /// 注释取它的外框；别的取显示数据里线与文字的外框（1.10.0：「其余 6.3」粗糙度的定位点在符号上，「其余」两个字在左边 10 mm，
     /// 按定位点前后 6 mm 估时技术要求贴着「其余」放），读不到再取位置前后 6 mm。
     /// </summary>
-    public static List<(string Name, SheetRect Rect, string Text, object Annotation, object? Note)> Annotations(SolidWorksApi api, object drawing)
+    public static List<(string Name, SheetRect Rect, string Text, object Annotation, object? Note)> Annotations(SolidWorksApi api, object drawing, bool includeViewNotes = false)
     {
         var result = new List<(string, SheetRect, string, object, object?)>();
         if (api.Call(drawing, "IDrawingDoc", "GetFirstView") is not { } sheetView)
             return result;
-        foreach (var annotation in api.CallArray(sheetView, "IView", "GetAnnotations"))
+        // 旧版在活动视图内 InsertNote 会把技术要求归到模型视图；替换时也必须找到它，避免重复。
+        var annotations = api.CallArray(sheetView, "IView", "GetAnnotations").AsEnumerable();
+        if (includeViewNotes)
+            annotations = annotations.Concat(HoleScan.SheetViews(api, drawing)
+                .SelectMany(view => api.CallArray(view, "IView", "GetAnnotations"))
+                .Where(annotation => api.CallInt(annotation, "IAnnotation", "GetType") == AnnotationNote));
+        foreach (var annotation in annotations)
         {
             if (annotation is null)
                 continue;

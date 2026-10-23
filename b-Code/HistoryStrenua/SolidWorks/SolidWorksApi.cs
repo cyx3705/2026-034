@@ -61,13 +61,20 @@ internal sealed class SolidWorksApi : IDisposable
     /// 返回值里的 COM 对象（含数组元素）都记账，<see cref="Dispose"/> 时释放。
     /// </summary>
     public object? Call(object target, string interfaceName, string method, params object?[] arguments)
+        => CallCore(target, interfaceName, method, _cancellation, arguments);
+
+    /// <summary>仅用于 finally 内还原临时修改；用户取消不能阻止恢复应用级设置或回滚试探移动。</summary>
+    internal object? CallForCleanup(object target, string interfaceName, string method, params object?[] arguments)
+        => CallCore(target, interfaceName, method, CancellationToken.None, arguments);
+
+    private object? CallCore(object target, string interfaceName, string method, CancellationToken cancellation, object?[] arguments)
     {
         ArgumentNullException.ThrowIfNull(target);
         var info = Method(interfaceName, method);
         var deadline = DateTime.UtcNow + RetryBudget;
         while (true)
         {
-            _cancellation.ThrowIfCancellationRequested();
+            cancellation.ThrowIfCancellationRequested();
             try
             {
                 return Own(info.Invoke(target, arguments));

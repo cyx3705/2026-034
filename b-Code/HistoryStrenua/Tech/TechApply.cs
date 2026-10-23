@@ -89,6 +89,10 @@ internal static class TechApply
             return QuickOutcome.Fail($"技术要求：原来的技术要求有 {leftover} 条删不掉，没有换成「{label}」。");
 
         api.Call(drawing, "IModelDoc2", "ClearSelection2", true);
+        // SW 2025：清选择不会退出活动模型视图；否则新技术要求挂在上次标注的视图，排版时找不到/跟着视图跑。
+        // ActivateView 空名返回图纸层，技术要求必须属于纸面。
+        if (!api.CallBool(drawing, "IDrawingDoc", "ActivateView", string.Empty))
+            return QuickOutcome.Fail("技术要求：无法激活图纸层，没有插入新注释。");
         var inserted = api.Call(drawing, "IModelDoc2", "InsertNote", note);
         if (inserted is null || api.Call(inserted, "INote", "GetAnnotation") is not { } annotation)
             return QuickOutcome.Fail($"技术要求：SolidWorks 没有接受注释，「{label}」没有加上" + (existing.Count > 0 ? "（原来的已删）。" : "。"));

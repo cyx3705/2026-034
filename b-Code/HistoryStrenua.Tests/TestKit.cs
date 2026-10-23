@@ -9,6 +9,8 @@ internal static partial class Tests
     internal static readonly (string Name, Action Run)[] All =
     {
         ("command registration", TestCommandRegistration),
+        ("REQ-DQ-02/03: whole-sheet placement and measured annotation bounds", TestDrawingQuality),
+        ("REQ-DQ-04: counted chamfers constrain endpoints", TestCountedChamfers),
         ("page owner follows domain", TestPageOwner),
         ("buttons, actions and commands line up", TestPageWiring),
         ("list rows", TestListRows),

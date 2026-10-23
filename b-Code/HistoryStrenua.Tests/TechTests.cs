@@ -80,6 +80,12 @@ internal static partial class Tests
 
     static void TestTechAiCommand()
     {
+        var guarded = TechAiEdit.Apply(new TechItems("技术要求", "", ["未注尺寸详见3D数模；", "去毛刺；"]),
+            [1], [(2, "孔位公差按±0.2mm控制；"), (2, "折弯处内R不得小于板厚；"), (2, "锐边不得有毛刺；")]);
+        Equal(0, guarded.Deleted.Count);
+        Equal(4, guarded.Dropped);
+        foreach (var unsupported in new[] { "未注倒角C0.5；", "所有孔位为冲压成型，不得钻削加工；", "材料去应力退火；" })
+            Equal(1, TechAiEdit.Apply(TechItems.Empty, [], [(0, unsupported)]).Dropped);
         // 经总线发给 Apollo 的那一行：解析回来参数原样（引号、换行、等号都编码过），带图片走识图供应商。
         var system = "只输出 JSON：{\"base\": \"…\"}";
         var prompt = "候选：[\"机加件-钢材\"]。\n图纸信息 JSON：{\"图纸\":{\"比例\":\"1:2\"}}";
@@ -94,7 +100,7 @@ internal static partial class Tests
 
         // 回执说明：选择的基础与删除项。
         var based = new TechItems("技术要求", string.Empty, ["一", "螺纹嵌钢丝牙套；", "三"]);
-        var outcome = TechAiEdit.Apply(based, [2, 7], [(3, "焊后去应力")]);
+        var outcome = TechAiEdit.Apply(based, [2, 7], [(3, "表面不得有划伤")]);
         var text = TechAi.Describe("机加件-有色金属", "铝合金机加件", outcome, "图上没有螺纹孔");
         Equal("选择「机加件-有色金属」（铝合金机加件）；删 第 2 条「螺纹嵌钢丝牙套；」；AI 另给的 2 处超出上限或不合规，没采用；AI 说明：图上没有螺纹孔", text);
         Equal("选择「机加件-钢材」；没有删除条目", TechAi.Describe("机加件-钢材", string.Empty, TechAiEdit.Apply(based, [], []), string.Empty));

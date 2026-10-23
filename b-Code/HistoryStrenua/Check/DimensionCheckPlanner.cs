@@ -75,6 +75,18 @@ internal static class DimensionCheckPlanner
         var net = new OutlineCoverage();
         var dimensioned = new List<ModelPlane>();
         var sizes = new List<double>();
+        var chamfers = new Dictionary<CheckView, List<SheetSegment>>();
+        foreach (var (view, _) in views)
+        {
+            var covered = CoveredChamfers(view);
+            chamfers[view] = covered;
+            // REQ-DQ-04：C 尺寸已定两条直角边。N×C 合标若数量足够，等尺寸斜边都受约束；
+            // 把端点连进尺寸网，其他视图看到的倒角内边也随之确定。不能仅因同值就推定整组已标。
+            foreach (var line in covered)
+                foreach (var axis in Axes)
+                    net.Connect(view.Frame.Plane(axis, axis == PositionAxis.Horizontal ? line.X1 : line.Y1),
+                        view.Frame.Plane(axis, axis == PositionAxis.Horizontal ? line.X2 : line.Y2));
+        }
 
         // 1. 尺寸把两头的面连起来；大小尺寸记下半径。
         foreach (var (view, _) in views)
@@ -206,6 +218,8 @@ internal static class DimensionCheckPlanner
                 var line = view.Lines[i];
                 if (Orientation(line) != LineOrientation.Slanted)
                     continue;
+                if (chamfers[view].Any(c => DimensionGeometry.SameSegment(c, line)))
+                    continue;
                 var (dx, dy) = (Math.Abs(line.X2 - line.X1) / scale, Math.Abs(line.Y2 - line.Y1) / scale);
                 if (dx <= DefaultChamfer && dy <= DefaultChamfer && Math.Abs(dx - dy) <= 0.1 * Math.Max(dx, dy))
                     continue;
@@ -258,6 +272,25 @@ internal static class DimensionCheckPlanner
     }
 
     private static readonly PositionAxis[] Axes = [PositionAxis.Horizontal, PositionAxis.Vertical];
+
+    internal static List<SheetSegment> CoveredChamfers(CheckView view)
+    {
+        var result = new List<SheetSegment>();
+        foreach (var dimension in view.Dimensions.Where(d => d.Linear))
+        {
+            var match = System.Text.RegularExpressions.Regex.Match(dimension.Prefix, @"^\s*(?:(\d+)\s*[x×]\s*)?C\s*$", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            if (!match.Success || !double.IsFinite(dimension.Value) || dimension.Value <= 0) continue;
+            var count = match.Groups[1].Success && int.TryParse(match.Groups[1].Value, out var parsed) ? parsed : 1;
+            bool SameSize(SheetSegment line) => Math.Abs(Math.Abs(line.X2 - line.X1) / view.Frame.Scale - dimension.Value) <= DimensionGeometry.ValueTolerance
+                && Math.Abs(Math.Abs(line.Y2 - line.Y1) / view.Frame.Scale - dimension.Value) <= DimensionGeometry.ValueTolerance;
+            var attached = dimension.Anchors.Where(a => a.Segment is not null).Select(a => a.Segment!.Value).Where(SameSize).ToList();
+            if (attached.Count == 0) continue;
+            result.AddRange(attached);
+            var equal = view.Lines.Where(SameSize).Distinct().ToList();
+            if (count > 1 && equal.Count <= count) result.AddRange(equal);
+        }
+        return result.Distinct().ToList();
+    }
 
     private enum LineOrientation
     {

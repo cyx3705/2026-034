@@ -43,6 +43,17 @@ internal static class DrawingIso
         var axonometric = HoleScan.Frame(context, iso).Axonometric;
 
         api.Call(sheet.Drawing, "IModelDoc2", "EditRebuild3");
+        // REQ-DQ-03：模板会给新轴测图自动加中心符号线/销钉符号。这里只清理刚创建的轴测图，
+        // 避免几十根延伸线遮住形状；已存在的用户视图不走此分支。
+        var automatic = api.CallArray(iso, "IView", "GetAnnotations")
+            .Where(a => api.CallInt(a, "IAnnotation", "GetType") is 10 or 13 or 15).ToList();
+        foreach (var annotation in automatic)
+        {
+            api.Call(sheet.Drawing, "IModelDoc2", "ClearSelection2", true);
+            if (api.CallBool(annotation, "IAnnotation", "Select3", false, null))
+                api.Call(sheet.Drawing, "IModelDoc2", "EditDelete");
+        }
+        api.Call(sheet.Drawing, "IModelDoc2", "ClearSelection2", true);
         var occupied = sheet.Occupied(context);
         var space = sheet.Space(context);
         var target = new SheetPoint((occupied.Max(rect => rect.Right) + space.Frame.Right) / 2, at.Center.Y);

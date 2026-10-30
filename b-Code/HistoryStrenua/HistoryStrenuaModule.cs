@@ -82,8 +82,10 @@ public sealed class HistoryStrenuaModule : IModuleContextAware
                     Position = 1,
                 },
             ],
-            Handler = CommandDescriptor.Sync(context => runner.Last(context.RequireString("key").Trim(),
-                int.TryParse(context.GetString("back"), out var back) && back > 0 ? back : 0)),
+            // 经 MCP 来的还在跑就等它（完成立刻返回），调用方不用自己估时间、反复轮询。
+            Handler = context => runner.LastAsync(context.RequireString("key").Trim(),
+                int.TryParse(context.GetString("back"), out var back) && back > 0 ? back : 0,
+                StepFeedback.Wanted(context.Source) ? QuickCommandRunner.LastWaitSeconds : 0),
         });
 
         registry.Register(new CommandDescriptor

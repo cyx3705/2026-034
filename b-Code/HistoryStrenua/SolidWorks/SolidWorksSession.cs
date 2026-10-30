@@ -58,6 +58,36 @@ internal sealed class SolidWorksSession : IDisposable
     public void Dispose() => Api.Dispose();
 
     /// <summary>
+    /// 批量模式（<c>ISldWorks.CommandInProgress</c>）：跨进程调用不再排在 SolidWorks 的界面消息后面。
+    /// 真机：同一个调用 3 ms → 0.08 ms。指令执行期间开着，等人点选、等 AI 时关掉（<see cref="Yield{T}"/>），界面才不发僵。
+    /// </summary>
+    public void Batch(bool on)
+    {
+        try
+        {
+            Api.CallForCleanup(Application, "ISldWorks", "set_CommandInProgress", on);
+        }
+        catch (COMException)
+        {
+            // 只影响速度，不影响结论。
+        }
+    }
+
+    /// <summary>暂时退出批量模式做一件要等很久、又不碰 SolidWorks 或要人操作的事。</summary>
+    public T Yield<T>(Func<T> wait)
+    {
+        Batch(false);
+        try
+        {
+            return wait();
+        }
+        finally
+        {
+            Batch(true);
+        }
+    }
+
+    /// <summary>
     /// 在一条新的 STA 线程上附着 SolidWorks 并执行 <paramref name="work"/>。
     /// SolidWorks 的 COM 对象属于单线程套间，拿到它们的线程也必须是用它们的线程。
     /// </summary>
@@ -68,8 +98,21 @@ internal sealed class SolidWorksSession : IDisposable
         {
             try
             {
-                using var session = AttachRunning(cancellation);
-                completion.SetResult(work(session));
+                T result;
+                using (var session = AttachRunning(cancellation))
+                {
+                    session.Batch(true);
+                    try
+                    {
+                        result = work(session);
+                    }
+                    finally
+                    {
+                        session.Batch(false);
+                    }
+                }
+
+                completion.SetResult(result);
             }
             catch (OperationCanceledException)
             {

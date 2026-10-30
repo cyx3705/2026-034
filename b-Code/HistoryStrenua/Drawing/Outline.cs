@@ -231,7 +231,7 @@ internal static class Outline
                 || api.Call(view, "IView", "get_ReferencedDocument") is null
                 || HoleScan.ModelKey(api, view) != model)
                 continue;
-            var geometry = new HoleScan.ViewGeometry(api, context.Session.Application, view);
+            var geometry = new HoleScan.ViewGeometry(api, view);
             if (geometry.Frame.Axonometric)
                 continue;
             var other = new ScannedView(scan.Document, view, name, geometry, [], [], [], []);

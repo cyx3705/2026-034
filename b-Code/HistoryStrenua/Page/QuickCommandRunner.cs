@@ -23,6 +23,9 @@ internal sealed class QuickCommandRunner(StrenuaOptions options, ICommandBus? bu
     private CancellationTokenSource? _running;
     private string? _runningKey;
     private string? _runningTitle;
+    private string? _runningProgress;
+    private System.Diagnostics.Stopwatch? _runningClock;
+    private TaskCompletionSource? _runningDone;
 
     /// <summary>一条指令的状态；<paramref name="Data"/> 是上次回执带的数据（1.22.0，<c>strenua.quick.last</c> 取回用）。</summary>
     internal sealed record QuickCommandStatus(string State, string Result, DateTime? FinishedAt, object? Data = null);
@@ -33,7 +36,50 @@ internal sealed class QuickCommandRunner(StrenuaOptions options, ICommandBus? bu
             return _status.TryGetValue(key, out var status) ? status : new QuickCommandStatus("就绪", string.Empty, null);
     }
 
+    /// <summary>MCP 调用最多等这么久就先回话（调用方有硬时限，超时结果就丢了）；指令在后台接着跑，用 <c>strenua.quick.last</c> 等结果。</summary>
+    internal static readonly TimeSpan ReplyBudget = TimeSpan.FromSeconds(40);
+
+    /// <summary><c>strenua.quick.last</c> 经 MCP 最多等多久。</summary>
+    internal const int LastWaitSeconds = 40;
+
+    /// <summary>
+    /// 执行一条指令。MCP 来的超过 <see cref="ReplyBudget"/> 还没完就先回「还在执行」，不让调用方撞时限、猜时间。
+    /// </summary>
     public async Task<CommandResult> RunAsync(QuickCommand command, CommandContext context)
+    {
+        if (!StepFeedback.Wanted(context.Source))
+            return await RunCoreAsync(command, context, context.Cancellation).ConfigureAwait(false);
+
+        // 先回话之后调用方的取消令牌就不算数了；要停用 strenua.quick.cancel。
+        var task = RunCoreAsync(command, context, CancellationToken.None);
+        if (await Task.WhenAny(task, Task.Delay(ReplyBudget)).ConfigureAwait(false) == task)
+            return await task.ConfigureAwait(false);
+        return CommandResult.Ok(RunningText(command.Key));
+    }
+
+    /// <summary>还在跑时给调用方的话：跑了多久、到哪一步、下一步做什么。</summary>
+    private string RunningText(string key)
+    {
+        lock (_gate)
+        {
+            return _runningKey == key
+                ? $"「{_runningTitle}」还在执行，已跑 {_runningClock?.Elapsed.TotalSeconds:0} 秒，当前：{_runningProgress ?? StatusOf(key).State}。指令不会中断；调 strenua.quick.last key={key} 取结果，它完成就立刻返回、最多等 {LastWaitSeconds} 秒。"
+                : $"key={key} 刚刚结束，调 strenua.quick.last key={key} 取结果。";
+        }
+    }
+
+    /// <summary>等正在跑的那条结束，最多 <paramref name="seconds"/> 秒，再回 <see cref="Last"/>。</summary>
+    public async Task<CommandResult> LastAsync(string key, int back, int seconds)
+    {
+        Task? running;
+        lock (_gate)
+            running = _runningKey == key && back == 0 ? _runningDone?.Task : null;
+        if (running is not null && seconds > 0)
+            await Task.WhenAny(running, Task.Delay(TimeSpan.FromSeconds(seconds))).ConfigureAwait(false);
+        return Last(key, back);
+    }
+
+    private async Task<CommandResult> RunCoreAsync(QuickCommand command, CommandContext context, CancellationToken caller)
     {
         // 1.20.0：带参数的先解析参数，填错直接失败，不附着 SolidWorks。
         var run = command.Run;
@@ -63,7 +109,10 @@ internal sealed class QuickCommandRunner(StrenuaOptions options, ICommandBus? bu
                 return CommandResult.Fail($"「{_runningTitle}」还在执行，等它结束或先按取消。");
             }
 
-            cancellation = CancellationTokenSource.CreateLinkedTokenSource(context.Cancellation);
+            cancellation = CancellationTokenSource.CreateLinkedTokenSource(caller);
+            _runningClock = System.Diagnostics.Stopwatch.StartNew();
+            _runningProgress = null;
+            _runningDone = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             _running = cancellation;
             _runningKey = command.Key;
             _runningTitle = command.Title;
@@ -85,6 +134,8 @@ internal sealed class QuickCommandRunner(StrenuaOptions options, ICommandBus? bu
                         lastProgress = message;
                         lock (timeline)
                             timeline.Add($"{clock.Elapsed.TotalSeconds,7:0.0}s {message}");
+                        lock (_gate)
+                            _runningProgress = message;
                         context.Progress?.Report(message);
                     },
                     state => SetState(command.Key, state),
@@ -169,6 +220,7 @@ internal sealed class QuickCommandRunner(StrenuaOptions options, ICommandBus? bu
         {
             var status = new QuickCommandStatus(state, result, DateTime.Now, data);
             _status[key] = status;
+            _runningDone?.TrySetResult();
             if (!_history.TryGetValue(key, out var list))
                 _history[key] = list = [];
             list.Insert(0, status);
@@ -202,7 +254,7 @@ internal sealed class QuickCommandRunner(StrenuaOptions options, ICommandBus? bu
             }
 
             if (_runningKey == key)
-                return CommandResult.Ok($"「{_runningTitle}」还在执行（{StatusOf(key).State}），等一会儿再取。");
+                return CommandResult.Ok(RunningText(key));
             if (!_status.TryGetValue(key, out var status) || status.FinishedAt is null)
                 return CommandResult.Fail($"key={key} 这次启动后还没执行过。");
             var head = $"[{status.State} {FormatTime(status.FinishedAt)}] ";

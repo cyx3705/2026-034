@@ -103,7 +103,14 @@ internal static class HoleScan
             context.Report($"{title}：正在识别视图「{viewName}」里的{what}。");
         }
 
-        var geometry = new ViewGeometry(api, context.Session.Application, view);
+        // 一条指令里同一视图只读一遍边：视图没挪没缩、图纸没重建，边就没变；每次都按全部类别收，谁要什么取什么。
+        var cacheKey = api.CallString(document, "IModelDoc2", "GetTitle") + "|" + viewName;
+        var transform = ViewGeometry.TransformData(api, view);
+        if (context.Scans.TryGetValue(cacheKey, out var cached) && cached.Generation == api.Generation && cached.Transform.SequenceEqual(transform))
+            return cached.Scan;
+        (withLines, withArcs, withChamfers) = (true, true, true);
+
+        var geometry = new ViewGeometry(api, view);
         var edges = new List<object>();
         var candidates = new List<HoleEdge>();
         var lineEdges = new List<object>();
@@ -174,7 +181,9 @@ internal static class HoleScan
 
         // 1.12.0：整圆、孔口残弧、与孔同圆的弧不是圆角（孔由孔类指令标），在这里就去掉。下标仍指 arcEdges。
         var (fillets, circleArcs) = FilletPlanner.WithoutCircles(arcs, candidates);
-        return new ScannedView(document, view, viewName, geometry, edges, candidates, lineEdges, lines, curves, arcEdges, fillets, chamferEdges, chamfers, circleArcs, bendLines);
+        var scanned = new ScannedView(document, view, viewName, geometry, edges, candidates, lineEdges, lines, curves, arcEdges, fillets, chamferEdges, chamfers, circleArcs, bendLines);
+        context.Scans[cacheKey] = (transform, api.Generation, scanned);
+        return scanned;
     }
 
     /// <summary>活动文档，必须是工程图。</summary>
@@ -222,7 +231,7 @@ internal static class HoleScan
     /// 视图的朝向（1.8.1，判轴测图、外轮廓跨视图去重用）。比 <see cref="Scan"/> 轻得多：只问视图变换，不读边。
     /// </summary>
     public static ViewFrame Frame(QuickCommandContext context, object view)
-        => new ViewGeometry(context.Api, context.Session.Application, view).Frame;
+        => new ViewGeometry(context.Api, view).Frame;
 
     /// <summary>视图引用的是哪个模型：文件路径 + 配置（1.8.1，外轮廓跨视图去重只比同一个模型的视图）。</summary>
     public static string ModelKey(SolidWorksApi api, object view)
@@ -244,13 +253,20 @@ internal static class HoleScan
         context.SetState("等待点选视图");
         context.Report($"{title}：请在 SolidWorks 里点一下要处理的视图（{SelectionTimeout.TotalSeconds:0} 秒内）。");
         var stopwatch = Stopwatch.StartNew();
-        while (stopwatch.Elapsed < SelectionTimeout)
+        var picked = context.Session.Yield(() =>
         {
-            context.Cancellation.ThrowIfCancellationRequested();
-            Thread.Sleep(250);
-            if (SelectedView(api, selection) is { } picked)
-                return picked;
-        }
+            while (stopwatch.Elapsed < SelectionTimeout)
+            {
+                context.Cancellation.ThrowIfCancellationRequested();
+                Thread.Sleep(250);
+                if (SelectedView(api, selection) is { } found)
+                    return found;
+            }
+
+            return null;
+        });
+        if (picked is not null)
+            return picked;
 
         throw new QuickCommandException($"{SelectionTimeout.TotalSeconds:0} 秒内没有点选视图，{title}已放弃。");
     }
@@ -290,12 +306,22 @@ internal static class HoleScan
     /// 把模型边变到图纸上。几何一律在零件自己的坐标系里返回：
     /// 装配视图里先乘组件变换到装配空间，再乘视图的模型→图纸变换。
     /// </summary>
-    internal sealed class ViewGeometry(SolidWorksApi api, object application, object view)
+    internal sealed class ViewGeometry(SolidWorksApi api, object view)
     {
-        private readonly object _math = api.Call(application, "ISldWorks", "GetMathUtility")
-            ?? throw new QuickCommandException("SolidWorks 没有返回 MathUtility。");
-        private readonly object _viewTransform = api.Call(view, "IView", "get_ModelToViewTransform")
-            ?? throw new QuickCommandException("SolidWorks 没有返回视图变换。");
+        private readonly double[] _viewTransform = TransformData(api, view);
+        private readonly bool _assembly = api.Call(view, "IView", "get_ReferencedDocument") is { } referenced
+            && api.CallInt(referenced, "IModelDoc2", "GetType") == DocumentAssembly;
+        private readonly Dictionary<object, double[]> _componentTransforms = new(ReferenceEqualityComparer.Instance);
+        private readonly Dictionary<object, (object? Curve, double[]? Circle)> _curves = new(ReferenceEqualityComparer.Instance);
+
+        /// <summary>视图变换的 16 个数（旋转 9、平移 3、比例 1），之后全在本地算，不再为每个点跨进程问一遍。</summary>
+        internal static double[] TransformData(SolidWorksApi api, object view)
+            => api.Call(view, "IView", "get_ModelToViewTransform") is { } transform
+                ? api.CallDoubles(transform, "IMathTransform", "get_ArrayData")
+                : throw new QuickCommandException("SolidWorks 没有返回视图变换。");
+
+        /// <summary>边所属组件：零件视图没有组件，不用问。</summary>
+        private object? Owner(object edge) => _assembly ? api.Call(edge, "IEntity", "GetComponent") : null;
 
         /// <summary>
         /// 是孔边就返回它在图纸上的圆心与半径（<c>Index</c> 由调用方补）。整圈的圆边是圆孔；
@@ -314,16 +340,16 @@ internal static class HoleScan
                 return null;
 
             var transforms = Transforms(edge);
-            var axis = ToSheet(transforms, "CreateVector", "IMathVector", circle[3], circle[4], circle[5]);
+            var axis = ToSheet(transforms, false, circle[3], circle[4], circle[5]);
             if (!HoleCalloutPlanner.FacesViewer(axis[0], axis[1], axis[2]))
                 return null;
 
-            var center = ToSheet(transforms, "CreatePoint", "IMathPoint", circle[0], circle[1], circle[2]);
+            var center = ToSheet(transforms, true, circle[0], circle[1], circle[2]);
             var (bx, by) = (0.0, 0.0);
             if (bulge is not null)
             {
                 // 轴线正对图纸，鼓出方向就在图纸平面里；向量变换带着比例，重新归一。
-                var sheet = ToSheet(transforms, "CreateVector", "IMathVector", bulge[0], bulge[1], bulge[2]);
+                var sheet = ToSheet(transforms, false, bulge[0], bulge[1], bulge[2]);
                 var length = Math.Sqrt(sheet[0] * sheet[0] + sheet[1] * sheet[1]);
                 if (length <= 0)
                     return null;
@@ -368,7 +394,7 @@ internal static class HoleScan
         /// </summary>
         private (string Kind, bool Dowel, string Component) Kind(object edge, object wall)
         {
-            var component = api.Call(edge, "IEntity", "GetComponent") is { } owner
+            var component = Owner(edge) is { } owner
                 ? api.CallString(owner, "IComponent2", "get_Name2")
                 : string.Empty;
             string feature;
@@ -425,7 +451,7 @@ internal static class HoleScan
             {
                 if (Circle(edge) is not { } circle)
                     return null;
-                var center = ToSheet(Transforms(edge), "CreatePoint", "IMathPoint", circle[0], circle[1], circle[2]);
+                var center = ToSheet(Transforms(edge), true, circle[0], circle[1], circle[2]);
                 return new SheetPoint(center[0], center[1]);
             }
             catch (Exception ex) when (ex is System.Runtime.InteropServices.COMException or InvalidCastException or System.Reflection.TargetException)
@@ -447,18 +473,18 @@ internal static class HoleScan
                 var start = api.Call(edge, "IEdge", "GetStartVertex");
                 var end = api.Call(edge, "IEdge", "GetEndVertex");
                 var transforms = Transforms(edge);
-                var axis = ToSheet(transforms, "CreateVector", "IMathVector", circle[3], circle[4], circle[5]);
+                var axis = ToSheet(transforms, false, circle[3], circle[4], circle[5]);
                 if (!HoleCalloutPlanner.FacesViewer(axis[0], axis[1], axis[2]))
                     return null;
                 if (ArcFaceConcave(edge, circle) is not { } concave)
                     return null;
-                var center = ToSheet(transforms, "CreatePoint", "IMathPoint", circle[0], circle[1], circle[2]);
+                var center = ToSheet(transforms, true, circle[0], circle[1], circle[2]);
                 if (start is null || end is null)
                 {
                     // 1.12.0：没有端点的整圈（凸台、轴端；内凹的整圈是孔，先被 TryReadHole 认走）也收进来，减掉孔以后标 Ø（FilletPlanner.WithoutCircles）。
                     // 弧中点随便取圆上一点，标的时候文字方向由规划器按整圆另定。
                     var (px, py, pz) = HoleCalloutPlanner.Perpendicular(circle[3], circle[4], circle[5]);
-                    var on = ToSheet(transforms, "CreatePoint", "IMathPoint", circle[0] + circle[6] * px, circle[1] + circle[6] * py, circle[2] + circle[6] * pz);
+                    var on = ToSheet(transforms, true, circle[0] + circle[6] * px, circle[1] + circle[6] * py, circle[2] + circle[6] * pz);
                     return new FilletArc(index, new SheetPoint(center[0], center[1]), circle[6] * Scale, circle[6], new SheetPoint(on[0], on[1]), concave, 2 * Math.PI);
                 }
 
@@ -466,9 +492,9 @@ internal static class HoleScan
                 var e = api.CallDoubles(end, "IVertex", "GetPoint");
                 if (s.Length < 3 || e.Length < 3 || ArcMiddle(edge, circle, s, e) is not { } middle)
                     return null;
-                var mid = ToSheet(transforms, "CreatePoint", "IMathPoint", middle[0], middle[1], middle[2]);
-                var from = ToSheet(transforms, "CreatePoint", "IMathPoint", s[0], s[1], s[2]);
-                var to = ToSheet(transforms, "CreatePoint", "IMathPoint", e[0], e[1], e[2]);
+                var mid = ToSheet(transforms, true, middle[0], middle[1], middle[2]);
+                var from = ToSheet(transforms, true, s[0], s[1], s[2]);
+                var to = ToSheet(transforms, true, e[0], e[1], e[2]);
                 var sweep = FilletPlanner.SweepOf(new SheetPoint(center[0], center[1]), new SheetPoint(from[0], from[1]), new SheetPoint(to[0], to[1]), new SheetPoint(mid[0], mid[1]));
                 return new FilletArc(index, new SheetPoint(center[0], center[1]), circle[6] * Scale, circle[6], new SheetPoint(mid[0], mid[1]), concave, sweep,
                     new SheetPoint(from[0], from[1]), new SheetPoint(to[0], to[1]));
@@ -504,7 +530,7 @@ internal static class HoleScan
                     var n = api.CallDoubles(face, "IFace2", "get_Normal");
                     if (n.Length < 3)
                         continue;
-                    var v = ToSheet(transforms, "CreateVector", "IMathVector", n[0], n[1], n[2]);
+                    var v = ToSheet(transforms, false, n[0], n[1], n[2]);
                     var norm = Math.Sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
                     if (norm <= 0)
                         continue;
@@ -548,7 +574,7 @@ internal static class HoleScan
         /// <summary>面的标识：组件名 + 面在零件坐标里的包围盒（0.01 mm），跨视图认同一张倒角面用。</summary>
         private string FaceKey(object edge, object face)
         {
-            var component = api.Call(edge, "IEntity", "GetComponent") is { } owner ? api.CallString(owner, "IComponent2", "get_Name2") : string.Empty;
+            var component = Owner(edge) is { } owner ? api.CallString(owner, "IComponent2", "get_Name2") : string.Empty;
             var box = api.CallDoubles(face, "IFace2", "GetBox");
             return component + "|" + string.Join(",", box.Select(v => Math.Round(v * 1e5).ToString(System.Globalization.CultureInfo.InvariantCulture)));
         }
@@ -582,7 +608,7 @@ internal static class HoleScan
             {
                 if (Circle(edge) is not { } circle)
                     return null;
-                var center = ToSheet(Transforms(edge), "CreatePoint", "IMathPoint", circle[0], circle[1], circle[2]);
+                var center = ToSheet(Transforms(edge), true, circle[0], circle[1], circle[2]);
                 return (new SheetPoint(center[0], center[1]), circle[6] * Scale);
             }
             catch (Exception ex) when (ex is System.Runtime.InteropServices.COMException or InvalidCastException or System.Reflection.TargetException)
@@ -594,7 +620,7 @@ internal static class HoleScan
         /// <summary>直边在图纸上的两个端点；不是直边（或没有端点）返回 null。</summary>
         public SheetSegment? TryReadLine(object edge)
         {
-            var curve = api.Call(edge, "IEdge", "GetCurve");
+            var curve = CurveOf(edge).Curve;
             if (curve is null || !api.CallBool(curve, "ICurve", "IsLine"))
                 return null;
             if (api.Call(edge, "IEdge", "GetStartVertex") is not { } start
@@ -606,8 +632,8 @@ internal static class HoleScan
                 return null;
 
             var transforms = Transforms(edge);
-            var p = ToSheet(transforms, "CreatePoint", "IMathPoint", a[0], a[1], a[2]);
-            var q = ToSheet(transforms, "CreatePoint", "IMathPoint", b[0], b[1], b[2]);
+            var p = ToSheet(transforms, true, a[0], a[1], a[2]);
+            var q = ToSheet(transforms, true, b[0], b[1], b[2]);
             return new SheetSegment(p[0], p[1], q[0], q[1]);
         }
 
@@ -670,7 +696,7 @@ internal static class HoleScan
         {
             try
             {
-                if (api.Call(edge, "IEdge", "GetCurve") is not { } curve)
+                if (CurveOf(edge).Curve is not { } curve)
                     return null;
                 var line = api.CallDoubles(curve, "ICurve", "get_LineParams");
                 if (line.Length < 6)
@@ -718,7 +744,7 @@ internal static class HoleScan
                 var transforms = Transforms(edge);
                 SheetPoint Sheet(double[] p)
                 {
-                    var q = ToSheet(transforms, "CreatePoint", "IMathPoint", p[0], p[1], p[2]);
+                    var q = ToSheet(transforms, true, p[0], p[1], p[2]);
                     return new SheetPoint(q[0], q[1]);
                 }
 
@@ -810,7 +836,7 @@ internal static class HoleScan
         /// <summary>视图所引用模型（顶层）坐标系里的一个点，变到图纸上。</summary>
         public SheetPoint ModelPointToSheet(double x, double y, double z)
         {
-            var point = ToSheet([_viewTransform], "CreatePoint", "IMathPoint", x, y, z);
+            var point = ToSheet([_viewTransform], true, x, y, z);
             return new SheetPoint(point[0], point[1]);
         }
 
@@ -824,9 +850,9 @@ internal static class HoleScan
 
         private ViewFrame ReadFrame()
         {
-            var vx = ToSheet([_viewTransform], "CreateVector", "IMathVector", 1, 0, 0);
-            var vy = ToSheet([_viewTransform], "CreateVector", "IMathVector", 0, 1, 0);
-            var vz = ToSheet([_viewTransform], "CreateVector", "IMathVector", 0, 0, 1);
+            var vx = ToSheet([_viewTransform], false, 1, 0, 0);
+            var vy = ToSheet([_viewTransform], false, 0, 1, 0);
+            var vz = ToSheet([_viewTransform], false, 0, 0, 1);
             ModelDirection Row(int i) => new ModelDirection(vx[i], vy[i], vz[i]).Normalized();
             return new ViewFrame(Row(0), Row(1), Row(2), ModelPointToSheet(0, 0, 0), Scale);
         }
@@ -834,11 +860,23 @@ internal static class HoleScan
         /// <summary><c>CircleParams</c>：圆心 xyz、轴向 xyz、半径。不是圆返回 null。</summary>
         private double[]? Circle(object edge)
         {
+            return CurveOf(edge).Circle;
+        }
+
+        /// <summary>边的曲线与圆参数，每条边只问一遍（一次识别里一条边要问好几次）。</summary>
+        private (object? Curve, double[]? Circle) CurveOf(object edge)
+        {
+            if (_curves.TryGetValue(edge, out var known))
+                return known;
             var curve = api.Call(edge, "IEdge", "GetCurve");
-            if (curve is null || !api.CallBool(curve, "ICurve", "IsCircle"))
-                return null;
-            var circle = api.CallDoubles(curve, "ICurve", "get_CircleParams");
-            return circle.Length >= 7 ? circle : null;
+            double[]? circle = null;
+            if (curve is not null && api.CallBool(curve, "ICurve", "IsCircle"))
+            {
+                var parameters = api.CallDoubles(curve, "ICurve", "get_CircleParams");
+                circle = parameters.Length >= 7 ? parameters : null;
+            }
+
+            return _curves[edge] = (curve, circle);
         }
 
         /// <summary>
@@ -871,27 +909,40 @@ internal static class HoleScan
             return null;
         }
 
-        private List<object> Transforms(object edge)
+        private List<double[]> Transforms(object edge)
         {
-            var transforms = new List<object>(2);
-            if (api.Call(edge, "IEntity", "GetComponent") is { } component
-                && api.Call(component, "IComponent2", "get_Transform2") is { } componentTransform)
-                transforms.Add(componentTransform);
+            var transforms = new List<double[]>(2);
+            if (Owner(edge) is { } component)
+            {
+                if (!_componentTransforms.TryGetValue(component, out var data))
+                {
+                    data = api.Call(component, "IComponent2", "get_Transform2") is { } componentTransform
+                        ? api.CallDoubles(componentTransform, "IMathTransform", "get_ArrayData")
+                        : [];
+                    _componentTransforms[component] = data;
+                }
+
+                if (data.Length >= 13)
+                    transforms.Add(data);
+            }
+
             transforms.Add(_viewTransform);
             return transforms;
         }
 
-        private double[] ToSheet(List<object> transforms, string create, string kind, double x, double y, double z)
+        /// <summary>同 <c>IMathPoint/IMathVector.MultiplyTransform</c>（真机逐视图核对到 6 位小数）：p' = 比例·p·R + 平移，向量不加平移。</summary>
+        internal static double[] ToSheet(IReadOnlyList<double[]> transforms, bool point, double x, double y, double z)
         {
-            var value = api.Call(_math, "IMathUtility", create, new[] { x, y, z })
-                ?? throw new QuickCommandException("SolidWorks 没有创建出数学对象。");
-            foreach (var transform in transforms)
+            foreach (var t in transforms)
             {
-                value = api.Call(value, kind, "MultiplyTransform", transform)
-                    ?? throw new QuickCommandException("SolidWorks 坐标变换失败。");
+                var (nx, ny, nz) = (
+                    t[12] * (t[0] * x + t[3] * y + t[6] * z),
+                    t[12] * (t[1] * x + t[4] * y + t[7] * z),
+                    t[12] * (t[2] * x + t[5] * y + t[8] * z));
+                (x, y, z) = point ? (nx + t[9], ny + t[10], nz + t[11]) : (nx, ny, nz);
             }
 
-            return api.CallDoubles(value, kind, "get_ArrayData");
+            return [x, y, z];
         }
     }
 }

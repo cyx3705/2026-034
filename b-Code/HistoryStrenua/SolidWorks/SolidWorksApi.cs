@@ -47,6 +47,9 @@ internal sealed class SolidWorksApi : IDisposable
     private readonly HashSet<object> _owned = new(ReferenceEqualityComparer.Instance);
     private readonly Dictionary<(string Interface, string Method), (long Count, long Ticks)> _profile = new();
 
+    /// <summary>图纸重建过几次：重建后边对象可能换掉，视图识别缓存要作废（见 <see cref="HoleScan.Scan"/>）。</summary>
+    public int Generation { get; private set; }
+
     /// <summary>这次会话调了多少次 SolidWorks（性能剖析，见 <c>strenua.quick.perf</c>）。</summary>
     public long CallCount => _profile.Values.Sum(item => item.Count);
 
@@ -93,6 +96,8 @@ internal sealed class SolidWorksApi : IDisposable
             {
                 var started = System.Diagnostics.Stopwatch.GetTimestamp();
                 var value = info.Invoke(target, arguments);
+                if (method is "EditRebuild3" or "ForceRebuild3")
+                    Generation++;
                 var key = (interfaceName, method);
                 _profile.TryGetValue(key, out var seen);
                 _profile[key] = (seen.Count + 1, seen.Ticks + System.Diagnostics.Stopwatch.GetTimestamp() - started);

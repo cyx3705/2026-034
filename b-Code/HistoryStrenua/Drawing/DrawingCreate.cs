@@ -224,13 +224,20 @@ internal static class DrawingCreate
         context.SetState("等待点选零件");
         context.Report($"新建工程图：请在装配体里点一下要出图的零件（{HoleScan.SelectionTimeout.TotalSeconds:0} 秒内）。");
         var stopwatch = Stopwatch.StartNew();
-        while (stopwatch.Elapsed < HoleScan.SelectionTimeout)
+        var picked = context.Session.Yield(() =>
         {
-            context.Cancellation.ThrowIfCancellationRequested();
-            Thread.Sleep(250);
-            if (Selected() is { } picked)
-                return picked;
-        }
+            while (stopwatch.Elapsed < HoleScan.SelectionTimeout)
+            {
+                context.Cancellation.ThrowIfCancellationRequested();
+                Thread.Sleep(250);
+                if (Selected() is { } found)
+                    return found;
+            }
+
+            return null;
+        });
+        if (picked is not null)
+            return picked;
 
         throw new QuickCommandException($"{HoleScan.SelectionTimeout.TotalSeconds:0} 秒内没有在装配体里选零件，新建工程图已放弃。");
     }

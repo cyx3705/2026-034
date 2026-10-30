@@ -151,7 +151,7 @@ internal static class ChamferDimension
             var self = name == scan.ViewName;
             if (!self && (api.Call(view, "IView", "get_ReferencedDocument") is null || HoleScan.ModelKey(api, view) != model))
                 continue;
-            var geometry = self ? scan.Geometry : new HoleScan.ViewGeometry(api, context.Session.Application, view);
+            var geometry = self ? scan.Geometry : new HoleScan.ViewGeometry(api, view);
             var keys = new List<string>();
             foreach (var edge in ChamferDimensionEdges(api, view))
             {

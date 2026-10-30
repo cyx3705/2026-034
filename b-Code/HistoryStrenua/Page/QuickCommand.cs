@@ -111,6 +111,9 @@ internal sealed class QuickCommandContext(
     /// <summary>本条命令开始处理的工程图。多步流程锁定这张图，避免 SW 激活引用零件后余下步骤跑错文档。</summary>
     public object? TargetDrawing { get; set; }
 
+    /// <summary>这条指令里已识别的视图（多步流程不重复读同一视图的边，见 <see cref="HoleScan.Scan"/>）。</summary>
+    internal Dictionary<string, (double[] Transform, int Generation, ScannedView Scan)> Scans { get; } = new(StringComparer.Ordinal);
+
     /// <summary>页面开关（避障、尺寸链模式）的当前值。</summary>
     public StrenuaOptions Options { get; } = options;
 
@@ -129,7 +132,7 @@ internal sealed class QuickCommandContext(
     public CommandResult Invoke(string commandText)
         => bus is null
             ? CommandResult.Fail("没有命令总线（离线运行），调不到别的模块。")
-            : bus.InvokeAsync(commandText, TechAi.CommandSource, Cancellation).GetAwaiter().GetResult();
+            : Session.Yield(() => bus.InvokeAsync(commandText, TechAi.CommandSource, Cancellation).GetAwaiter().GetResult());
 
     /// <summary>
     /// 经命令总线发一条别的模块的指令、不等它回来（1.16.0，检查结果弹窗 <c>aurora.ui.dialog</c>：它要等人关窗才回）。

@@ -48,6 +48,7 @@ internal static partial class Tests
             "strenua.check.svg",
             "strenua.quick.list",
             "strenua.quick.run",
+            "strenua.quick.last",
             "strenua.quick.cancel",
             "strenua.ui.describe",
             "strenua.ui.actions",
@@ -183,7 +184,11 @@ internal static partial class Tests
         Equal("就绪", hole["state"]);
         Equal(string.Empty, hole["result"]);
         foreach (var row in rows)
-            True(new[] { "id", "title", "class", "usage", "state", "result", "time" }.All(row.ContainsKey), "列表行缺列");
+            True(new[] { "id", "title", "class", "state", "result", "time" }.All(row.ContainsKey) && !row.ContainsKey("usage"), "列表行的列（1.22.0 去掉用法）");
+        // 1.22.0：结果只留第一行；全文用 quick.last 取，没跑过的回失败。
+        Equal("孔标注全流程：3 个视图都已做完。", HistoryStrenuaModule.FirstLine("孔标注全流程：3 个视图都已做完。\r\n[销钉符号] ……"));
+        Equal(61, HistoryStrenuaModule.FirstLine(new string('字', 80)).Length);
+        True(!new QuickCommandRunner(new StrenuaOptions()).Last("hole-flow").Success, "没跑过的 quick.last 回失败");
     }
 
     static void TestSwitchPanel()

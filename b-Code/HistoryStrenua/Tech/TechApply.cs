@@ -34,8 +34,9 @@ internal static class TechApply
 
     public const string SetDefaultText = "设为默认";
 
-    public const string Summary = "把「通用技术要求」里的一份插进当前工程图（标题栏上方或左侧）；图框里已有技术要求就删掉、在原处换成这份，避障开时挪视图让地方；"
-        + "「AI 填写技术要求」开关开着时改由 AI 选基础并删除不适用条目（AI 没成才插这份）。";
+    // 1.22.0：自描述 Summary 连前缀 124 字超了 120，压短（意思不变）。
+    public const string Summary = "把「通用技术要求」里的一份插到当前工程图标题栏上方或左侧，已有的原处替换，避障开时挪视图让位；"
+        + "「AI 填写技术要求」开着时改由 AI 选基础并删不适用条目（AI 没成才插这份）。";
 
     public const string DefaultSummary = "把「通用技术要求」里的一份设为默认（记到本机），「一键出图」插的就是它；省略 name 只报当前默认。";
 

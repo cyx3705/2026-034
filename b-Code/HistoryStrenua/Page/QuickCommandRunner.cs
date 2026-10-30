@@ -24,8 +24,8 @@ internal sealed class QuickCommandRunner(StrenuaOptions options, ICommandBus? bu
     private string? _runningKey;
     private string? _runningTitle;
 
-    /// <summary>一条指令的状态。</summary>
-    internal sealed record QuickCommandStatus(string State, string Result, DateTime? FinishedAt);
+    /// <summary>一条指令的状态；<paramref name="Data"/> 是上次回执带的数据（1.22.0，<c>strenua.quick.last</c> 取回用）。</summary>
+    internal sealed record QuickCommandStatus(string State, string Result, DateTime? FinishedAt, object? Data = null);
 
     public QuickCommandStatus StatusOf(string key)
     {
@@ -110,7 +110,7 @@ internal sealed class QuickCommandRunner(StrenuaOptions options, ICommandBus? bu
             cancellation.Dispose();
         }
 
-        Finish(command.Key, outcome.Success ? "完成" : "失败", outcome.Message);
+        Finish(command.Key, outcome.Success ? "完成" : "失败", outcome.Message, outcome.Data);
         return outcome.Success ? CommandResult.Ok(outcome.Message, outcome.Data) : CommandResult.Fail(outcome.Message);
     }
 
@@ -132,10 +132,27 @@ internal sealed class QuickCommandRunner(StrenuaOptions options, ICommandBus? bu
             _status[key] = new QuickCommandStatus(state, string.Empty, null);
     }
 
-    private void Finish(string key, string state, string result)
+    private void Finish(string key, string state, string result, object? data = null)
     {
         lock (_gate)
-            _status[key] = new QuickCommandStatus(state, result, DateTime.Now);
+            _status[key] = new QuickCommandStatus(state, result, DateTime.Now, data);
+    }
+
+    /// <summary>
+    /// 上一次执行的结论（1.22.0）：长指令（一键出图、孔标注全流程）经 MCP 转发时调用方先超时，指令照跑完、回执就丢了——
+    /// 用 <c>strenua.quick.last</c> 取回原样的文字与数据（含本步反馈的 SVG）。还在跑回执「执行中」，没跑过回失败。
+    /// </summary>
+    public CommandResult Last(string key)
+    {
+        lock (_gate)
+        {
+            if (_runningKey == key)
+                return CommandResult.Ok($"「{_runningTitle}」还在执行（{StatusOf(key).State}），等一会儿再取。");
+            if (!_status.TryGetValue(key, out var status) || status.FinishedAt is null)
+                return CommandResult.Fail($"key={key} 这次启动后还没执行过。");
+            var head = $"[{status.State} {FormatTime(status.FinishedAt)}] ";
+            return status.Data is null ? CommandResult.Ok(head + status.Result) : CommandResult.Ok(head + status.Result, status.Data);
+        }
     }
 
     internal static string FormatTime(DateTime? time)

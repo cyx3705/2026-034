@@ -50,10 +50,32 @@ public sealed class HistoryStrenuaModule : IModuleContextAware
             Name = StrenuaIdentity.Domain + ".quick.list",
             Domain = StrenuaIdentity.Domain,
             CommandClass = "quick",
-            Summary = "列出 PowerSW 全部快捷指令及其上次执行结果",
+            Summary = "列出 PowerSW 全部快捷指令的 key、状态与上次结果的第一行（全文用 strenua.quick.last）",
             Example = StrenuaIdentity.Domain + ".quick.list",
             Readonly = true,
             Handler = CommandDescriptor.Sync(_ => CommandResult.Ok(ListText(runner), ListRows(runner))),
+        });
+
+        registry.Register(new CommandDescriptor
+        {
+            Name = StrenuaIdentity.Domain + ".quick.last",
+            Domain = StrenuaIdentity.Domain,
+            CommandClass = "quick",
+            Summary = "取回一条快捷指令上次执行的完整回执（文字与数据，含本步反馈 SVG）；长指令经 MCP 转发超时后用它补拿结果",
+            Example = StrenuaIdentity.Domain + ".quick.last key=" + QuickCommands.All[0].Key,
+            Readonly = true,
+            Parameters =
+            [
+                new ParameterSpec
+                {
+                    Name = "key",
+                    Description = "快捷指令的 key（strenua.quick.list 的 id 列），如 hole-flow",
+                    Required = true,
+                    Position = 0,
+                    AllowedValues = QuickCommands.All.Select(command => command.Key).ToArray(),
+                },
+            ],
+            Handler = CommandDescriptor.Sync(context => runner.Last(context.RequireString("key").Trim())),
         });
 
         registry.Register(new CommandDescriptor
@@ -198,7 +220,10 @@ public sealed class HistoryStrenuaModule : IModuleContextAware
             }),
         };
 
-    /// <summary><c>strenua.quick.list</c> 的数据：一条快捷指令一行。</summary>
+    /// <summary>
+    /// <c>strenua.quick.list</c> 的数据：一条快捷指令一行。1.22.0 瘦身：真机上一次调用带回 50 条完整用法加整段结果，上万字全是噪声——
+    /// 用法看自描述（<c>diana.docs.read domain=strenua</c>），结果只留第一行，全文用 <c>strenua.quick.last key=</c> 取。
+    /// </summary>
     internal static IReadOnlyList<IReadOnlyDictionary<string, string>> ListRows(QuickCommandRunner runner)
         => QuickCommands.All
             .Select(command =>
@@ -209,13 +234,19 @@ public sealed class HistoryStrenuaModule : IModuleContextAware
                     ["id"] = command.Key,
                     ["title"] = command.Title,
                     ["class"] = command.ClassTitle,
-                    ["usage"] = command.Usage,
                     ["state"] = status.State,
-                    ["result"] = status.Result,
+                    ["result"] = FirstLine(status.Result),
                     ["time"] = QuickCommandRunner.FormatTime(status.FinishedAt),
                 };
             })
             .ToList();
+
+    /// <summary>结果的第一行，最多 60 字。</summary>
+    internal static string FirstLine(string result)
+    {
+        var line = result.Split(['\r', '\n'], 2)[0];
+        return line.Length <= 60 ? line : line[..60] + "…";
+    }
 
     private static string ListText(QuickCommandRunner runner)
         => string.Join(
@@ -223,8 +254,8 @@ public sealed class HistoryStrenuaModule : IModuleContextAware
             QuickCommands.All.Select(command =>
             {
                 var status = runner.StatusOf(command.Key);
-                var result = status.Result.Length == 0 ? string.Empty : " — " + status.Result;
-                return $"{command.CommandName}  {command.Title}  [{status.State}]{result}";
+                var result = status.Result.Length == 0 ? string.Empty : " — " + FirstLine(status.Result);
+                return $"{command.Key}  {command.Title}  [{status.State}]{result}";
             })
             .Append($"避障：{(runner.Options.Clearance ? "开" : "关")}；尺寸链：{(runner.Options.Chain ? "开" : "关")}；默认技术要求：{runner.Options.TechDefault}；"
                 + $"AI 填写技术要求：{(runner.Options.TechAi ? "开" : "关")}"));

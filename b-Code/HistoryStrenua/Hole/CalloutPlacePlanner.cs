@@ -8,9 +8,10 @@ namespace HistoryStrenua;
 /// <param name="Texts">别的注解的字。</param>
 /// <param name="Blocks">字整块不许进的地方：标题栏、修改栏、图纸注解、轴测图外框。</param>
 /// <param name="Frame">图框；字不许出。</param>
+/// <param name="Holes">页上的孔：引线从别的孔上过要扣分；null 不查。</param>
 internal sealed record CalloutField(
     IReadOnlyList<SheetSegment> ViewLines, IReadOnlyList<SheetSegment> Marks, IReadOnlyList<SheetSegment> DimensionLines,
-    IReadOnlyList<SheetSegment> Leaders, IReadOnlyList<TextBox> Texts, IReadOnlyList<SheetRect> Blocks, SheetRect Frame);
+    IReadOnlyList<SheetSegment> Leaders, IReadOnlyList<TextBox> Texts, IReadOnlyList<SheetRect> Blocks, SheetRect Frame, IReadOnlyList<HoleEdge>? Holes = null);
 
 /// <summary>选位结果：挂在哪个孔、折点与文字朝向、代价（越小越好）。</summary>
 internal readonly record struct CalloutPick(HoleEdge Hole, CalloutSpot Spot, double Cost);
@@ -39,6 +40,7 @@ internal static class CalloutPlacePlanner
     private const double LeaderThroughText = 500;
     private const double LeaderCrossLeader = 300;
     private const double LeaderCrossDimension = 100;
+    private const double LeaderOverHole = 60;
     private const double LeaderCrossEdge = 3;
     private const double LongLeader = 200;
     private const double PerMillimeter = 1;
@@ -98,8 +100,21 @@ internal static class CalloutPlacePlanner
         cost += LeaderCrossLeader * LeaderPlanner.Crossings(leaders, field.Leaders);
         cost += LeaderCrossDimension * LeaderPlanner.Crossings(leaders, field.DimensionLines);
         cost += LeaderCrossEdge * LeaderPlanner.Crossings(leaders, field.ViewLines);
+        cost += LeaderOverHole * (field.Holes ?? []).Count(hole => leaders.Any(leader => OverHole(leader, hole)));
         cost += LeaderThroughText * field.Texts.Count(other => leaders.Any(leader => ClearancePlanner.Hits(other, leader)));
         return cost;
+    }
+
+    /// <summary>引线从别的孔上面过（真机夹爪2：一眼看不出它指哪个孔）。自己的孔不算：引线从孔边起步，离孔心不小于半径。</summary>
+    private static bool OverHole(SheetSegment leader, HoleEdge hole)
+    {
+        var (dx, dy) = (leader.X2 - leader.X1, leader.Y2 - leader.Y1);
+        var squared = dx * dx + dy * dy;
+        if (squared <= 0)
+            return false;
+        var t = Math.Clamp(((hole.X - leader.X1) * dx + (hole.Y - leader.Y1) * dy) / squared, 0, 1);
+        var (px, py) = (leader.X1 + t * dx - hole.X, leader.Y1 + t * dy - hole.Y);
+        return px * px + py * py < hole.Radius * hole.Radius * 0.81;
     }
 
     /// <summary>字中点在孔的这一侧，SolidWorks 才会把引线接在我们要的那一头（真机：过了孔心它就换到另一头）。</summary>

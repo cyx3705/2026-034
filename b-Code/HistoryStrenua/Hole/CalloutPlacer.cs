@@ -46,6 +46,7 @@ internal static class CalloutPlacer
         var api = context.Api;
         context.SetState("孔标注选位");
         var viewLines = new List<SheetSegment>();
+        var allHoles = new List<HoleEdge>();
         var blocks = DrawingSheet.KeepOutRects(api, drawing).ToList();
         var items = new List<Item>();
         foreach (var view in HoleScan.SheetViews(api, drawing))
@@ -63,6 +64,7 @@ internal static class CalloutPlacer
             viewLines.AddRange(scan.CurveSegments);
             foreach (var hole in scan.Candidates)
                 viewLines.AddRange(ClearancePlanner.Octagon(new SheetPoint(hole.X, hole.Y), hole.Radius));
+            allHoles.AddRange(HoleCalloutPlanner.Recognize(scan.Candidates));
             items.AddRange(ReadItems(context, scan, view));
         }
 
@@ -77,7 +79,7 @@ internal static class CalloutPlacer
         foreach (var item in targets)
         {
             context.Cancellation.ThrowIfCancellationRequested();
-            var field = Field(items, item, viewLines, blocks, frame);
+            var field = Field(items, item, viewLines, blocks, frame) with { Holes = allHoles };
             var holes = KindOf(item);
             if (holes.Count == 0 || HoleCallout.Shoulder(api, item.Annotation, textLeft: true) is not { } shoulder)
             {
@@ -100,7 +102,11 @@ internal static class CalloutPlacer
                 if (position.Length >= 3 && api.CallBool(item.Annotation, "IAnnotation", "SetPosition2", position[0] + dx, position[1] + dy, position[2]))
                 {
                     HoleCallout.AlignShoulder(api, item.Annotation, pick.Spot.Shoulder, pick.Spot.TextLeft);
-                    moved++;
+                    var after = api.CallDoubles(item.Annotation, "IAnnotation", "GetPosition");
+                    if (after.Length >= 2 && Math.Abs(after[0] - position[0]) + Math.Abs(after[1] - position[1]) > 1e-4)
+                        moved++;
+                    else
+                        stayed++;
                 }
             }
             else

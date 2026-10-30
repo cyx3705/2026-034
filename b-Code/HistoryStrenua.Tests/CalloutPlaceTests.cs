@@ -31,6 +31,11 @@ internal static partial class Tests
         var inside = CalloutPlacePlanner.Choose([text], Mm(20), [left], blocked);
         True(inside is not null && inside.Value.Spot.Shoulder.Y > Mm(95) && inside.Value.Spot.Shoulder.Y < Mm(155), "禁区不进");
 
+        // 引线从别的孔上过要多算分。
+        var through = new SheetSegment[] { new(Mm(10), Mm(10), Mm(50), Mm(10)) };
+        var overHole = field with { Holes = [new HoleEdge(5, Mm(30), Mm(10), Mm(3), "/Other")] };
+        True(CalloutPlacePlanner.Cost([text.Shift(Mm(100), Mm(100))], through, overHole) > CalloutPlacePlanner.Cost([text.Shift(Mm(100), Mm(100))], through, field) + 50, "引线过别的孔要扣分");
+
         // 已经在好位置就不值得挪：现状代价不比候选差太多。
         var current = CalloutPlacePlanner.Cost([moved], [leader], field);
         True(current <= pick.Value.Cost + 5, "同一位置（引线从孔心量，多一个半径）不值得再挪");

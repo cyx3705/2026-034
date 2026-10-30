@@ -53,25 +53,28 @@ internal static class DrawingSvg
         var views = sheet.Views.Where(view => view.Outline is not null).ToList();
         var scope = viewName is null ? "当前图纸页" : $"视图「{viewName}」";
         var counts = $"{views.Count} 个视图、{views.Sum(view => view.Lines.Count)} 条直边、{views.Sum(view => view.Holes.Count)} 个孔、{sheet.Views.Sum(view => view.Annotations.Count)} 个注解";
-        var (svg, how) = Budgeted(context, drawing, sheet);
+        var (svg, how) = Budgeted(context, drawing, sheet, viewName is null ? SvgDetail.Ladder : SvgDetail.ViewLadder);
         var message = $"图纸 SVG：「{sheet.Title}」{scope} {counts}；{how}。完整 SVG 已存 {file}";
-        return svg is null ? QuickOutcome.Ok(message) : QuickOutcome.Ok(message, svg);
+        return QuickOutcome.Ok(svg is null ? message : message + Environment.NewLine + svg);
     }
 
     /// <summary>
-    /// 按预算挑写多细（<see cref="SvgDetail.Ladder"/>），挑得出返回 SVG 与说明；都超预算就存一张整页截图，返回 null 与截图路径。
+    /// 按预算挑写多细（<paramref name="ladder"/>，默认 <see cref="SvgDetail.Ladder"/>），挑得出返回 SVG 与说明；都超预算就存一张整页截图，返回 null 与截图路径。
     /// </summary>
-    internal static (string? Svg, string How) Budgeted(QuickCommandContext context, object drawing, SvgSheet sheet)
+    /// <remarks>
+    /// 1.22.0：SVG 接在回执文字后面，不再放进回执数据——宿主把数据在文字里再序列化一份、结构化内容里又一份，同一份 SVG 占两遍（真机单视图 9K 字的 SVG 回执约 2 万字）。
+    /// </remarks>
+    internal static (string? Svg, string How) Budgeted(QuickCommandContext context, object drawing, SvgSheet sheet, IReadOnlyList<SvgDetail>? ladder = null)
     {
         var size = 0;
-        foreach (var detail in SvgDetail.Ladder)
+        foreach (var detail in ladder ?? SvgDetail.Ladder)
         {
             var svg = DrawingSvgWriter.Write(sheet, detail);
             if (svg.Length <= Budget)
             {
                 // 真机：孔标注全流程的差异没有几何（没有新建视图），标签却写「几何 + 精简标注」——按实际有没有几何说。
                 var label = sheet.Views.Any(view => view.Lines.Count + view.Holes.Count + view.Curves.Count > 0) ? detail.Label : detail.Compact ? "精简标注" : "完整标注";
-                return (svg, $"SVG {svg.Length} 字（{label}）在数据里");
+                return (svg, $"SVG {svg.Length} 字（{label}）接在下面");
             }
 
             size = svg.Length;

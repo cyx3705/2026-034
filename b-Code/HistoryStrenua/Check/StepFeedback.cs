@@ -51,7 +51,8 @@ internal static class StepFeedback
         var delta = SheetDelta.Fill(after, diff, scanned);
         var (svg, how) = DrawingSvg.Budgeted(context, drawing, delta);
         var message = outcome.Message + Environment.NewLine + $"· 本步反馈：{diff.Summary}；{how}。";
-        return outcome with { Message = message, Data = outcome.Data ?? svg };
+        // 接在文字后面、不放进数据（同一份不占两遍，见 DrawingSvg.Budgeted）。
+        return outcome with { Message = svg is null ? message : message + Environment.NewLine + svg };
     }
 
     /// <summary>指令绑定的那张图，没有就当前活动文档；不是工程图返回 null（一键出图前活动的是零件）。</summary>

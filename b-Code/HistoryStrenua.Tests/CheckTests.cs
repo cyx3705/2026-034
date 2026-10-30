@@ -154,33 +154,33 @@ internal static partial class Tests
         // 整页翻一次 Y，里面的数字就是图纸 mm。
         Equal("matrix(1 0 0 -1 0 297)", root.Element(ns + "g")!.Attribute("transform")!.Value);
 
-        var edge = document.Descendants(ns + "line").Single(e => (string?)e.Attribute("id") == "工程图视图1:E0");
+        var edge = document.Descendants(ns + "g").Single(v => (string?)v.Attribute("id") == "工程图视图1" && (string?)v.Attribute("class") == "view").Descendants().Single(e => (string?)e.Attribute("id") == "E0");
         Equal("60,110,140,110", string.Join(",", new[] { "x1", "y1", "x2", "y2" }.Select(a => edge.Attribute(a)!.Value)));
         // 首尾相接的两小段并成一条折线，不相接的另起一条。
         var polylines = document.Descendants(ns + "polyline").ToList();
         Equal(2, polylines.Count);
         Equal("140,110 145,115 150,120", polylines[0].Attribute("points")!.Value);
         var hole = document.Descendants(ns + "circle").Single();
-        Equal("工程图视图1:H0", hole.Attribute("id")!.Value);
+        Equal("H0", hole.Attribute("id")!.Value);
         Equal("3", hole.Attribute("r")!.Value);
         Equal("/M6", hole.Attribute("data-kind")!.Value);
 
-        var dimension = document.Descendants(ns + "g").Single(e => (string?)e.Attribute("id") == "工程图视图1:D1");
+        var dimension = document.Descendants(ns + "g").Single(v => (string?)v.Attribute("id") == "工程图视图1" && (string?)v.Attribute("class") == "view").Descendants().Single(e => (string?)e.Attribute("id") == "D1");
         Equal("x=60 ↔ x=140", dimension.Attribute("data-measures")!.Value);
         Equal("60,200,140,206", dimension.Attribute("data-box")!.Value);
         // 方框画字占的地方（真机第一版画整个外框，一片虚线框叠在一起），整个外框留在 data-box。
         Equal("5", dimension.Element(ns + "rect")!.Attribute("width")!.Value);
-        var vertical = document.Descendants(ns + "g").Single(e => (string?)e.Attribute("id") == "工程图视图1:D2").Element(ns + "text")!;
+        var vertical = document.Descendants(ns + "g").Single(v => (string?)v.Attribute("id") == "工程图视图1" && (string?)v.Attribute("class") == "view").Descendants().Single(e => (string?)e.Attribute("id") == "D2").Element(ns + "text")!;
         Equal("translate(50 130) rotate(90) scale(1 -1)", vertical.Attribute("transform")!.Value);
         var text = dimension.Element(ns + "text")!;
         Equal("80", text.Value);
         Equal("translate(95 201) scale(1 -1)", text.Attribute("transform")!.Value);
         // 中心符号线画线、不画方框。
-        var mark = document.Descendants(ns + "g").Single(e => (string?)e.Attribute("id") == "工程图视图1:中心符号线1");
+        var mark = document.Descendants(ns + "g").Single(v => (string?)v.Attribute("id") == "工程图视图1" && (string?)v.Attribute("class") == "view").Descendants().Single(e => (string?)e.Attribute("id") == "中心符号线1");
         True(mark.Attribute("class")!.Value.Contains("center") && mark.Element(ns + "rect") is null, "中心符号线");
         Equal("M75 150L85 150", mark.Element(ns + "path")!.Attribute("d")!.Value);
         // 多行注释拆 tspan，全文另在 data-text。
-        var note = document.Descendants(ns + "g").Single(e => (string?)e.Attribute("id") == "图纸1:注释1");
+        var note = document.Descendants(ns + "g").Single(v => (string?)v.Attribute("id") == "图纸1" && (string?)v.Attribute("class") == "view").Descendants().Single(e => (string?)e.Attribute("id") == "注释1");
         Equal(2, note.Descendants(ns + "tspan").Count());
         Equal("技术要求 / 1. 未注圆角R1", note.Attribute("data-text")!.Value);
         var block = document.Descendants(ns + "g").Single(e => (string?)e.Attribute("id") == "title-block");
@@ -256,16 +256,19 @@ internal static partial class Tests
         Equal("added", filled.Views[0].Annotations.First(a => a.Name == "D4").Change);
 
         var svg = DrawingSvgWriter.Write(filled);
-        True(svg.Contains("data-delta=\"true\"", StringComparison.Ordinal) && svg.Contains("id=\"V1:D2\" data-kind=\"线性尺寸\" data-change=\"removed\"/>", StringComparison.Ordinal), "删掉的只留一个标记");
+        True(svg.Contains("data-delta=\"true\"", StringComparison.Ordinal) && svg.Contains("id=\"D2\" data-kind=\"线性尺寸\" data-change=\"removed\"/>", StringComparison.Ordinal), "删掉的只留一个标记");
         True(svg.Contains("data-change=\"moved\" data-from=\"210,150\"", StringComparison.Ordinal), "挪了的视图给原中心");
 
         // 精简档：不出 text、不写 data-box，字进 data-text；只有标注档不出几何。
         var withGeometry = filled with { Views = [filled.Views[0] with { Lines = scannedV1.Lines }] };
         var compact = DrawingSvgWriter.Write(withGeometry, SvgDetail.Ladder[1]);
         True(!compact.Contains("<text", StringComparison.Ordinal) && !compact.Contains("data-box=\"60", StringComparison.Ordinal)
-             && compact.Contains("data-text=\"10\"", StringComparison.Ordinal) && compact.Contains("V1:E0", StringComparison.Ordinal), "精简档");
-        True(!DrawingSvgWriter.Write(withGeometry, SvgDetail.Ladder[2]).Contains("V1:E0", StringComparison.Ordinal), "只有标注档不出几何");
+             && compact.Contains("data-text=\"10\"", StringComparison.Ordinal) && compact.Contains("id=\"E0\"", StringComparison.Ordinal) && !compact.Contains("<style", StringComparison.Ordinal), "精简档");
+        True(!DrawingSvgWriter.Write(withGeometry, SvgDetail.Ladder[2]).Contains("id=\"E0\"", StringComparison.Ordinal), "只有标注档不出几何");
         True(DrawingSvgWriter.Write(withGeometry, SvgDetail.Ladder[0]).Length > compact.Length, "越往后越短");
+        // 单取一个视图要的是几何：最后一档丢注解、留几何。
+        var geometryOnly = DrawingSvgWriter.Write(withGeometry, SvgDetail.ViewLadder[2]);
+        True(geometryOnly.Contains("id=\"E0\"", StringComparison.Ordinal) && !geometryOnly.Contains("data-kind=\"线性尺寸\"", StringComparison.Ordinal), "只有几何档");
 
         // 只对 MCP 来的调用带反馈。
         True(StepFeedback.Wanted("module:HistoryPortunus:MCP:client") && !StepFeedback.Wanted("ui") && !StepFeedback.Wanted(null), "来源");

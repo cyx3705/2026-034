@@ -15,7 +15,7 @@ internal static class AnnotationPlacementPlanner
                 candidates.Add(horizontal ? new SheetPoint(sign * step * 0.0005, 0) : new SheetPoint(0, sign * step * 0.0005));
         for (var tier = 0; tier < 8; tier++)
         {
-            var gap = 0.005 + tier * 0.005;
+            var gap = 0.004 + tier * 0.004;
             for (var along = -6; along <= 6; along++)
             {
                 if (callout || horizontal)

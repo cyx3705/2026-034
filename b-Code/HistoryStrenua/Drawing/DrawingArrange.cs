@@ -44,8 +44,8 @@ internal static class DrawingArrange
             api.Call(sheet.Drawing, "IModelDoc2", "EditRebuild3");
             var (noteWidth, noteHeight) = DrawingSheet.NoteSize(api, sheet.Note?.Note);
             var request = new LayoutRequest(
-                sheet.Box(context, sheet.Main),
-                sheet.Sides.ToDictionary(pair => pair.Key, pair => sheet.Box(context, pair.Value, slot: pair.Key)),
+                sheet.Box(context, sheet.Main, measuredOnly: keepIso),
+                sheet.Sides.ToDictionary(pair => pair.Key, pair => sheet.Box(context, pair.Value, slot: pair.Key, measuredOnly: keepIso)),
                 sheet.Iso is null ? new ViewBox(0, 0, 0, 0) : sheet.Box(context, sheet.Iso, annotations: false),
                 noteWidth,
                 noteHeight,

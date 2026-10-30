@@ -45,7 +45,7 @@ internal static partial class Tests
         string D(SlotDimension d) => $"{(d.Axis == PositionAxis.Horizontal ? "H" : "V")}{d.From}>{d.To}@{d.TextAt.X.ToString("0.###", invariant)},{d.TextAt.Y.ToString("0.###", invariant)}";
         // 每个槽每个方向一层：基准 → 近边、近边 → 远边并排；近的槽在里。1.23.0：每个槽挑引线短的一侧——
         // 两个槽都在板的下半，水平的都放下方（第二个在外一层）；竖直的左边那个放左侧、靠右那个放右侧。
-        Equal("H-1>8@0.025,-0.01,H8>9@0.07,-0.01,H-1>12@0.075,-0.015,H12>13@0.165,-0.015,"
+        Equal("H-1>8@0.025,-0.01,H8>9@0.07,-0.01,H-1>12@0.075,-0.014,H12>13@0.165,-0.014,"
             + "V-1>10@-0.01,0.08,V10>11@-0.01,0.045,V-1>14@0.21,0.075,V14>15@0.21,0.035",
             string.Join(",", dims.Select(D)));
 

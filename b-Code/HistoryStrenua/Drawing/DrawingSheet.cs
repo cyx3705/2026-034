@@ -165,7 +165,7 @@ internal sealed record DrawingSheet(
     /// 视图在图纸上占多大：实际外框，加左边、上边的标注空间（按这个视图里能看到的孔的种数估）；给了 <paramref name="slot"/> 的投影视图
     /// 在与主视图共用的方向上没有孔就不留（<see cref="DrawingPlanner.SideBox"/>）。
     /// </summary>
-    public ViewBox Box(QuickCommandContext context, object view, bool annotations = true, ViewSlot? slot = null)
+    public ViewBox Box(QuickCommandContext context, object view, bool annotations = true, ViewSlot? slot = null, bool measuredOnly = false)
     {
         var outline = Outline(context.Api, view);
         if (!annotations)
@@ -183,7 +183,8 @@ internal sealed record DrawingSheet(
             if (points.Count == 0) continue;
             bounds.Add(new SheetRect(points.Min(p => p.X), points.Min(p => p.Y), points.Max(p => p.X), points.Max(p => p.Y)).Inflate(0.001));
         }
-        return MeasuredBox(outline, estimate, bounds);
+        // 1.25.0（用户指出：视图之间留那么多、主视图不上移）：标注都标完了就只按实际占位，不再和估计值取大。
+        return MeasuredBox(outline, measuredOnly ? estimate with { MarginLeft = 0, MarginTop = 0, MarginRight = 0, MarginBottom = 0 } : estimate, bounds);
     }
 
     /// <summary>REQ-DQ-03：实际注解四侧占位与角部文字也计入排版；未标注的方向仍保留估计空间。</summary>

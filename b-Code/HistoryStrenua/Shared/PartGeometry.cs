@@ -87,7 +87,7 @@ internal sealed record PartGeometry(
     public IReadOnlyList<ModelDirection> Windows => WindowNormals ?? [];
 
     /// <summary>孔：内凹整圈的圆柱面按同轴并成一个（沉头孔的沉头与底孔、通孔上下两截）。</summary>
-    public IReadOnlyList<PartHole> Holes => _holes ??= PartHole.Group(Cylinders);
+    public IReadOnlyList<PartHole> Holes => _holes ??= PartHole.Group(SplitHole.Whole(Cylinders));
 
     private IReadOnlyList<PartHole>? _holes;
 }
@@ -190,7 +190,7 @@ internal sealed record PartHole(
         return min <= a.AxialMax + AxisTolerance && max >= a.AxialMin - AxisTolerance;
     }
 
-    private static bool SameAxis(PartCylinder a, PartCylinder b)
+    internal static bool SameAxis(PartCylinder a, PartCylinder b)
     {
         if (Math.Abs(a.Axis.Dot(b.Axis)) < 0.9999)
             return false;

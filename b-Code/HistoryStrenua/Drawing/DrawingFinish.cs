@@ -17,7 +17,7 @@ internal static class DrawingFinish
         if (!context.Options.Clearance) return QuickOutcome.Ok("整理标注：避障关闭，未移动标注。");
         context.SetState("整理标注");
         var first = Clear(context, drawing);
-        var arranged = DrawingArrange.Run(context, DrawingSheet.Read(context, drawing, "整理标注"));
+        var arranged = DrawingArrange.Run(context, DrawingSheet.Read(context, drawing, "整理标注"), keepIso: true);
         var last = Clear(context, drawing);
         var message = $"整理标注：避让移动 {first.Moved + last.Moved} 次，剩余 {last.Stuck.Count} 个文字冲突（孔标注不挪，引线交叉、过长见「注解重叠」）。"
             + (last.Stuck.Count > 0 ? "\n· " + string.Join("、", last.Stuck) : string.Empty)

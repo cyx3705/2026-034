@@ -20,7 +20,12 @@ internal static class DrawingArrange
         Run: context => Run(context, DrawingSheet.Read(context, HoleScan.ActiveDrawing(context), "排版")),
         Row: 1, Page: "view");
 
-    internal static QuickOutcome Run(QuickCommandContext context, DrawingSheet sheet)
+    /// <param name="context">快捷指令上下文。</param>
+    /// <param name="sheet">当前图纸页。</param>
+    /// <param name="keepIso">
+    /// 轴测图保持现在的比例（1.25.0，用户指出：整理标注时轴测图被放大回视图比例）。标注都标完了再放大它只会挤别的；放不下才在现在的基础上再缩。
+    /// </param>
+    internal static QuickOutcome Run(QuickCommandContext context, DrawingSheet sheet, bool keepIso = false)
     {
         var api = context.Api;
         context.SetState("排版");
@@ -28,7 +33,7 @@ internal static class DrawingArrange
         var start = sheet.Scale;
         var scale = start;
         var steps = new List<string>();
-        if (sheet.Iso is not null)
+        if (sheet.Iso is not null && !keepIso)
             DrawingSheet.ScaleIso(api, sheet.Iso, scale, 1, scales);
 
         LayoutResult layout;
@@ -62,7 +67,10 @@ internal static class DrawingArrange
         var isoFactor = 1.0;
         if (sheet.Iso is not null && layout.Iso is { } isoCenter)
         {
-            isoFactor = DrawingSheet.ScaleIso(api, sheet.Iso, scale, layout.IsoShrink, scales);
+            var isoBase = keepIso ? Convert.ToDouble(api.Call(sheet.Iso, "IView", "get_ScaleDecimal")) : scale;
+            isoFactor = keepIso && layout.IsoShrink >= 1 - 1e-9
+                ? isoBase / scale
+                : DrawingSheet.ScaleIso(api, sheet.Iso, isoBase, layout.IsoShrink, scales) * isoBase / scale;
             DrawingSheet.SetPosition(api, sheet.Iso, isoCenter);
         }
 

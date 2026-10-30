@@ -16,9 +16,10 @@ namespace HistoryStrenua;
 /// </param>
 /// <param name="Dowel">孔壁是异形孔向导的销钉孔（1.6.0 起，判法见 <c>HoleScan.ViewGeometry</c>）。</param>
 /// <param name="Axis">孔在零件里的轴线（1.15.0，跨视图认同一个孔用，<see cref="HoleCoveragePlanner"/>）；读不到为 null。</param>
+/// <param name="Split">整圆孔被切成两段半圆（1.25.0，<see cref="SplitHole"/>）：边只是其中一段，孔标注写不对，要标直径尺寸。</param>
 internal readonly record struct HoleEdge(
     int Index, double X, double Y, double Radius, string Kind = "", double BulgeX = 0, double BulgeY = 0, int Slot = -1, bool Dowel = false,
-    HoleAxis? Axis = null)
+    HoleAxis? Axis = null, bool Split = false)
 {
     /// <summary>是腰型孔端头的半圆（不是整圈的圆孔）。</summary>
     public bool IsSlotEnd => BulgeX != 0 || BulgeY != 0;
@@ -192,7 +193,7 @@ internal static class HoleCalloutPlanner
     /// 腰型孔的两个端头各是一个元素，编号相同；配不上的半圆丢掉。三条孔类指令都从这里取孔。
     /// </summary>
     public static List<HoleEdge> Recognize(IReadOnlyList<HoleEdge> edges)
-        => SlotPlanner.Pair(MergeConcentric(edges));
+        => SlotPlanner.Pair(MergeConcentric(SplitHole.Merge(edges)));
 
     /// <summary>
     /// 每个腰型孔只留一端：最上面的那一端（一样高取左边的）。孔位尺寸只标这一端的圆心。圆孔原样保留。
@@ -272,7 +273,7 @@ internal static class HoleCalloutPlanner
         return shoulder is { } s ? new SheetPoint(textLeft ? Math.Max(s.X1, s.X2) : Math.Min(s.X1, s.X2), s.Y1) : null;
     }
 
-    private static bool SameCenter(double ax, double ay, double bx, double by)
+    internal static bool SameCenter(double ax, double ay, double bx, double by)
     {
         var dx = ax - bx;
         var dy = ay - by;

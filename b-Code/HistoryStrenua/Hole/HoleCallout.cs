@@ -31,6 +31,50 @@ internal static class HoleCallout
     /// <summary>对准折点最多挪几次：挪动后 SolidWorks 可能换引线接的那一侧，要回读再挪。</summary>
     private const int AlignPasses = 3;
 
+    /// <summary>
+    /// 切成两段半圆的孔（<see cref="SplitHole"/>）：SolidWorks 孔标注从半圆进去只写 R，改标直径尺寸，前缀写数量，后缀写贯穿或深度，下一行写沉孔。
+    /// </summary>
+    private static bool InsertSplit(SolidWorksApi api, ScannedView scan, HoleEdge hole, SheetPoint at, PartGeometry? part)
+    {
+        var dimension = api.CallBool(scan.View, "IView", "SelectEntity", scan.Edges[hole.Index], false)
+            ? api.Call(scan.Document, "IModelDoc2", "AddDiameterDimension2", at.X, at.Y, 0.0)
+            : null;
+        if (dimension is null)
+            return false;
+        var holes = HoleCalloutPlanner.Recognize(scan.Candidates);
+        var count = holes.Count(other => other.Kind == hole.Kind && Math.Abs(other.Radius - hole.Radius) <= HoleCalloutPlanner.CenterTolerance);
+        var prefix = SplitHole.Prefix(count);
+        if (prefix.Length > 0)
+            api.Call(dimension, "IDisplayDimension", "SetText", DimensionScan.TextPrefix, prefix);
+
+        var wider = SplitHole.Merge(scan.Candidates)
+            .Where(other => other.Radius > hole.Radius + HoleCalloutPlanner.CenterTolerance && HoleCalloutPlanner.SameCenter(other.X, other.Y, hole.X, hole.Y))
+            .Select(other => (double?)other.Radius).Max();
+        var (depth, cbore) = SplitDepths(part, hole, scan.Geometry.Scale, wider);
+        api.Call(dimension, "IDisplayDimension", "SetText", DimensionScan.TextSuffix, depth is { } d ? $" <HOLE-DEPTH> {SplitHole.Mm(d)}" : " 贯穿");
+        if (wider is { } radius && cbore is { } deep)
+            api.Call(dimension, "IDisplayDimension", "SetText", TextCalloutBelow, SplitHole.CounterboreLine(radius * 2 / scan.Geometry.Scale, deep));
+        return true;
+    }
+
+    /// <summary>盲孔的深度（通孔为 null）与沉孔深度，从零件圆柱面算；读不到零件都是 null。</summary>
+    private static (double? Depth, double? Counterbore) SplitDepths(PartGeometry? part, HoleEdge hole, double scale, double? wider)
+    {
+        if (part is null || hole.Axis is not { } axis || part.Holes.FirstOrDefault(axis.Matches) is not { } partHole
+            || partHole.RangeAlong(partHole.Axis) is not { } range)
+            return (null, null);
+        double? depth = range.Max - range.Min < part.Box.Extent(partHole.Axis.Normalized()) - PartHole.AxisTolerance ? range.Max - range.Min : null;
+        if (wider is null)
+            return (depth, null);
+        var probe = new PartCylinder(partHole.Axis, partHole.Point, wider.Value / scale, true, true, string.Empty, []);
+        var wall = SplitHole.Whole(part.Cylinders).FirstOrDefault(cylinder => cylinder.Concave && cylinder.Full
+            && Math.Abs(cylinder.Radius - probe.Radius) <= probe.Radius * HoleCalloutPlanner.RadiusTolerance && PartHole.SameAxis(probe, cylinder));
+        return (depth, wall is null ? null : wall.AxialMax - wall.AxialMin);
+    }
+
+    // swDimensionTextParts_e：孔标注下面一行。
+    private const int TextCalloutBelow = 4;
+
     /// <param name="context">快捷指令上下文。</param>
     /// <param name="view">直接处理这个视图（全流程用）；null 时取选中的或等用户点选。</param>
     internal static QuickOutcome Run(QuickCommandContext context, object? view)
@@ -63,6 +107,15 @@ internal static class HoleCallout
             {
                 context.Cancellation.ThrowIfCancellationRequested();
                 api.Call(document, "IModelDoc2", "ClearSelection2", true);
+                if (HoleCalloutPlanner.Recognize(scan.Candidates).FirstOrDefault(hole => hole.Index == target.EdgeIndex) is { Split: true } split)
+                {
+                    if (InsertSplit(api, scan, split, target.Placement, part))
+                        added++;
+                    else
+                        failed++;
+                    continue;
+                }
+
                 // 先按「文字中心在折点左边一段」落下，再按实际下划线把折点对准——文字多宽要生成后才知道。
                 var callout = api.CallBool(scan.View, "IView", "SelectEntity", scan.Edges[target.EdgeIndex], false)
                     ? api.Call(document, "IDrawingDoc", "AddHoleCallout2", target.Placement.X - InitialTextOffset, target.Placement.Y, 0.0)

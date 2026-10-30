@@ -5,17 +5,18 @@ using HistoryStrenua.SolidWorks;
 namespace HistoryStrenua;
 
 /// <summary>
-/// 细粒度指令「视图列表」<c>strenua.view.list</c>（1.20.0）：当前图纸页本身与它上面每个视图一行——名字、种类、父视图、比例、外框、中心。
+/// 快捷指令「视图列表」<c>strenua.view.list</c>（1.20.0）：当前图纸页本身与它上面每个视图一行——名字、种类、父视图、比例、外框、中心。
 /// 是 <c>strenua.view.move</c> 与 <c>strenua.dim.*</c> 的寻址表：视图名就是它们的 <c>view=</c>。只读。
 /// </summary>
 internal static class ViewList
 {
-    public static FineCommand Command { get; } = new(
+    public static QuickCommand Command { get; } = new(
         Key: "view-list",
         CommandName: StrenuaIdentity.Domain + ".view.list",
         Title: "视图列表",
-        Summary: "列出当前图纸页及其视图：名字、种类、父视图、比例、外框与中心（图纸 mm，左下角为原点）；视图名供 view.move、dim.* 的 view= 用。",
-        Example: StrenuaIdentity.Domain + ".view.list",
+        Summary: "列出当前图纸页及其视图：名字、种类、父视图、比例、外框与中心（图纸 mm，左下角为原点）；视图名供视图、标注类的「视图」填。",
+        Usage: "不用填：列出当前图纸页本身（第一行，外框 = 纸张）和上面每个视图——名字、种类（模型 / 投影 / 剖视……，轴测图另标）、父视图、引用的模型、比例、外框与中心，单位图纸 mm、左下角为原点，和图纸截图对得上。视图名就是「挪视图」与标注类各按钮的「视图」框要填的。只读，不改图。",
+        Run: QuickCommand.Unbound,
         Parameters: [],
         Readonly: true,
         Bind: _ => Run);
@@ -41,7 +42,7 @@ internal static class ViewList
         var drawing = HoleScan.ActiveDrawing(context);
         var rows = new List<IReadOnlyDictionary<string, string>>();
         var lines = new List<string>();
-        foreach (var view in FineLookup.Views(api, drawing))
+        foreach (var view in SheetLookup.Views(api, drawing))
         {
             context.Cancellation.ThrowIfCancellationRequested();
             var row = Row(context, drawing, view);
@@ -51,7 +52,7 @@ internal static class ViewList
 
         var title = api.CallString(drawing, "IModelDoc2", "GetTitle");
         var frame = DrawingSheet.FrameRect(api, drawing) is { } box
-            ? $"；图框内可放区 ({FineArgs.Format(box.Left)}, {FineArgs.Format(box.Bottom)})–({FineArgs.Format(box.Right)}, {FineArgs.Format(box.Top)})"
+            ? $"；图框内可放区 ({QuickArgs.Format(box.Left)}, {QuickArgs.Format(box.Bottom)})–({QuickArgs.Format(box.Right)}, {QuickArgs.Format(box.Top)})"
             : string.Empty;
         return QuickOutcome.Ok($"视图列表：「{title}」当前图纸页 {rows.Count - 1} 个视图（图纸 mm，左下角为原点{frame}）。"
             + Environment.NewLine + string.Join(Environment.NewLine, lines), rows);
@@ -70,7 +71,7 @@ internal static class ViewList
             ["model"] = string.Empty,
             ["scale"] = string.Empty,
         };
-        if (type == FineLookup.ViewSheet)
+        if (type == SheetLookup.ViewSheet)
         {
             var sheet = api.Call(drawing, "IDrawingDoc", "GetCurrentSheet");
             var properties = sheet is null ? [] : api.CallDoubles(sheet, "ISheet", "GetProperties2");
@@ -106,16 +107,16 @@ internal static class ViewList
 
     private static void Rect(Dictionary<string, string> row, SheetRect rect)
     {
-        row["left"] = FineArgs.Format(rect.Left);
-        row["bottom"] = FineArgs.Format(rect.Bottom);
-        row["right"] = FineArgs.Format(rect.Right);
-        row["top"] = FineArgs.Format(rect.Top);
+        row["left"] = QuickArgs.Format(rect.Left);
+        row["bottom"] = QuickArgs.Format(rect.Bottom);
+        row["right"] = QuickArgs.Format(rect.Right);
+        row["top"] = QuickArgs.Format(rect.Top);
     }
 
     private static void Center(Dictionary<string, string> row, SheetPoint center)
     {
-        row["x"] = FineArgs.Format(center.X);
-        row["y"] = FineArgs.Format(center.Y);
+        row["x"] = QuickArgs.Format(center.X);
+        row["y"] = QuickArgs.Format(center.Y);
     }
 
     /// <summary>回执一行，如「工程图视图2  投影  父=工程图视图1  1:2  中心 (120, 80)  外框 (60, 40)–(180, 120)」。</summary>

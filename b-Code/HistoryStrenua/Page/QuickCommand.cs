@@ -12,8 +12,9 @@ namespace HistoryStrenua;
 /// 动作声明、指令注册、按钮、类选项都从这份登记表生成，不需要再改页面描述。
 /// </para>
 /// <para>
-/// 当前不带参数。将来要带参数时，给这里加参数表，由页面生成器渲染成输入控件，
-/// 并经动作占位符传进指令——已有的无参指令不受影响。
+/// 带参数的（1.20.0 起「视图」「标注」两类，用户定：和以前的指令待遇一样，上页面、进列表）登记 <see cref="Parameters"/> 与 <see cref="Bind"/>：
+/// 页面生成器把这一类的参数渲染成面板上方的输入框（同名参数共用一个框），动作经 <c>{参数名}</c> 占位符取框里的值传进指令；
+/// <see cref="Bind"/> 在附着 SolidWorks 之前解析参数，填错直接失败、不碰图。无参指令不受影响。
 /// </para>
 /// </remarks>
 /// <param name="Key">稳定标识，也是动作 id 的后缀与 <c>strenua.quick.run key=</c> 的值。</param>
@@ -26,6 +27,12 @@ namespace HistoryStrenua;
 /// 在类面板里排第几行（1.17.0，用户定：一键类的「一键出钣金 / 框架 / 加工件」在「一键出图」下面另起一行）。默认 0；
 /// 同一行的按钮仍交给 Aurora 自己折行。
 /// </param>
+/// <param name="Parameters">参数表；无参指令为 null。</param>
+/// <param name="Example">照抄能跑的例子（带全部必填参数）；null 时就是指令名。</param>
+/// <param name="Readonly">不改图（只读回，如视图列表、注解列表）。</param>
+/// <param name="Bind">
+/// 带参数的指令：解析参数，返回在 STA 线程上执行的那一段；参数不对抛 <see cref="QuickArgumentException"/>。为 null 时执行 <see cref="Run"/>。
+/// </param>
 internal sealed record QuickCommand(
     string Key,
     string CommandName,
@@ -33,8 +40,18 @@ internal sealed record QuickCommand(
     string Summary,
     string Usage,
     Func<QuickCommandContext, QuickOutcome> Run,
-    int Row = 0)
+    int Row = 0,
+    IReadOnlyList<QuickParameter>? Parameters = null,
+    string? Example = null,
+    bool Readonly = false,
+    Func<CommandContext, Func<QuickCommandContext, QuickOutcome>>? Bind = null)
 {
+    /// <summary>带参数的指令的 <see cref="Run"/>：只经 <see cref="Bind"/> 执行，走到这里说明调用方没给参数。</summary>
+    public static QuickOutcome Unbound(QuickCommandContext context) => QuickOutcome.Fail("这条指令要带参数。");
+
+    /// <summary>参数表（无参为空）。</summary>
+    public IReadOnlyList<QuickParameter> Arguments => Parameters ?? [];
+
     /// <summary>页面动作 id。</summary>
     public string ActionId => StrenuaIdentity.Domain + ".quick." + Key;
 
@@ -153,6 +170,12 @@ internal static class QuickCommands
         OverlapCheck.Command,
         DrawingSnapshot.Command,
         TechAi.Command,
+        ViewList.Command,
+        MoveView.Command,
+        DimList.Command,
+        DimDelete.Command,
+        DimMove.Command,
+        DimEdit.Command,
     ];
 
     /// <summary>
@@ -161,8 +184,9 @@ internal static class QuickCommands
     /// 1.15.0（用户定）：圆心位置、圆弧、倒角及其全图版从「出图」拆出，单成「倒圆倒角」类，排在出图后面。
     /// 1.16.0（用户定）：「出图」改名「基础」、「倒圆倒角」改名「倒圆」、「技术要求」改名「要求」（命令类名不变，MCP 调用照旧）；
     /// 新类「一键」只有「一键出图」（把各类的一键都做一遍），排最前。
+    /// 1.20.0（用户定：新指令待遇和以前一样）：带参数的「视图」「标注」两类排在倒圆后面。
     /// </summary>
-    public static IReadOnlyList<string> ClassOrder { get; } = ["onekey", "hole", "drawing", "fillet", "tech", "check"];
+    public static IReadOnlyList<string> ClassOrder { get; } = ["onekey", "hole", "drawing", "fillet", "view", "dim", "tech", "check"];
 
     /// <summary>命令类 → 页面上的类名。新类不登记也能用，只是显示成英文类名。</summary>
     private static readonly IReadOnlyDictionary<string, string> ClassTitles =
@@ -172,6 +196,8 @@ internal static class QuickCommands
             ["hole"] = "孔",
             ["drawing"] = "基础",
             ["fillet"] = "倒圆",
+            ["view"] = "视图",
+            ["dim"] = "标注",
             ["tech"] = "要求",
             ["check"] = "检查",
         };

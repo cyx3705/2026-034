@@ -3,7 +3,7 @@ using HistoryVulcan.Core.Commands;
 namespace HistoryStrenua;
 
 /// <summary>
-/// 细粒度指令「改尺寸」<c>strenua.dim.edit</c>（1.20.0）：按名字改一个尺寸的前缀、后缀、对称公差。不改尺寸值、不改附着。
+/// 快捷指令「改尺寸」<c>strenua.dim.edit</c>（1.20.0）：按名字改一个尺寸的前缀、后缀、对称公差。不改尺寸值、不改附着。
 /// </summary>
 /// <remarks>
 /// <para>前后缀走 <c>IDisplayDimension.SetText</c>（前缀 1、后缀 2，同阵列标法与「(含对面)」）。真机上 <c>GetText(2)</c> 读回是空的，
@@ -12,21 +12,22 @@ namespace HistoryStrenua;
 /// </remarks>
 internal static class DimEdit
 {
-    public static FineCommand Command { get; } = new(
+    public static QuickCommand Command { get; } = new(
         Key: "dim-edit",
         CommandName: StrenuaIdentity.Domain + ".dim.edit",
         Title: "改尺寸",
         Summary: "按名字改一个尺寸的前缀、后缀或对称公差（±mm，none 去掉）；不改尺寸值与附着，读回显示文字。",
-        Example: StrenuaIdentity.Domain + ".dim.edit view=工程图视图1 name=D1 tol=0.02",
+        Usage: "填「视图」「名字」，再填要改的：前缀（如 2 x C）、后缀（如 (含对面)）、公差（对称 ±，写 0.02）；空着的不改，写 none 清掉。不改尺寸值，也不改连着哪条边。孔标注的公差在孔标注变量里，这里不改。改完回执给出图上现在显示的字。",
+        Run: QuickCommand.Unbound,
         Parameters:
         [
-            FineArgs.Text("view", "视图名（strenua.view.list 的 name 列）", true, 0),
-            FineArgs.Text("name", "尺寸名（strenua.dim.list 的 name 列），如 D1", true, 1),
-            FineArgs.Text("prefix", "前缀文字，如 2 x C；写 prefix= 留空即清掉；省略不改", false, 2),
-            FineArgs.Text("suffix", "后缀文字，如 (含对面)；写 suffix= 留空即清掉；省略不改", false, 3),
-            FineArgs.Text("tol", "对称公差 ±mm，如 0.02；none 去掉公差；省略不改。孔标注不支持", false, 4),
+            QuickArgs.View("视图名（视图列表的 name 列）"),
+            new QuickParameter("name", "名字", "尺寸名（标注列表的 name 列），如 D1", true),
+            new QuickParameter("prefix", "前缀", "前缀文字，如 2 x C；none 清掉；省略不改", false, 2),
+            new QuickParameter("suffix", "后缀", "后缀文字，如 (含对面)；none 清掉；省略不改", false, 2),
+            new QuickParameter("tol", "公差", "对称公差 ±mm，如 0.02；none 去掉公差；省略不改。孔标注不支持", false, 2),
         ],
-        Readonly: false,
+        Example: StrenuaIdentity.Domain + ".dim.edit view=工程图视图1 name=D1 tol=0.02",
         Bind: Bind);
 
     // swAnnotationType_e / swTolType_e
@@ -35,15 +36,15 @@ internal static class DimEdit
 
     private static Func<QuickCommandContext, QuickOutcome> Bind(CommandContext arguments)
     {
-        var view = FineArgs.Name(arguments, "view");
-        var name = FineArgs.Name(arguments, "name");
-        var prefix = arguments.Has("prefix") ? arguments.GetString("prefix") ?? string.Empty : null;
-        var suffix = arguments.Has("suffix") ? arguments.GetString("suffix") ?? string.Empty : null;
-        var tolText = arguments.GetString("tol")?.Trim();
-        var tolerance = !string.IsNullOrEmpty(tolText);
-        var plusMinus = tolerance ? FineArgs.Tolerance(tolText!) : null;
+        var view = QuickArgs.Name(arguments, "view");
+        var name = QuickArgs.Name(arguments, "name");
+        var prefix = QuickArgs.Text(arguments, "prefix");
+        var suffix = QuickArgs.Text(arguments, "suffix");
+        var tolText = QuickArgs.Optional(arguments, "tol");
+        var tolerance = tolText is not null;
+        var plusMinus = tolText is null ? null : QuickArgs.Tolerance(tolText);
         if (prefix is null && suffix is null && !tolerance)
-            throw new FineArgumentException("没有要改的：给 prefix=、suffix= 或 tol= 至少一个。");
+            throw new QuickArgumentException("没有要改的：给 prefix=、suffix= 或 tol= 至少一个。");
         return context => Run(context, view, name, prefix, suffix, tolerance, plusMinus);
     }
 
@@ -52,8 +53,8 @@ internal static class DimEdit
     {
         var api = context.Api;
         var drawing = HoleScan.ActiveDrawing(context);
-        var view = FineLookup.View(api, drawing, viewName);
-        var annotation = FineLookup.Annotation(api, view, name);
+        var view = SheetLookup.View(api, drawing, viewName);
+        var annotation = SheetLookup.Annotation(api, view, name);
         if (api.CallInt(annotation, "IAnnotation", "GetType") != AnnotationDimension
             || api.Call(annotation, "IAnnotation", "GetSpecificAnnotation") is not { } display)
             return QuickOutcome.Fail($"改尺寸：「{name}」不是尺寸，只能改尺寸的前后缀与公差。");
@@ -79,7 +80,7 @@ internal static class DimEdit
                 failed.Add("孔标注的公差在孔标注变量里，这里不改");
             else if (plusMinus is { } mm)
             {
-                if (DimensionScan.SetSymmetric(api, display, mm * FineArgs.Mm))
+                if (DimensionScan.SetSymmetric(api, display, mm * QuickArgs.Mm))
                     done.Add($"公差 ±{mm.ToString(System.Globalization.CultureInfo.InvariantCulture)}");
                 else
                     failed.Add($"公差 ±{mm.ToString(System.Globalization.CultureInfo.InvariantCulture)} 读回对不上");

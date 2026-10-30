@@ -1,7 +1,7 @@
 namespace HistoryStrenua;
 
 /// <summary>
-/// 细粒度指令「删注解」<c>strenua.dim.delete</c>（1.20.0）：按名字删一个视图里的几个尺寸 / 注解。
+/// 快捷指令「删标注」<c>strenua.dim.delete</c>（1.20.0）：按名字删一个视图里的几个尺寸 / 注解。
 /// </summary>
 /// <remarks>
 /// 走「重新标」共用的 <see cref="AnnotationEraser"/>：<c>EditDelete</c> 没有返回值，删完回读、还在就再删（最多三遍）；
@@ -10,22 +10,23 @@ namespace HistoryStrenua;
 /// </remarks>
 internal static class DimDelete
 {
-    public static FineCommand Command { get; } = new(
+    public static QuickCommand Command { get; } = new(
         Key: "dim-delete",
         CommandName: StrenuaIdentity.Domain + ".dim.delete",
-        Title: "删注解",
+        Title: "删标注",
         Summary: "按名字删一个视图里的尺寸或注解（可多个），删完回读核对，其余尺寸放回原处不被 SolidWorks 往里收。",
-        Example: StrenuaIdentity.Domain + ".dim.delete view=工程图视图1 names=D1,D3",
+        Usage: "填「视图」与「名字」（标注列表里的名字，几个用逗号分开，如 D1,D3）。删完回读，还在就再删（最多三遍）；删掉里层尺寸 SolidWorks 会把外层往里收一层，删完把视图里其余尺寸放回原处。删坐标尺寸组里的一个会整组重建，没点名的改了名会提醒重读标注列表。",
+        Run: QuickCommand.Unbound,
         Parameters:
         [
-            FineArgs.Text("view", "视图名（strenua.view.list 的 name 列；图纸页上的注释用图纸页名）", true, 0),
-            FineArgs.Text("names", "注解名，逗号分开（strenua.dim.list 的 name 列），如 D1,D3", true, 1),
+            QuickArgs.View("视图名（视图列表的 name 列；图纸页上的注释用图纸页名）"),
+            new QuickParameter("name", "名字", "注解名（标注列表的 name 列），几个用逗号分开，如 D1,D3", true),
         ],
-        Readonly: false,
+        Example: StrenuaIdentity.Domain + ".dim.delete view=工程图视图1 name=D1,D3",
         Bind: arguments =>
         {
-            var view = FineArgs.Name(arguments, "view");
-            var names = FineArgs.Names(arguments.GetString("names"), "names");
+            var view = QuickArgs.Name(arguments, "view");
+            var names = QuickArgs.Names(arguments.GetString("name"), "name");
             return context => Run(context, view, names);
         });
 
@@ -33,26 +34,26 @@ internal static class DimDelete
     {
         var api = context.Api;
         var drawing = HoleScan.ActiveDrawing(context);
-        var view = FineLookup.View(api, drawing, viewName);
+        var view = SheetLookup.View(api, drawing, viewName);
         var wanted = names.ToHashSet(StringComparer.Ordinal);
-        var present = FineLookup.Annotations(api, view).Select(item => item.Name).ToHashSet(StringComparer.Ordinal);
+        var present = SheetLookup.Annotations(api, view).Select(item => item.Name).ToHashSet(StringComparer.Ordinal);
         var missing = names.Where(name => !present.Contains(name)).ToList();
         if (missing.Count == names.Count)
-            return QuickOutcome.Fail($"删注解：视图「{viewName}」里没有 {string.Join("、", missing)}（先用 strenua.dim.list 查名字）。");
+            return QuickOutcome.Fail($"删标注：视图「{viewName}」里没有 {string.Join("、", missing)}（先用 strenua.dim.list 查名字）。");
 
-        context.SetState("删注解");
+        context.SetState("删标注");
         var (removed, leftover) = AnnotationEraser.Erase(
             context,
             drawing,
-            () => FineLookup.Annotations(api, view).Where(item => wanted.Contains(item.Name)).Select(item => item.Annotation).ToList(),
-            FineLookup.IsSheet(api, view) ? null : view);
+            () => SheetLookup.Annotations(api, view).Where(item => wanted.Contains(item.Name)).Select(item => item.Annotation).ToList(),
+            SheetLookup.IsSheet(api, view) ? null : view);
         api.Call(drawing, "IModelDoc2", "ClearSelection2", true);
         api.Call(drawing, "IModelDoc2", "GraphicsRedraw2");
 
-        var after = FineLookup.Annotations(api, view).Select(item => item.Name).ToHashSet(StringComparer.Ordinal);
+        var after = SheetLookup.Annotations(api, view).Select(item => item.Name).ToHashSet(StringComparer.Ordinal);
         var stuck = names.Where(after.Contains).ToList();
         var renamed = present.Except(wanted).Count(name => !after.Contains(name));
-        var lines = new List<string> { $"删注解：视图「{viewName}」删掉 {removed} 个。" };
+        var lines = new List<string> { $"删标注：视图「{viewName}」删掉 {removed} 个。" };
         if (missing.Count > 0)
             lines.Add($"· 没有这些名字：{string.Join("、", missing)}。");
         if (leftover > 0 || stuck.Count > 0)

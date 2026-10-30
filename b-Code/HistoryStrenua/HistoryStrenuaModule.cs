@@ -4,7 +4,7 @@ using HistoryVulcan.Core.Modules;
 namespace HistoryStrenua;
 
 /// <summary>
-/// 模块装配入口：登记页面协议三条指令（描述、动作、技术要求模板表格取数）、每条快捷指令一条总线指令、每条细粒度指令（视图 / 注解）一条，外加列表、按 key 执行、取消、
+/// 模块装配入口：登记页面协议三条指令（描述、动作、技术要求模板表格取数）、每条快捷指令一条总线指令（1.20.0 起有带参数的），外加列表、按 key 执行、取消、
 /// 按名字插技术要求模板与三个页面开关。
 /// </summary>
 /// <remarks>
@@ -37,26 +37,11 @@ public sealed class HistoryStrenuaModule : IModuleContextAware
                 Domain = StrenuaIdentity.Domain,
                 CommandClass = command.CommandClass,
                 Summary = $"PowerSW「{command.Title}」：{command.Summary}",
-                Example = command.CommandName,
-                Level = CommandLevel.Run,
-                Handler = context => runner.RunAsync(command, context),
-            });
-        }
-
-        // 1.20.0：细粒度指令（视图、单个注解），只走总线 / MCP，不上页面。
-        foreach (var command in FineCommands.All)
-        {
-            registry.Register(new CommandDescriptor
-            {
-                Name = command.CommandName,
-                Domain = StrenuaIdentity.Domain,
-                CommandClass = command.CommandClass,
-                Summary = command.Summary,
-                Example = command.Example,
-                Parameters = command.Parameters.ToArray(),
+                Example = command.Example ?? command.CommandName,
+                Parameters = command.Arguments.Select((parameter, position) => parameter.ToSpec(position)).ToArray(),
                 Level = CommandLevel.Run,
                 Readonly = command.Readonly,
-                Handler = context => command.RunAsync(runner, context),
+                Handler = context => runner.RunAsync(command, context),
             });
         }
 
@@ -76,9 +61,11 @@ public sealed class HistoryStrenuaModule : IModuleContextAware
             Name = StrenuaIdentity.Domain + ".quick.run",
             Domain = StrenuaIdentity.Domain,
             CommandClass = "quick",
-            Summary = "按 key 执行一条 PowerSW 快捷指令（key 见 strenua.quick.list）",
+            Summary = "按 key 执行一条 PowerSW 快捷指令（key 见 strenua.quick.list）；带参数的照写它的参数，如 key=view-move view=工程图视图1 dx=10",
             Example = StrenuaIdentity.Domain + ".quick.run key=" + QuickCommands.All[0].Key,
             Level = CommandLevel.Run,
+            // 1.20.0：带参数的快捷指令经这里执行时，参数原样透传给它（各自解析、各自报错）。
+            AllowUnspecifiedParameters = true,
             Parameters =
             [
                 new ParameterSpec

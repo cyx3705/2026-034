@@ -275,6 +275,8 @@ internal static partial class Tests
             var panel = panels.Single(branch => branch.GetProperty("id").GetString() == StrenuaPage.ClassPanelId(commandClass));
             var rows = panel.GetProperty("rows").EnumerateArray().ToList();
             True(rows.All(row => row.GetProperty("mode").GetString() == "even"), "每行都按 even 分宽");
+            // 1.20.0：带参数的类按钮上面有输入框行（见 parameters 那组），这里只看按钮行。
+            rows = rows.Where(row => row.GetProperty("widgets").EnumerateArray().All(w => w.GetProperty("kind").GetString() == "button")).ToList();
             return string.Join("|", rows.Select(row => string.Join(",", row.GetProperty("widgets").EnumerateArray().Select(w => w.GetProperty("text").GetString()))));
         }
 
@@ -296,11 +298,14 @@ internal static partial class Tests
         // 检查类 1.12.0 加「悬空标注」「注解重叠」。
         // 1.16.0：加「两位小数」。
         Equal("未标尺寸,两位小数,悬空标注,注解重叠,图纸截图", Row("check"));
-        Equal("一键,孔,基础,倒圆,要求,检查", string.Join(",", StrenuaPage.ClassOptions(QuickCommands.All)));
-        // 类面板里只有按钮，没有开关（1.11.0 开关挪到窗口最下面）。
+        // 1.20.0（用户定：新指令待遇和以前一样）：带参数的「视图」「标注」两类排在倒圆后面。
+        Equal("视图列表,挪视图", Row("view"));
+        Equal("标注列表,删标注,挪标注,改尺寸", Row("dim"));
+        Equal("一键,孔,基础,倒圆,视图,标注,要求,检查", string.Join(",", StrenuaPage.ClassOptions(QuickCommands.All)));
+        // 类面板里只有按钮和（带参数的类的）输入框，没有开关（1.11.0 开关挪到窗口最下面）。
         True(panels.SelectMany(branch => branch.GetProperty("rows").EnumerateArray())
             .SelectMany(row => row.GetProperty("widgets").EnumerateArray())
-            .All(w => w.GetProperty("kind").GetString() == "button"), "类面板里应只有按钮");
+            .All(w => w.GetProperty("kind").GetString() is "button" or "textbox"), "类面板里应只有按钮与输入框");
     }
 
     static void TestOptions()

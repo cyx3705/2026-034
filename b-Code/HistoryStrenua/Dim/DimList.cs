@@ -4,26 +4,28 @@ using HistoryStrenua.SolidWorks;
 namespace HistoryStrenua;
 
 /// <summary>
-/// 细粒度指令「注解列表」<c>strenua.dim.list</c>（1.20.0）：一个视图（不给就整页，含图纸页本身上的注释）里每个注解一行——
+/// 快捷指令「标注列表」<c>strenua.dim.list</c>（1.20.0）：一个视图（不给就整页，含图纸页本身上的注释）里每个注解一行——
 /// 名字、种类、显示的字、尺寸值、位置、外框。名字就是 <c>dim.delete / move / edit</c> 的 <c>name(s)=</c>。只读。
 /// </summary>
 internal static class DimList
 {
-    public static FineCommand Command { get; } = new(
+    public static QuickCommand Command { get; } = new(
         Key: "dim-list",
         CommandName: StrenuaIdentity.Domain + ".dim.list",
-        Title: "注解列表",
-        Summary: "列出视图（省略则整页）里的尺寸与注解：名字、种类、显示文字、尺寸值、位置与外框（图纸 mm）；名字供 dim.delete/move/edit 用。",
-        Example: StrenuaIdentity.Domain + ".dim.list view=工程图视图1",
+        Title: "标注列表",
+        Summary: "列出视图（省略则整页）里的尺寸与注解：名字、种类、显示文字、尺寸值、位置与外框（图纸 mm）；名字供删、挪、改标注用。",
+        Usage: "「视图」填视图名只列这个视图，空着列整页（含图纸页本身上的注释）。每个尺寸 / 注解一行：名字、种类（线性 / 坐标 / 角度 / 半径 / 直径 / 倒角尺寸、孔标注、注释、中心符号线……）、图上显示的字、尺寸值、位置（文字中点）与外框，单位图纸 mm。名字就是「删标注」「挪标注」「改尺寸」的「名字」框要填的。只读，不改图。",
+        Run: QuickCommand.Unbound,
         Parameters:
         [
-            FineArgs.Text("view", "视图名（strenua.view.list 的 name 列）；省略时列当前图纸页全部视图与图纸页本身的注解", false, 0),
+            new QuickParameter("view", "视图", "视图名（视图列表的 name 列）；省略时列当前图纸页全部视图与图纸页本身的注解", false),
         ],
+        Example: StrenuaIdentity.Domain + ".dim.list view=工程图视图1",
         Readonly: true,
         Bind: arguments =>
         {
-            var view = arguments.GetString("view")?.Trim();
-            return context => Run(context, string.IsNullOrEmpty(view) ? null : view);
+            var view = QuickArgs.Optional(arguments, "view");
+            return context => Run(context, view);
         });
 
     // swAnnotationType_e
@@ -34,13 +36,13 @@ internal static class DimList
     {
         var api = context.Api;
         var drawing = HoleScan.ActiveDrawing(context);
-        var views = viewName is null ? FineLookup.Views(api, drawing) : [FineLookup.View(api, drawing, viewName)];
+        var views = viewName is null ? SheetLookup.Views(api, drawing) : [SheetLookup.View(api, drawing, viewName)];
         var rows = new List<IReadOnlyDictionary<string, string>>();
         var lines = new List<string>();
         foreach (var view in views)
         {
             var name = DrawingSheet.Name(api, view);
-            var annotations = FineLookup.Annotations(api, view);
+            var annotations = SheetLookup.Annotations(api, view);
             if (annotations.Count == 0 && viewName is null)
                 continue;
             lines.Add($"视图「{name}」{annotations.Count} 个：");
@@ -54,7 +56,7 @@ internal static class DimList
         }
 
         var scope = viewName is null ? "当前图纸页" : $"视图「{viewName}」";
-        return QuickOutcome.Ok($"注解列表：{scope}共 {rows.Count} 个（图纸 mm）。" + Environment.NewLine + string.Join(Environment.NewLine, lines), rows);
+        return QuickOutcome.Ok($"标注列表：{scope}共 {rows.Count} 个（图纸 mm）。" + Environment.NewLine + string.Join(Environment.NewLine, lines), rows);
     }
 
     private static Dictionary<string, string> Row(SolidWorksApi api, string view, string name, object annotation)
@@ -87,25 +89,25 @@ internal static class DimList
                     var value = Convert.ToDouble(api.Call(dimension, "IDimension", "get_SystemValue"));
                     row["value"] = dimensionType == AngularDimension
                         ? (value * 180 / Math.PI).ToString("0.###", System.Globalization.CultureInfo.InvariantCulture) + "°"
-                        : FineArgs.Format(value);
+                        : QuickArgs.Format(value);
                 }
             }
 
             row["text"] = type == AnnotationNote && specific is not null
                 ? Flatten(api.CallString(specific, "INote", "GetText"))
                 : Shown(api, annotation);
-            if (FineLookup.Position(api, annotation, type) is { } position)
+            if (SheetLookup.Position(api, annotation, type) is { } position)
             {
-                row["x"] = FineArgs.Format(position.X);
-                row["y"] = FineArgs.Format(position.Y);
+                row["x"] = QuickArgs.Format(position.X);
+                row["y"] = QuickArgs.Format(position.Y);
             }
 
             if (DrawingSheet.Footprint(api, annotation) is { } rect)
             {
-                row["left"] = FineArgs.Format(rect.Left);
-                row["bottom"] = FineArgs.Format(rect.Bottom);
-                row["right"] = FineArgs.Format(rect.Right);
-                row["top"] = FineArgs.Format(rect.Top);
+                row["left"] = QuickArgs.Format(rect.Left);
+                row["bottom"] = QuickArgs.Format(rect.Bottom);
+                row["right"] = QuickArgs.Format(rect.Right);
+                row["top"] = QuickArgs.Format(rect.Top);
             }
         }
         catch (Exception ex) when (ex is COMException or InvalidCastException or System.Reflection.TargetException)

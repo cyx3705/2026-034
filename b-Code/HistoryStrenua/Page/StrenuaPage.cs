@@ -30,7 +30,7 @@ namespace HistoryStrenua;
 /// 避障、尺寸链仍对所有类生效（倒圆倒角类标圆心、圆弧、倒角时也要能选），只是在「技术要求」类下面不显示；「技术要求」类自己插技术要求也照旧吃避障（存的值）。
 /// 「技术要求」类的按钮（「写入」= AI 填写技术要求）不单占一行，和这个开关并排在最下面一行（用户定：并排空间更大），中间那一支只有模板表格。
 /// </para>
-/// <para>按钮、类选项、动作声明全部从 <see cref="QuickCommands.All"/> 生成——加指令不改这里。</para>
+/// <para>按钮、类选项、动作声明全部从 <see cref="QuickCommands.All"/> 生成——加指令不改这里；1.20.0 起带参数的类还在按钮上面生成输入框（<see cref="InputRows"/>）。</para>
 /// </remarks>
 internal static class StrenuaPage
 {
@@ -149,13 +149,23 @@ internal static class StrenuaPage
         schemaVersion = 1,
         owner = StrenuaIdentity.PageOwner,
         actions = commands
-            .Select(command => (object)new
-            {
-                id = command.ActionId,
-                title = command.Title,
-                command = command.CommandName,
-                summary = command.Usage,
-            })
+            .Select(command => command.Arguments.Count == 0
+                ? (object)new
+                {
+                    id = command.ActionId,
+                    title = command.Title,
+                    command = command.CommandName,
+                    summary = command.Usage,
+                }
+                : new
+                {
+                    id = command.ActionId,
+                    title = command.Title,
+                    command = command.CommandName,
+                    // 1.20.0：参数取同面板同名输入框的当前值（没填是空串，指令按没给处理）。
+                    args = command.Arguments.ToDictionary(parameter => parameter.Name, parameter => "{" + parameter.Name + "}"),
+                    summary = command.Usage,
+                })
             .Append(new
             {
                 id = TechApply.ActionId,
@@ -317,16 +327,36 @@ internal static class StrenuaPage
     /// </summary>
     private static object ClassPanel(string commandClass, IReadOnlyList<QuickCommand> commands)
     {
-        var rows = commands.GroupBy(command => command.Row).OrderBy(group => group.Key)
+        var buttons = commands.GroupBy(command => command.Row).OrderBy(group => group.Key)
             .Select(group => (object)new
             {
                 mode = "even",
                 widgets = group.Select(command => (object)new { kind = "button", action = command.ActionId, text = command.Title }).ToArray(),
-            })
-            .ToArray();
+            });
+        var rows = InputRows(commands).Concat(buttons).ToArray();
         var title = QuickCommands.ClassTitle(commandClass);
         return new { type = "panel", id = ClassPanelId(commandClass), @case = title, text = title, rows };
     }
+
+    /// <summary>
+    /// 带参数的类（1.20.0「视图」「标注」）在按钮上面放输入框：这一类全部指令的参数按名字合并（同名共用一个框，按登记顺序第一次出现的为准），
+    /// 按 <see cref="QuickParameter.Group"/> 分行（对象 / 位置 / 文字），每行 even 分宽。框的 id 就是参数名，按钮的动作用 <c>{参数名}</c> 取值；
+    /// 有限取值的渲染成选择框，第一项是缺省。无参的类没有输入行。
+    /// </summary>
+    internal static IEnumerable<object> InputRows(IReadOnlyList<QuickCommand> commands)
+        => commands.SelectMany(command => command.Arguments)
+            .GroupBy(parameter => parameter.Name, StringComparer.Ordinal)
+            .Select(group => group.First())
+            .GroupBy(parameter => parameter.Group)
+            .OrderBy(group => group.Key)
+            .Select(group => (object)new
+            {
+                mode = "even",
+                widgets = group.Select(parameter => parameter.Options is { Length: > 0 } options
+                        ? (object)new { kind = "textbox", id = parameter.Name, label = parameter.Label, mode = "select", options, value = options[0], minWidth = 60 }
+                        : new { kind = "textbox", id = parameter.Name, label = parameter.Label, mode = "input", value = string.Empty, minWidth = 60 })
+                    .ToArray(),
+            });
 
     /// <summary>技术要求模板表格（1.13.0）：一份「通用技术要求」一行；「技术要求」列是按钮，点了插那一份（换掉图上原有的）；「设置」列设默认。</summary>
     private static object TechTable(string @case) => new

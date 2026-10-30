@@ -35,6 +35,22 @@ internal sealed class QuickCommandRunner(StrenuaOptions options, ICommandBus? bu
 
     public async Task<CommandResult> RunAsync(QuickCommand command, CommandContext context)
     {
+        // 1.20.0：带参数的先解析参数，填错直接失败，不附着 SolidWorks。
+        var run = command.Run;
+        if (command.Bind is not null)
+        {
+            try
+            {
+                run = command.Bind(context);
+            }
+            catch (QuickArgumentException ex)
+            {
+                var message = $"{command.Title}：{ex.Message}";
+                Finish(command.Key, "失败", message);
+                return CommandResult.Fail(message);
+            }
+        }
+
         CancellationTokenSource cancellation;
         lock (_gate)
         {
@@ -54,7 +70,7 @@ internal sealed class QuickCommandRunner(StrenuaOptions options, ICommandBus? bu
         try
         {
             outcome = await SolidWorksSession.RunAsync(
-                session => command.Run(new QuickCommandContext(
+                session => run(new QuickCommandContext(
                     session,
                     Options,
                     message => context.Progress?.Report(message),

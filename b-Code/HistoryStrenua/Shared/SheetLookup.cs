@@ -4,10 +4,10 @@ using HistoryStrenua.SolidWorks;
 namespace HistoryStrenua;
 
 /// <summary>
-/// 细粒度指令按名字找对象（1.20.0）：当前图纸页上的视图（图纸页本身也算一个，名字就是图纸页名，放的是图纸上的注释），
+/// 视图、标注两类按名字找对象（1.20.0）：当前图纸页上的视图（图纸页本身也算一个，名字就是图纸页名，放的是图纸上的注释），
 /// 视图里的注解（<c>IAnnotation.GetName</c>，在一个视图里唯一，删掉之前不变）。
 /// </summary>
-internal static class FineLookup
+internal static class SheetLookup
 {
     // swDrawingViewTypes_e
     public const int ViewSheet = 1;

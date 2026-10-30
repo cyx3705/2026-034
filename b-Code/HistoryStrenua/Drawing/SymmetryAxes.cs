@@ -64,15 +64,17 @@ internal static class SymmetryAxes
                 ? api.Call(scan.Document, "IDrawingDoc", "InsertCenterLine2")
                 : null;
             api.Call(scan.Document, "IModelDoc2", "ClearSelection2", true);
-            if (line is null)
+            // InsertCenterLine2 回的是 ICenterLine，不是注解；当 IAnnotation 调会 TargetException（1.23.1）。
+            var annotation = line is null ? null : api.Call(line, "ICenterLine", "GetAnnotation");
+            if (annotation is null)
                 failed++;
-            else if (CoversView(axis, DisplayLines(api, line), scan.Lines.Concat(scan.CurveSegments).ToList()))
+            else if (CoversView(axis, DisplayLines(api, annotation), scan.Lines.Concat(scan.CurveSegments).ToList()))
                 added++;
             else
             {
                 // SolidWorks 偶尔按选中的短边生成短中心线。插入后按显示数据核对完整视图跨度，错误结果立即删掉。
                 api.Call(scan.Document, "IModelDoc2", "ClearSelection2", true);
-                if (api.CallBool(line, "IAnnotation", "Select3", false, null))
+                if (api.CallBool(annotation, "IAnnotation", "Select3", false, null))
                     api.Call(scan.Document, "IModelDoc2", "EditDelete");
                 failed++;
             }

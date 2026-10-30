@@ -169,6 +169,7 @@ internal static class QuickCommands
         DanglingCheck.Command,
         OverlapCheck.Command,
         DrawingSnapshot.Command,
+        DrawingSvg.Command,
         TechAi.Command,
         ViewList.Command,
         MoveView.Command,

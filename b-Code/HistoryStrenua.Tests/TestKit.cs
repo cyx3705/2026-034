@@ -66,6 +66,7 @@ internal static partial class Tests
         ("one-key: part kind from AI, fallback guess and profile name (1.17.0)", TestPartKind),
         ("check: dimension network, sizes, cross-view and symmetry", TestDimensionCheck),
         ("check: two-decimal numbers", TestDecimalCheck),
+        ("check: drawing as SVG — sheet mm, numbered geometry, boxed annotations (1.21.0)", TestDrawingSvg),
         ("drawing: named view orientation is verified", TestMainViewRetry),
         ("hole position: avoids title block and revision block", TestPositionAvoidsKeepOuts),
         ("distinct holes stay distinct", TestDistinctHoles),

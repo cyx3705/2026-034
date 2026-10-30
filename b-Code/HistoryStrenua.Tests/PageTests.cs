@@ -45,6 +45,7 @@ internal static partial class Tests
             "strenua.check.dangling",
             "strenua.check.overlap",
             "strenua.check.snapshot",
+            "strenua.check.svg",
             "strenua.quick.list",
             "strenua.quick.run",
             "strenua.quick.cancel",
@@ -297,7 +298,7 @@ internal static partial class Tests
         True(QuickCommands.All.All(command => command.Title != "技术要求"), "技术要求按钮已删");
         // 检查类 1.12.0 加「悬空标注」「注解重叠」。
         // 1.16.0：加「两位小数」。
-        Equal("未标尺寸,两位小数,悬空标注,注解重叠,图纸截图", Row("check"));
+        Equal("未标尺寸,两位小数,悬空标注,注解重叠,图纸截图,图纸 SVG", Row("check"));
         // 1.20.0（用户定：新指令待遇和以前一样）：带参数的「视图」「标注」两类排在倒圆后面。
         Equal("视图列表,挪视图", Row("view"));
         Equal("标注列表,删标注,挪标注,改尺寸", Row("dim"));

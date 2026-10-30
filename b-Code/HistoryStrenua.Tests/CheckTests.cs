@@ -125,4 +125,67 @@ internal static partial class Tests
         True(sheet.Any(i => i.Reason.Contains("图框 / 标题栏线", StringComparison.Ordinal)), "压标题栏线");
         Equal("中心符号线", AnnotationCheckPlanner.KindName(13));
     }
+    /// <summary>1.21.0：图纸 SVG——坐标是图纸 mm、几何带编号、标注方框加字、图框格子整块。</summary>
+    static void TestDrawingSvg()
+    {
+        var sheet = new SvgSheet("底板", "图纸1", 0.420, 0.297, new SheetRect(0.005, 0.005, 0.415, 0.292),
+            [new SvgBlock("title-block", "标题栏", new SheetRect(0.235, 0.005, 0.415, 0.049), "底板 | WTJYQ-01-08 | 6061")],
+            [
+                new SvgView("图纸1", "图纸页", "", "", null, [], [], [],
+                    [new SvgAnnotation("注释1", "注释", "技术要求\n1. 未注圆角R1", "", new SheetRect(0.3, 0.06, 0.4, 0.09), new SheetPoint(0.3, 0.085), 0.0035, "", [])]),
+                new SvgView("工程图视图1", "模型", "", "1:2", new SheetRect(0.05, 0.1, 0.15, 0.2),
+                    [new SheetSegment(0.06, 0.11, 0.14, 0.11), new SheetSegment(0.06, 0.11, 0.06, 0.19)],
+                    [new SheetSegment(0.14, 0.11, 0.145, 0.115), new SheetSegment(0.145, 0.115, 0.15, 0.12), new SheetSegment(0.1, 0.1, 0.1, 0.1001)],
+                    [new HoleEdge(0, 0.08, 0.15, 0.003, "/M6")],
+                    [
+                        new SvgAnnotation("D1", "线性尺寸", "80", "80", new SheetRect(0.06, 0.2, 0.14, 0.206), new SheetPoint(0.095, 0.201), 0.0035, "x=60 ↔ x=140", []),
+                        new SvgAnnotation("中心符号线1", "中心符号线", "", "", null, null, 0, "", [new SheetSegment(0.075, 0.15, 0.085, 0.15)]),
+                    ],
+                    "钣金折弯线 2 条没有画"),
+            ]);
+        var svg = DrawingSvgWriter.Write(sheet);
+        var document = System.Xml.Linq.XDocument.Parse(svg);
+        var ns = (System.Xml.Linq.XNamespace)"http://www.w3.org/2000/svg";
+        var root = document.Root!;
+        Equal("0 0 420 297", root.Attribute("viewBox")!.Value);
+        Equal("bottom-left", root.Attribute("data-origin")!.Value);
+        // 整页翻一次 Y，里面的数字就是图纸 mm。
+        Equal("matrix(1 0 0 -1 0 297)", root.Element(ns + "g")!.Attribute("transform")!.Value);
+
+        var edge = document.Descendants(ns + "line").Single(e => (string?)e.Attribute("id") == "工程图视图1:E0");
+        Equal("60,110,140,110", string.Join(",", new[] { "x1", "y1", "x2", "y2" }.Select(a => edge.Attribute(a)!.Value)));
+        // 首尾相接的两小段并成一条折线，不相接的另起一条。
+        var polylines = document.Descendants(ns + "polyline").ToList();
+        Equal(2, polylines.Count);
+        Equal("140,110 145,115 150,120", polylines[0].Attribute("points")!.Value);
+        var hole = document.Descendants(ns + "circle").Single();
+        Equal("工程图视图1:H0", hole.Attribute("id")!.Value);
+        Equal("3", hole.Attribute("r")!.Value);
+        Equal("/M6", hole.Attribute("data-kind")!.Value);
+
+        var dimension = document.Descendants(ns + "g").Single(e => (string?)e.Attribute("id") == "工程图视图1:D1");
+        Equal("x=60 ↔ x=140", dimension.Attribute("data-measures")!.Value);
+        Equal("60,200,140,206", dimension.Attribute("data-box")!.Value);
+        var text = dimension.Element(ns + "text")!;
+        Equal("80", text.Value);
+        Equal("translate(95 201) scale(1 -1)", text.Attribute("transform")!.Value);
+        // 中心符号线画线、不画方框。
+        var mark = document.Descendants(ns + "g").Single(e => (string?)e.Attribute("id") == "工程图视图1:中心符号线1");
+        True(mark.Attribute("class")!.Value.Contains("center") && mark.Element(ns + "rect") is null && mark.Element(ns + "line") is not null, "中心符号线");
+        // 多行注释拆 tspan，全文另在 data-text。
+        var note = document.Descendants(ns + "g").Single(e => (string?)e.Attribute("id") == "图纸1:注释1");
+        Equal(2, note.Descendants(ns + "tspan").Count());
+        Equal("技术要求 / 1. 未注圆角R1", note.Attribute("data-text")!.Value);
+        var block = document.Descendants(ns + "g").Single(e => (string?)e.Attribute("id") == "title-block");
+        Equal("底板 | WTJYQ-01-08 | 6061", block.Attribute("data-text")!.Value);
+        True(svg.Contains("钣金折弯线 2 条没有画", StringComparison.Ordinal), "视图备注");
+        True(!svg.Contains("\"-0", StringComparison.Ordinal) && !svg.Contains(" -0 ", StringComparison.Ordinal), "不出 -0");
+        Equal("0", DrawingSvgWriter.Mm(-0.000001));
+        Equal("12.35", DrawingSvgWriter.Mm(0.012346));
+
+        var measured = new ViewDimension(0, 2, false, 0.08,
+            [DimensionAnchor.Line(new SheetSegment(0.06, 0.1, 0.06, 0.2), true), DimensionAnchor.Center(new SheetPoint(0.14, 0.15)),
+             DimensionAnchor.Line(new SheetSegment(0, 0, 0.01, 0.01), true)]);
+        Equal("x=60 ↔ (140,150) ↔ 斜线", DrawingSvg.Measures(measured));
+    }
 }

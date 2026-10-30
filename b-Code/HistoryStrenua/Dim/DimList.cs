@@ -59,7 +59,7 @@ internal static class DimList
         return QuickOutcome.Ok($"标注列表：{scope}共 {rows.Count} 个（图纸 mm）。" + Environment.NewLine + string.Join(Environment.NewLine, lines), rows);
     }
 
-    private static Dictionary<string, string> Row(SolidWorksApi api, string view, string name, object annotation)
+    internal static Dictionary<string, string> Row(SolidWorksApi api, string view, string name, object annotation)
     {
         var type = api.CallInt(annotation, "IAnnotation", "GetType");
         var row = new Dictionary<string, string>

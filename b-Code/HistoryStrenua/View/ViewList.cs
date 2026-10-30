@@ -59,7 +59,7 @@ internal static class ViewList
     }
 
     /// <summary>一个视图的行：图纸页给纸张大小；别的给外框、中心（<c>IView.Position</c>）、比例、父视图、引用模型。</summary>
-    private static Dictionary<string, string> Row(QuickCommandContext context, object drawing, object view)
+    internal static Dictionary<string, string> Row(QuickCommandContext context, object drawing, object view)
     {
         var api = context.Api;
         var type = api.CallInt(view, "IView", "get_Type");

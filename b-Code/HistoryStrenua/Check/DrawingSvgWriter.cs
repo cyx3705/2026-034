@@ -1,0 +1,183 @@
+using System.Globalization;
+using System.Security;
+using System.Text;
+
+namespace HistoryStrenua;
+
+/// <summary>读出来的一页图纸，写 SVG 用（纯数据，图纸坐标米）。</summary>
+/// <param name="Title">工程图标题。</param>
+/// <param name="SheetName">图纸页名（也是图纸上注释所在「视图」的名字）。</param>
+/// <param name="Width">纸宽。</param>
+/// <param name="Height">纸高。</param>
+/// <param name="Frame">图框（国标估计）；读不到为 null。</param>
+/// <param name="Blocks">图框里整块的格子：标题栏、修改栏、图号框，内容合成一段字。</param>
+/// <param name="Views">图纸页本身（放图纸上的注释）与各视图。</param>
+internal sealed record SvgSheet(string Title, string SheetName, double Width, double Height, SheetRect? Frame,
+    IReadOnlyList<SvgBlock> Blocks, IReadOnlyList<SvgView> Views);
+
+/// <summary>图框里的一块（标题栏……）：只画方框 + 标签，格子里的字合成一段放在 <c>data-text</c>。</summary>
+internal sealed record SvgBlock(string Id, string Label, SheetRect Rect, string Text);
+
+/// <summary>一个视图：外框、可见直边（编号 E）、曲线（折线近似）、孔（编号 H）、注解。图纸页本身没有几何，只有注解。</summary>
+internal sealed record SvgView(string Name, string Kind, string Parent, string Scale, SheetRect? Outline,
+    IReadOnlyList<SheetSegment> Lines, IReadOnlyList<SheetSegment> Curves, IReadOnlyList<HoleEdge> Holes,
+    IReadOnlyList<SvgAnnotation> Annotations, string Note = "");
+
+/// <summary>
+/// 一个注解：方框（显示数据外框）+ 显示的字；尺寸再带它量的两头（<paramref name="Measures"/>）。
+/// 中心符号线、中心线本身就是线，画 <paramref name="Lines"/>，不画方框。
+/// </summary>
+internal sealed record SvgAnnotation(string Name, string Kind, string Text, string Value, SheetRect? Box, SheetPoint? TextAt,
+    double TextHeight, string Measures, IReadOnlyList<SheetSegment> Lines);
+
+/// <summary>
+/// 把一页图纸写成 SVG（1.21.0，用户定：AI 调完 MCP 拿 SVG 代码当反馈，不看图片）。纯文本，离线可测。
+/// </summary>
+/// <remarks>
+/// <para><b>坐标就是图纸 mm、左下角为原点</b>，和 <c>view.move / dim.move</c> 的 x/y、<c>view.list / dim.list</c> 的数一致：
+/// 整页套一层 <c>matrix(1 0 0 -1 0 H)</c> 翻 Y，几何里的数字不换算；文字各自再翻回来，浏览器打开也是正的。</para>
+/// <para>取舍（用户问、我定）：读的人是 AI，看的是代码不是图像——零件几何要精确（直边、孔、曲线，带编号，将来加尺寸按编号点），
+/// 标注的「装饰」（箭头、尺寸界线、引线）不画，只给方框 + 显示的字 + 量的哪两头；标题栏、修改栏、图号框整块一个方框，格子里的字合成一段。</para>
+/// </remarks>
+internal static class DrawingSvgWriter
+{
+    public static string Write(SvgSheet sheet)
+    {
+        var w = Mm(sheet.Width);
+        var h = Mm(sheet.Height);
+        var svg = new StringBuilder();
+        svg.Append($"<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 {w} {h}\" width=\"{w}mm\" height=\"{h}mm\"")
+            .Append($" data-title=\"{Escape(sheet.Title)}\" data-sheet=\"{Escape(sheet.SheetName)}\" data-units=\"mm\" data-origin=\"bottom-left\">\n");
+        svg.Append("<!-- PowerSW 图纸 SVG：坐标为图纸 mm、左下角为原点（与 strenua.view.* / dim.* 的 x、y 相同）。")
+            .Append("id 形如「视图名:E3」（直边）、「视图名:H0」（孔）、「视图名:D1」（注解名）。")
+            .Append("标注只画方框（data-box 外框）与显示的字，data-measures 是尺寸量的两头；标题栏等图框格子整块一个方框，字在 data-text。 -->\n");
+        svg.Append("<style>")
+            .Append(".frame{fill:none;stroke:#000;stroke-width:.5}.block{fill:none;stroke:#888;stroke-width:.25}")
+            .Append(".outline{fill:none;stroke:#bbb;stroke-width:.1;stroke-dasharray:2 1}.edge,.curve{fill:none;stroke:#000;stroke-width:.35}")
+            .Append(".hole{fill:none;stroke:#000;stroke-width:.25}.ann rect{fill:none;stroke:#06c;stroke-width:.15;stroke-dasharray:1 .5}")
+            .Append(".center{fill:none;stroke:#c00;stroke-width:.13;stroke-dasharray:3 1 .5 1}text{font-family:sans-serif;fill:#06c}")
+            .Append(".block text{fill:#888}</style>\n");
+        svg.Append($"<g transform=\"matrix(1 0 0 -1 0 {h})\">\n");
+        svg.Append($"<rect class=\"sheet\" x=\"0\" y=\"0\" width=\"{w}\" height=\"{h}\" fill=\"#fff\"/>\n");
+        if (sheet.Frame is { } frame)
+            svg.Append($"<rect class=\"frame\" id=\"frame\"{Rect(frame)}/>\n");
+        foreach (var block in sheet.Blocks)
+        {
+            svg.Append($"<g class=\"block\" id=\"{Escape(block.Id)}\" data-label=\"{Escape(block.Label)}\"");
+            if (block.Text.Length > 0)
+                svg.Append($" data-text=\"{Escape(block.Text)}\"");
+            svg.Append($"><rect{Rect(block.Rect)}/>")
+                .Append(Text(block.Rect.Center, Math.Min(0.005, block.Rect.Height / 3), block.Label))
+                .Append("</g>\n");
+        }
+
+        foreach (var view in sheet.Views)
+            WriteView(svg, view);
+        svg.Append("</g>\n</svg>\n");
+        return svg.ToString();
+    }
+
+    private static void WriteView(StringBuilder svg, SvgView view)
+    {
+        svg.Append($"<g class=\"view\" id=\"{Escape(view.Name)}\" data-kind=\"{Escape(view.Kind)}\"");
+        if (view.Parent.Length > 0)
+            svg.Append($" data-parent=\"{Escape(view.Parent)}\"");
+        if (view.Scale.Length > 0)
+            svg.Append($" data-scale=\"{Escape(view.Scale)}\"");
+        if (view.Outline is { } outline)
+            svg.Append($" data-box=\"{Box(outline)}\"");
+        svg.Append(">\n");
+        if (view.Note.Length > 0)
+            svg.Append($"<!-- {Escape(view.Note)} -->\n");
+        if (view.Outline is { } box)
+            svg.Append($"<rect class=\"outline\"{Rect(box)}/>\n");
+        for (var i = 0; i < view.Lines.Count; i++)
+        {
+            var line = view.Lines[i];
+            svg.Append($"<line class=\"edge\" id=\"{Escape(view.Name)}:E{i}\" x1=\"{Mm(line.X1)}\" y1=\"{Mm(line.Y1)}\" x2=\"{Mm(line.X2)}\" y2=\"{Mm(line.Y2)}\"/>\n");
+        }
+
+        foreach (var points in Polylines(view.Curves))
+            svg.Append($"<polyline class=\"curve\" points=\"{string.Join(" ", points.Select(p => Mm(p.X) + "," + Mm(p.Y)))}\"/>\n");
+        foreach (var hole in view.Holes)
+        {
+            svg.Append($"<circle class=\"hole\" id=\"{Escape(view.Name)}:H{hole.Index}\" cx=\"{Mm(hole.X)}\" cy=\"{Mm(hole.Y)}\" r=\"{Mm(hole.Radius)}\"");
+            if (hole.Kind.Length > 0)
+                svg.Append($" data-kind=\"{Escape(hole.Kind)}\"");
+            svg.Append("/>\n");
+        }
+
+        foreach (var annotation in view.Annotations)
+            WriteAnnotation(svg, view.Name, annotation);
+        svg.Append("</g>\n");
+    }
+
+    private static void WriteAnnotation(StringBuilder svg, string view, SvgAnnotation annotation)
+    {
+        var center = annotation.Lines.Count > 0 && annotation.Box is null;
+        svg.Append($"<g class=\"ann{(center ? " center" : string.Empty)}\" id=\"{Escape(view)}:{Escape(annotation.Name)}\" data-kind=\"{Escape(annotation.Kind)}\"");
+        if (annotation.Value.Length > 0)
+            svg.Append($" data-value=\"{Escape(annotation.Value)}\"");
+        if (annotation.Measures.Length > 0)
+            svg.Append($" data-measures=\"{Escape(annotation.Measures)}\"");
+        if (annotation.Box is { } box)
+            svg.Append($" data-box=\"{Box(box)}\"");
+        if (annotation.Text.Contains('\n'))
+            svg.Append($" data-text=\"{Escape(annotation.Text.Replace("\n", " / "))}\"");
+        svg.Append('>');
+        foreach (var line in annotation.Lines)
+            svg.Append($"<line x1=\"{Mm(line.X1)}\" y1=\"{Mm(line.Y1)}\" x2=\"{Mm(line.X2)}\" y2=\"{Mm(line.Y2)}\"/>");
+        if (annotation.Box is { } rect)
+            svg.Append($"<rect{Rect(rect)}/>");
+        if (annotation.Text.Length > 0 && (annotation.TextAt ?? annotation.Box?.Center) is { } at)
+            svg.Append(Text(at, annotation.TextHeight > 0 ? annotation.TextHeight : 0.0035, annotation.Text, anchor: annotation.TextAt is null ? "middle" : "start"));
+        svg.Append("</g>\n");
+    }
+
+    /// <summary>首尾相接的线段连成折线（曲线边近似出来的就是一串首尾相接的小段）。</summary>
+    internal static List<List<SheetPoint>> Polylines(IReadOnlyList<SheetSegment> segments)
+    {
+        var result = new List<List<SheetPoint>>();
+        foreach (var segment in segments)
+        {
+            var start = new SheetPoint(segment.X1, segment.Y1);
+            var end = new SheetPoint(segment.X2, segment.Y2);
+            if (result.Count > 0 && Near(result[^1][^1], start))
+                result[^1].Add(end);
+            else
+                result.Add([start, end]);
+        }
+
+        return result;
+    }
+
+    private static bool Near(SheetPoint a, SheetPoint b) => Math.Abs(a.X - b.X) < 1e-7 && Math.Abs(a.Y - b.Y) < 1e-7;
+
+    /// <summary>
+    /// 文字：外层已翻 Y，这里在落点处再翻回来（<c>translate(x y) scale(1 -1)</c>），读到的 x、y 仍是图纸 mm；多行拆成 tspan，第一行基线在落点。
+    /// </summary>
+    private static string Text(SheetPoint at, double height, string text, string anchor = "middle")
+    {
+        var size = Mm(height);
+        var lines = text.Split('\n');
+        var body = lines.Length == 1
+            ? Escape(text)
+            : string.Concat(lines.Select((line, i) => $"<tspan x=\"0\" dy=\"{(i == 0 ? "0" : Mm(height * 1.5))}\">{Escape(line)}</tspan>"));
+        return $"<text transform=\"translate({Mm(at.X)} {Mm(at.Y)}) scale(1 -1)\" font-size=\"{size}\" text-anchor=\"{anchor}\">{body}</text>";
+    }
+
+    private static string Rect(SheetRect rect)
+        => $" x=\"{Mm(rect.Left)}\" y=\"{Mm(rect.Bottom)}\" width=\"{Mm(rect.Width)}\" height=\"{Mm(rect.Height)}\"";
+
+    /// <summary>外框写成「左,下,右,上」（图纸 mm），和 view.list / dim.list 的四个数一致。</summary>
+    private static string Box(SheetRect rect) => $"{Mm(rect.Left)},{Mm(rect.Bottom)},{Mm(rect.Right)},{Mm(rect.Top)}";
+
+    /// <summary>米 → mm，最多两位小数（0.01 mm 足够定位，再多只是噪声）。</summary>
+    internal static string Mm(double meters)
+    {
+        var mm = Math.Round(meters * 1000, 2);
+        return (mm == 0 ? 0 : mm).ToString("0.##", CultureInfo.InvariantCulture);
+    }
+
+    private static string Escape(string text) => SecurityElement.Escape(text) ?? string.Empty;
+}

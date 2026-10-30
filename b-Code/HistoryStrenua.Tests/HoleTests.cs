@@ -659,7 +659,7 @@ internal static partial class Tests
         True(usage.Contains("当前图纸页", StringComparison.Ordinal), "范围是当前图纸页");
         Equal("onekey-drawing,onekey-sheetmetal,onekey-frame,onekey-machined,hole-flow,dowel-symbol,center-mark,hole-position,hole-callout,dowel-fit,square-slot,"
             + "drawing-basic,drawing-create,drawing-project,drawing-iso,drawing-arrange,drawing-finish,symmetry-axes,outline-all,outline,fillet-flow,arc-center-all,arc-all,chamfer-all,arc-center,arc,chamfer,"
-            + "check-dimension,check-decimal,check-dangling,check-overlap,snapshot,tech-ai,"
+            + "check-dimension,check-decimal,check-dangling,check-overlap,snapshot,svg,tech-ai,"
             + "view-list,view-move,dim-list,dim-delete,dim-move,dim-edit",
             string.Join(",", QuickCommands.All.Select(command => command.Key)));
     }

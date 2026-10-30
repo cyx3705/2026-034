@@ -95,12 +95,12 @@ internal static class DrawingSnapshot
         return new string(title.Select(c => invalid.Contains(c) ? '_' : c).ToArray()).Trim();
     }
 
-    /// <summary>只留最近 <see cref="Keep"/> 张。</summary>
-    private static void Prune(string directory)
+    /// <summary>只留最近 <see cref="Keep"/> 张（1.21.0 起图纸 SVG 也放这里，按扩展名各留各的）。</summary>
+    internal static void Prune(string directory, string pattern = "*.png")
     {
         try
         {
-            foreach (var old in new DirectoryInfo(directory).GetFiles("*.png").OrderByDescending(f => f.LastWriteTimeUtc).Skip(Keep))
+            foreach (var old in new DirectoryInfo(directory).GetFiles(pattern).OrderByDescending(f => f.LastWriteTimeUtc).Skip(Keep))
                 old.Delete();
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)

@@ -24,11 +24,12 @@ internal sealed record SvgView(string Name, string Kind, string Parent, string S
     IReadOnlyList<SvgAnnotation> Annotations, string Note = "");
 
 /// <summary>
-/// 一个注解：方框（显示数据外框）+ 显示的字；尺寸再带它量的两头（<paramref name="Measures"/>）。
-/// 中心符号线、中心线本身就是线，画 <paramref name="Lines"/>，不画方框。
+/// 一个注解：方框画字占的地方（<paramref name="TextBox"/>，没有就用整个外框），<c>data-box</c> 另写连尺寸界线、引线在内的整个外框（<paramref name="Box"/>）；
+/// 尺寸再带它量的两头（<paramref name="Measures"/>）。中心符号线、中心线本身就是线，画 <paramref name="Lines"/>（并成一条 path），不画方框。
+/// 竖直尺寸的字按 <paramref name="Angle"/>（弧度，逆时针）转过来。
 /// </summary>
 internal sealed record SvgAnnotation(string Name, string Kind, string Text, string Value, SheetRect? Box, SheetPoint? TextAt,
-    double TextHeight, string Measures, IReadOnlyList<SheetSegment> Lines);
+    double TextHeight, string Measures, IReadOnlyList<SheetSegment> Lines, SheetRect? TextBox = null, double Angle = 0);
 
 /// <summary>
 /// 把一页图纸写成 SVG（1.21.0，用户定：AI 调完 MCP 拿 SVG 代码当反馈，不看图片）。纯文本，离线可测。
@@ -125,12 +126,13 @@ internal static class DrawingSvgWriter
         if (annotation.Text.Contains('\n'))
             svg.Append($" data-text=\"{Escape(annotation.Text.Replace("\n", " / "))}\"");
         svg.Append('>');
-        foreach (var line in annotation.Lines)
-            svg.Append($"<line x1=\"{Mm(line.X1)}\" y1=\"{Mm(line.Y1)}\" x2=\"{Mm(line.X2)}\" y2=\"{Mm(line.Y2)}\"/>");
-        if (annotation.Box is { } rect)
+        if (annotation.Lines.Count > 0)
+            svg.Append($"<path d=\"{Path(annotation.Lines)}\"/>");
+        if ((annotation.TextBox ?? annotation.Box) is { } rect)
             svg.Append($"<rect{Rect(rect)}/>");
         if (annotation.Text.Length > 0 && (annotation.TextAt ?? annotation.Box?.Center) is { } at)
-            svg.Append(Text(at, annotation.TextHeight > 0 ? annotation.TextHeight : 0.0035, annotation.Text, anchor: annotation.TextAt is null ? "middle" : "start"));
+            svg.Append(Text(at, annotation.TextHeight > 0 ? annotation.TextHeight : 0.0035, annotation.Text,
+                anchor: annotation.TextAt is null ? "middle" : "start", angle: annotation.Angle));
         svg.Append("</g>\n");
     }
 
@@ -156,15 +158,20 @@ internal static class DrawingSvgWriter
     /// <summary>
     /// 文字：外层已翻 Y，这里在落点处再翻回来（<c>translate(x y) scale(1 -1)</c>），读到的 x、y 仍是图纸 mm；多行拆成 tspan，第一行基线在落点。
     /// </summary>
-    private static string Text(SheetPoint at, double height, string text, string anchor = "middle")
+    private static string Text(SheetPoint at, double height, string text, string anchor = "middle", double angle = 0)
     {
+        var rotate = Math.Abs(angle) > 1e-6 ? $" rotate({(angle * 180 / Math.PI).ToString("0.#", CultureInfo.InvariantCulture)})" : string.Empty;
         var size = Mm(height);
         var lines = text.Split('\n');
         var body = lines.Length == 1
             ? Escape(text)
             : string.Concat(lines.Select((line, i) => $"<tspan x=\"0\" dy=\"{(i == 0 ? "0" : Mm(height * 1.5))}\">{Escape(line)}</tspan>"));
-        return $"<text transform=\"translate({Mm(at.X)} {Mm(at.Y)}) scale(1 -1)\" font-size=\"{size}\" text-anchor=\"{anchor}\">{body}</text>";
+        return $"<text transform=\"translate({Mm(at.X)} {Mm(at.Y)}){rotate} scale(1 -1)\" font-size=\"{size}\" text-anchor=\"{anchor}\">{body}</text>";
     }
+
+    /// <summary>一串线段写成一条 path（中心符号线一组几十段，一段一个 line 太占地方）；首尾相接的省掉 M。</summary>
+    private static string Path(IReadOnlyList<SheetSegment> lines)
+        => string.Join(" ", Polylines(lines).Select(points => "M" + string.Join("L", points.Select(p => Mm(p.X) + " " + Mm(p.Y)))));
 
     private static string Rect(SheetRect rect)
         => $" x=\"{Mm(rect.Left)}\" y=\"{Mm(rect.Bottom)}\" width=\"{Mm(rect.Width)}\" height=\"{Mm(rect.Height)}\"";

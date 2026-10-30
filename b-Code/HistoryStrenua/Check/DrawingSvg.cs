@@ -121,6 +121,9 @@ internal static class DrawingSvg
         var note = string.Empty;
         if (api.Call(view, "IView", "get_ReferencedDocument") is null)
             note = "没有引用模型（空视图或轻化），只画外框与注解";
+        else if (row["kind"].EndsWith("·轴测", StringComparison.Ordinal))
+            // 真机：轴测图的孔都是椭圆，折线近似出来占了整份 SVG 的三分之一，又没有谁按它标尺寸——只画外框。
+            note = "轴测图只画外框与注解（不标尺寸，几何不出）";
         else
         {
             try
@@ -157,7 +160,7 @@ internal static class DrawingSvg
         try
         {
             if (type == AnnotationNote && api.Call(annotation, "IAnnotation", "GetSpecificAnnotation") is { } note)
-                text = string.Join("\n", api.CallString(note, "INote", "GetText")
+                text = string.Join("\n", DimList.Readable(api.CallString(note, "INote", "GetText"))
                     .Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
             (lines, texts) = Clearance.DisplayGeometry(api, annotation);
         }
@@ -170,8 +173,14 @@ internal static class DrawingSvg
             return new SvgAnnotation(name, row["kind"], string.Empty, string.Empty, null, null, 0, string.Empty, lines);
         var box = Rect(row);
         var first = texts.Count > 0 ? texts[0] : (TextBox?)null;
+        // 真机第一版方框取整个外框（连尺寸界线、引线），一大片虚线框互相叠着，看着像标注占满了视图；方框改画字占的地方，整个外框留在 data-box。
+        var corners = texts.SelectMany(t => t.Corners()).ToList();
+        SheetRect? textBox = corners.Count == 0
+            ? null
+            : new SheetRect(corners.Min(p => p.X), corners.Min(p => p.Y), corners.Max(p => p.X), corners.Max(p => p.Y));
         return new SvgAnnotation(name, row["kind"], text, row["value"], box,
-            first is { } t ? new SheetPoint(t.X, t.Y) : null, first?.Height ?? 0, measures ?? string.Empty, []);
+            first is { } t ? new SheetPoint(t.X, t.Y) : null, first?.Height ?? 0, measures ?? string.Empty, [],
+            textBox, first?.Angle ?? 0);
     }
 
     private static SheetRect? Rect(IReadOnlyDictionary<string, string> row)

@@ -140,8 +140,29 @@ internal static class DimList
         if (api.Call(annotation, "IAnnotation", "GetDisplayData") is not { } data)
             return string.Empty;
         var count = api.CallInt(data, "IDisplayData", "GetTextCount");
-        return Flatten(string.Join(" ", Enumerable.Range(0, count).Select(i => api.CallString(data, "IDisplayData", "GetTextAtIndex", i))));
+        return Flatten(Readable(string.Join(" ", Enumerable.Range(0, count).Select(i => api.CallString(data, "IDisplayData", "GetTextAtIndex", i)))));
     }
+
+    /// <summary>
+    /// SolidWorks 显示数据里孔标注的符号是代码（1.21.0 真机：「4 x &lt;MOD-DIAM&gt; 11 完全贯穿 &lt;HOLE-SPOT&gt; &lt;MOD-DIAM&gt; 18 &lt;HOLE-DEPTH&gt; 11」），
+    /// 换成图上画出来的符号；不认得的代码原样留着。
+    /// </summary>
+    internal static string Readable(string text)
+    {
+        foreach (var (code, symbol) in Symbols)
+            text = text.Replace(code, symbol, StringComparison.Ordinal);
+        return text;
+    }
+
+    private static readonly (string Code, string Symbol)[] Symbols =
+    [
+        ("<MOD-DIAM>", "Ø"),
+        ("<MOD-DEG>", "°"),
+        ("<MOD-PM>", "±"),
+        ("<HOLE-SPOT>", "⌴"),
+        ("<HOLE-SINK>", "⌵"),
+        ("<HOLE-DEPTH>", "↧"),
+    ];
 
     /// <summary>多行字压成一行（回执一行一个注解），太长截断。</summary>
     internal static string Flatten(string text)

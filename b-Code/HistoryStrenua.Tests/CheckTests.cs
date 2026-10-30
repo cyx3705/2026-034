@@ -138,7 +138,9 @@ internal static partial class Tests
                     [new SheetSegment(0.14, 0.11, 0.145, 0.115), new SheetSegment(0.145, 0.115, 0.15, 0.12), new SheetSegment(0.1, 0.1, 0.1, 0.1001)],
                     [new HoleEdge(0, 0.08, 0.15, 0.003, "/M6")],
                     [
-                        new SvgAnnotation("D1", "线性尺寸", "80", "80", new SheetRect(0.06, 0.2, 0.14, 0.206), new SheetPoint(0.095, 0.201), 0.0035, "x=60 ↔ x=140", []),
+                        new SvgAnnotation("D1", "线性尺寸", "80", "80", new SheetRect(0.06, 0.2, 0.14, 0.206), new SheetPoint(0.095, 0.201), 0.0035, "x=60 ↔ x=140", [],
+                            new SheetRect(0.095, 0.201, 0.1, 0.2045)),
+                        new SvgAnnotation("D2", "线性尺寸", "80", "80", null, new SheetPoint(0.05, 0.13), 0.0035, "y=110 ↔ y=190", [], null, Math.PI / 2),
                         new SvgAnnotation("中心符号线1", "中心符号线", "", "", null, null, 0, "", [new SheetSegment(0.075, 0.15, 0.085, 0.15)]),
                     ],
                     "钣金折弯线 2 条没有画"),
@@ -166,12 +168,17 @@ internal static partial class Tests
         var dimension = document.Descendants(ns + "g").Single(e => (string?)e.Attribute("id") == "工程图视图1:D1");
         Equal("x=60 ↔ x=140", dimension.Attribute("data-measures")!.Value);
         Equal("60,200,140,206", dimension.Attribute("data-box")!.Value);
+        // 方框画字占的地方（真机第一版画整个外框，一片虚线框叠在一起），整个外框留在 data-box。
+        Equal("5", dimension.Element(ns + "rect")!.Attribute("width")!.Value);
+        var vertical = document.Descendants(ns + "g").Single(e => (string?)e.Attribute("id") == "工程图视图1:D2").Element(ns + "text")!;
+        Equal("translate(50 130) rotate(90) scale(1 -1)", vertical.Attribute("transform")!.Value);
         var text = dimension.Element(ns + "text")!;
         Equal("80", text.Value);
         Equal("translate(95 201) scale(1 -1)", text.Attribute("transform")!.Value);
         // 中心符号线画线、不画方框。
         var mark = document.Descendants(ns + "g").Single(e => (string?)e.Attribute("id") == "工程图视图1:中心符号线1");
-        True(mark.Attribute("class")!.Value.Contains("center") && mark.Element(ns + "rect") is null && mark.Element(ns + "line") is not null, "中心符号线");
+        True(mark.Attribute("class")!.Value.Contains("center") && mark.Element(ns + "rect") is null, "中心符号线");
+        Equal("M75 150L85 150", mark.Element(ns + "path")!.Attribute("d")!.Value);
         // 多行注释拆 tspan，全文另在 data-text。
         var note = document.Descendants(ns + "g").Single(e => (string?)e.Attribute("id") == "图纸1:注释1");
         Equal(2, note.Descendants(ns + "tspan").Count());
@@ -187,5 +194,7 @@ internal static partial class Tests
             [DimensionAnchor.Line(new SheetSegment(0.06, 0.1, 0.06, 0.2), true), DimensionAnchor.Center(new SheetPoint(0.14, 0.15)),
              DimensionAnchor.Line(new SheetSegment(0, 0, 0.01, 0.01), true)]);
         Equal("x=60 ↔ (140,150) ↔ 斜线", DrawingSvg.Measures(measured));
+        // 真机：孔标注显示数据里的符号是代码。
+        Equal("4 x Ø 11 完全贯穿 ⌴ Ø 18 ↧ 11 <X-Y>", DimList.Readable("4 x <MOD-DIAM> 11 完全贯穿 <HOLE-SPOT> <MOD-DIAM> 18 <HOLE-DEPTH> 11 <X-Y>"));
     }
 }

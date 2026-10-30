@@ -76,16 +76,9 @@ internal static class DrawingSvgWriter
             .Append($" data-title=\"{Escape(sheet.Title)}\" data-sheet=\"{Escape(sheet.SheetName)}\" data-units=\"mm\" data-origin=\"bottom-left\"")
             .Append(sheet.Delta ? " data-delta=\"true\"" : string.Empty)
             .Append($" data-detail=\"{detail.Label}\">\n");
-        svg.Append(sheet.Delta
-            ? "<!-- PowerSW 本步改动：只有改了的视图与注解，data-change=added/removed/changed/moved/rescaled；坐标为图纸 mm、左下角为原点；几何只在新建、换比例的视图里给（别的视图按 strenua.check.svg view= 取）。 -->\n"
-            : "<!-- PowerSW 图纸 SVG：坐标为图纸 mm、左下角为原点（与 strenua.view.* / dim.* 的 x、y 相同）。id 形如「视图名:E3」（直边）、「视图名:H0」（孔）、「视图名:D1」（注解名）。"
-              + "标注只画方框与显示的字，data-measures 是尺寸量的两头；标题栏等图框格子整块一个方框，字在 data-text。 -->\n");
-        svg.Append("<style>")
-            .Append(".frame{fill:none;stroke:#000;stroke-width:.5}.block{fill:none;stroke:#888;stroke-width:.25}")
-            .Append(".outline{fill:none;stroke:#bbb;stroke-width:.1;stroke-dasharray:2 1}.edge,.curve{fill:none;stroke:#000;stroke-width:.35}")
-            .Append(".hole{fill:none;stroke:#000;stroke-width:.25}.ann rect{fill:none;stroke:#06c;stroke-width:.15;stroke-dasharray:1 .5}")
-            .Append(".center{fill:none;stroke:#c00;stroke-width:.13;stroke-dasharray:3 1 .5 1}text{font-family:sans-serif;fill:#06c}")
-            .Append(".block text{fill:#888}[data-change=removed] rect{stroke:#c00}</style>\n");
+        // 真机：单步差异 1442 字里 600 多字是固定的样式和说明，对读代码的 AI 没用（约定在 check.svg 里读过一次就够）——差异不带。
+        if (!sheet.Delta)
+            WriteHeader(svg);
         svg.Append($"<g transform=\"matrix(1 0 0 -1 0 {h})\">\n");
         if (!sheet.Delta)
             svg.Append($"<rect class=\"sheet\" x=\"0\" y=\"0\" width=\"{w}\" height=\"{h}\" fill=\"#fff\"/>\n");
@@ -102,12 +95,25 @@ internal static class DrawingSvgWriter
         }
 
         foreach (var view in sheet.Views)
-            WriteView(svg, view, detail);
+            WriteView(svg, view, detail, sheet.Delta);
         svg.Append("</g>\n</svg>\n");
         return svg.ToString();
     }
 
-    private static void WriteView(StringBuilder svg, SvgView view, SvgDetail detail)
+    private static void WriteHeader(StringBuilder svg)
+    {
+        svg.Append("<!-- PowerSW 图纸 SVG：坐标为图纸 mm、左下角为原点（与 strenua.view.* / dim.* 的 x、y 相同）。id 形如「视图名:E3」（直边）、「视图名:H0」（孔）、「视图名:D1」（注解名）。"
+              + "标注只画方框与显示的字，data-measures 是尺寸量的两头；标题栏等图框格子整块一个方框，字在 data-text。"
+              + "改图指令经 MCP 调用时回执只给本步差异（data-delta，data-change=added/removed/changed/moved/rescaled，几何只在新建、换比例的视图里给）。 -->\n");
+        svg.Append("<style>")
+            .Append(".frame{fill:none;stroke:#000;stroke-width:.5}.block{fill:none;stroke:#888;stroke-width:.25}")
+            .Append(".outline{fill:none;stroke:#bbb;stroke-width:.1;stroke-dasharray:2 1}.edge,.curve{fill:none;stroke:#000;stroke-width:.35}")
+            .Append(".hole{fill:none;stroke:#000;stroke-width:.25}.ann rect{fill:none;stroke:#06c;stroke-width:.15;stroke-dasharray:1 .5}")
+            .Append(".center{fill:none;stroke:#c00;stroke-width:.13;stroke-dasharray:3 1 .5 1}text{font-family:sans-serif;fill:#06c}")
+            .Append(".block text{fill:#888}[data-change=removed] rect{stroke:#c00}</style>\n");
+    }
+
+    private static void WriteView(StringBuilder svg, SvgView view, SvgDetail detail, bool delta)
     {
         svg.Append($"<g class=\"view\" id=\"{Escape(view.Name)}\" data-kind=\"{Escape(view.Kind)}\"");
         if (view.Change.Length > 0)
@@ -123,7 +129,8 @@ internal static class DrawingSvgWriter
         svg.Append(">\n");
         if (view.Note.Length > 0)
             svg.Append($"<!-- {Escape(view.Note)} -->\n");
-        if (view.Outline is { } box && view.Change != "removed")
+        // 差异里视图本身没变的，外框已在 data-box，不再画一遍。
+        if (view.Outline is { } box && view.Change != "removed" && (!delta || view.Change.Length > 0))
             svg.Append($"<rect class=\"outline\"{Rect(box)}/>\n");
         if (detail.Geometry)
         {

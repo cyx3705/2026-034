@@ -25,7 +25,8 @@ internal static class DrawingArrange
     /// <param name="keepIso">
     /// 轴测图保持现在的比例（1.25.0，用户指出：整理标注时轴测图被放大回视图比例）。标注都标完了再放大它只会挤别的；放不下才在现在的基础上再缩。
     /// </param>
-    internal static QuickOutcome Run(QuickCommandContext context, DrawingSheet sheet, bool keepIso = false)
+    /// <param name="keepScale">放不下也不降比例，照排（用户定：优先调位置）。</param>
+    internal static QuickOutcome Run(QuickCommandContext context, DrawingSheet sheet, bool keepIso = false, bool keepScale = false)
     {
         var api = context.Api;
         context.SetState("排版");
@@ -49,7 +50,7 @@ internal static class DrawingArrange
                 noteWidth,
                 noteHeight,
                 DrawingPlanner.IsoFactors(sheet.Part, scale));
-            layout = DrawingPlanner.Layout(sheet.Space(context), request);
+            layout = DrawingPlanner.Layout(sheet.Space(context), request, keepScale);
             var current = scale;
             var smaller = scales.Where(s => s < current - 1e-12).Select(s => (double?)s).FirstOrDefault();
             if (layout.Fits || smaller is null)

@@ -103,10 +103,10 @@ internal static class HolePositionPlanner
     public const int PatternThreshold = 4;
 
     /// <summary>第一层尺寸离基准边多远（图纸上 8 mm；1.2.0 首版 10 mm，用户嫌远）。</summary>
-    public const double FirstTier = 0.008;
+    public const double FirstTier = 0.007;
 
     /// <summary>层与层之间多远（图纸上 6 mm；首版 8 mm）。</summary>
-    public const double TierStep = 0.006;
+    public const double TierStep = 0.005;
 
     /// <summary>
     /// 尺寸链模式：坐标尺寸文字离零件左侧（上侧）直边多远（图纸上 14 mm）。取自用户的演示图——

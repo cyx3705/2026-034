@@ -17,18 +17,27 @@ internal static class DrawingFinish
         if (!context.Options.Clearance) return QuickOutcome.Ok("整理标注：避障关闭，未移动标注。");
         context.SetState("整理标注");
         var first = Clear(context, drawing);
-        var arranged = DrawingArrange.Run(context, DrawingSheet.Read(context, drawing, "整理标注"), keepIso: true);
+        // 用户定：超出图框优先调位置。先保持比例排、把出框的标注拉回来；视图本身或标注实在回不来才降比例重来。
+        var arranged = DrawingArrange.Run(context, DrawingSheet.Read(context, drawing, "整理标注"), keepIso: true, keepScale: true);
         var last = Clear(context, drawing);
+        if (last.Outside.Count > 0)
+        {
+            context.Report($"整理标注：{string.Join("、", last.Outside)} 保持比例放不进图框，比例降一档再排。");
+            arranged = DrawingArrange.Run(context, DrawingSheet.Read(context, drawing, "整理标注"), keepIso: true);
+            last = Clear(context, drawing);
+        }
+
         var message = $"整理标注：避让移动 {first.Moved + last.Moved} 次，剩余 {last.Stuck.Count} 个文字冲突（孔标注不挪，引线交叉、过长见「注解重叠」）。"
             + (last.Stuck.Count > 0 ? "\n· " + string.Join("、", last.Stuck) : string.Empty)
+            + (last.Outside.Count > 0 ? "\n· 还在图框外：" + string.Join("、", last.Outside) : string.Empty)
             + "\n" + arranged.Message;
-        return last.Stuck.Count == 0 && arranged.Success ? QuickOutcome.Ok(message) : QuickOutcome.Fail(message);
+        return last.Stuck.Count == 0 && last.Outside.Count == 0 && arranged.Success ? QuickOutcome.Ok(message) : QuickOutcome.Fail(message);
     }
 
     private sealed record Shape(object Annotation, string Name, SheetRect View, bool Movable, bool Callout,
         IReadOnlyList<SheetSegment> Lines, IReadOnlyList<TextBox> Texts);
 
-    private static (int Moved, List<string> Stuck) Clear(QuickCommandContext context, object drawing)
+    private static (int Moved, List<string> Stuck, List<string> Outside) Clear(QuickCommandContext context, object drawing)
     {
         var api = context.Api;
         var shapes = new List<Shape>();
@@ -90,16 +99,23 @@ internal static class DrawingFinish
             {
                 context.Cancellation.ThrowIfCancellationRequested();
                 var shape = shapes[i];
-                if (!shape.Movable || shape.Texts.Count == 0) continue;
+                if (shape.Texts.Count == 0) continue;
+                // 孔标注、半径尺寸平时不挪；出了图框的例外（用户定：标注不许超出图框）。
+                var outside = !AnnotationPlacementPlanner.Within(shape.Texts, frame.Value);
+                if (!shape.Movable && !outside) continue;
                 var obstacles = ObstaclesFor(i);
                 var hits = Hits(shape, obstacles);
                 if (hits == 0) continue;
                 var position = api.CallDoubles(shape.Annotation, "IAnnotation", "GetPosition");
                 if (position.Length < 3) continue;
-                foreach (var offset in AnnotationPlacementPlanner.Offsets(shape.Texts, shape.View, shape.Callout))
+                var clean = AnnotationPlacementPlanner.Offsets(shape.Texts, shape.View, shape.Callout).Where(offset =>
                 {
-                    var shifted = ClearancePlanner.Shift(shape.Texts, offset.X, offset.Y);
-                    if (!AnnotationPlacementPlanner.Within(shifted, frame.Value) || ClearancePlanner.Hits(shifted, obstacles) > 0) continue;
+                    var moved = ClearancePlanner.Shift(shape.Texts, offset.X, offset.Y);
+                    return AnnotationPlacementPlanner.Within(moved, frame.Value) && ClearancePlanner.Hits(moved, obstacles) == 0;
+                });
+                // 找不到全空的地方：出框的宁可压字也要回到框内。
+                foreach (var offset in clean.Concat(AnnotationPlacementPlanner.Inward(shape.Texts, frame.Value)))
+                {
                     var accepted = false;
                     try
                     {
@@ -127,7 +143,15 @@ internal static class DrawingFinish
         }
         api.Call(drawing, "IModelDoc2", "ClearSelection2", true);
         api.Call(drawing, "IModelDoc2", "GraphicsRedraw2");
-        return (moved, shapes.Where((s, i) => s.Movable && s.Texts.Count > 0 && Hits(s, ObstaclesFor(i)) > 0).Select(s => s.Name).ToList());
+        var outsideNames = shapes.Where(s => s.Texts.Count > 0 && !AnnotationPlacementPlanner.Within(s.Texts, frame.Value)).Select(s => s.Name).ToList();
+        foreach (var view in HoleScan.SheetViews(api, drawing))
+        {
+            var box = DrawingSheet.Outline(api, view);
+            if (box.Left < frame.Value.Left || box.Right > frame.Value.Right || box.Bottom < frame.Value.Bottom || box.Top > frame.Value.Top)
+                outsideNames.Add("视图「" + DrawingSheet.Name(api, view) + "」");
+        }
+
+        return (moved, shapes.Where((s, i) => s.Movable && s.Texts.Count > 0 && Hits(s, ObstaclesFor(i)) > 0).Select(s => s.Name).ToList(), outsideNames);
     }
 
     internal static int? ExactPrecision(double millimeters)

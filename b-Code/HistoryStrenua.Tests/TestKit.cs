@@ -113,6 +113,7 @@ internal static partial class Tests
         ("feedback: svg leaders and center mark boxes (1.24.0)", TestSvgLeaders),
         ("feedback: idle steps and sheet list filter (1.24.0)", TestIdleAndSheetPlace),
         ("fine tools: geometry ids, axis and doc types (1.25.0)", TestFineToolArguments),
+        ("split holes: two half circles are one hole (1.25.0)", TestSplitHoles),
         ("feedback: unnoted chamfers from the tech note (1.24.0)", TestUnnotedChamfer),
     };
 

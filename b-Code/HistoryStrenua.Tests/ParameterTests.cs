@@ -92,6 +92,31 @@ internal static partial class Tests
         Equal(string.Empty, Inputs("hole"));
     }
 
+    static void TestSplitHoles()
+    {
+        // 同心同半径、背对背的两段半圆：一个整圆孔；另外一对真腰型孔不受影响。
+        HoleEdge[] edges =
+        [
+            new(0, 0.10, 0.10, 0.0035, "/导入", BulgeX: 1),
+            new(1, 0.10, 0.10, 0.0035, "/导入", BulgeX: -1),
+            new(2, 0.20, 0.10, 0.003, "/腰", BulgeX: -1),
+            new(3, 0.23, 0.10, 0.003, "/腰", BulgeX: 1),
+        ];
+        var holes = HoleCalloutPlanner.Recognize(edges);
+        Equal(1, holes.Count(hole => hole.Split));
+        Equal(0, holes.Single(hole => hole.Split).Index);
+        Equal(2, holes.Count(hole => hole.Slot >= 0));
+        // 同向的两段不是一个孔（配不上腰型孔就丢掉，和以前一样）。
+        Equal(0, HoleCalloutPlanner.Recognize([new(0, 0.1, 0.1, 0.003, "/a", BulgeX: 1), new(1, 0.1, 0.1, 0.003, "/a", BulgeX: 1)]).Count);
+
+        var axis = new ModelDirection(0, 0, 1);
+        PartCylinder Half(double z1, double z2) => new(axis, default, 0.0035, true, false, "导入", [], z1, z2);
+        var part = new PartGeometry(new ModelBox(0, 0, 0, 1, 1, 1), [Half(0, 0.02), Half(0, 0.02)]);
+        Equal(1, part.Holes.Count);
+        Equal("4 x <MOD-DIAM>", SplitHole.Prefix(4));
+        Equal("<MOD-DIAM>", SplitHole.Prefix(1));
+    }
+
     static void TestFineToolArguments()
     {
         Equal(new GeometryRef(false, 3), GeometryRef.Parse("E3", "from"));

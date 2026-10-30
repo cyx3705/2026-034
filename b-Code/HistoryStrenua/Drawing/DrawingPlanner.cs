@@ -404,7 +404,10 @@ internal static class DrawingPlanner
     /// 排版：主视图连同左右、上下投影视图从图框左上角排起（左边、上边留标注空间），轴测图放进剩下的空地（离主视图右侧最近处），
     /// 放不下就缩成一半；技术要求只放标题栏正上方或左侧（1.13.0），放不下就把轴测图再缩一档重放、再不行先钉技术要求后放轴测图。不碰图框外、标题栏等禁区。
     /// </summary>
-    public static LayoutResult Layout(SheetSpace sheet, LayoutRequest request)
+    /// <param name="sheet">图纸。</param>
+    /// <param name="request">要排的东西。</param>
+    /// <param name="force">视图组放不下也照排（1.25.0，用户定：超出图框优先调位置，别的标注由整理标注拉回框内）。</param>
+    public static LayoutResult Layout(SheetSpace sheet, LayoutRequest request, bool force = false)
     {
         var frame = sheet.Frame;
 
@@ -426,7 +429,7 @@ internal static class DrawingPlanner
         }
 
         var (mainCenter, centers, occupied) = block;
-        if (problem.Length > 0)
+        if (problem.Length > 0 && !force)
             return new LayoutResult(false, mainCenter, centers, null, 1, null, problem);
 
         // 轴测图、技术要求：技术要求找不到空地时，轴测图从再小一档起重放（轴测图只是看个样子，技术要求要读；

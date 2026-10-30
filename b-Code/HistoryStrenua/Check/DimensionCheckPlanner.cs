@@ -61,16 +61,38 @@ internal static class DimensionCheckPlanner
     private const int RadialDimension = 5;
     private const int DiameterDimension = 6;
 
-    public static List<MissingDimension> Check(IReadOnlyList<CheckView> views)
+    /// <param name="views">同页各视图。</param>
+    /// <param name="chamfer">「未注倒角」的 C 值（模型，米）；null 用 <see cref="DefaultChamfer"/>（1.24.0：技术要求里写了就按它）。</param>
+    /// <param name="fillet">「未注圆角」的 R 值（模型，米）；null 用 <see cref="DefaultFillet"/>。</param>
+    public static List<MissingDimension> Check(IReadOnlyList<CheckView> views, double? chamfer = null, double? fillet = null)
     {
         ArgumentNullException.ThrowIfNull(views);
         var result = new List<MissingDimension>();
         foreach (var model in views.Select((view, index) => (view, index)).GroupBy(item => item.view.Model))
-            result.AddRange(CheckModel(model.ToList()));
+            result.AddRange(CheckModel(model.ToList(), chamfer ?? DefaultChamfer, fillet ?? DefaultFillet));
         return result.OrderBy(item => item.View).ToList();
     }
 
-    private static List<MissingDimension> CheckModel(List<(CheckView View, int Index)> views)
+    /// <summary>
+    /// 技术要求里的「未注倒角 C0.5」「未注圆角 R1」（1.24.0）：返回模型米，比写的值放宽 0.05 mm；没写返回 null。
+    /// 「0.5*45°」这种写法也认。
+    /// </summary>
+    public static (double? Chamfer, double? Fillet) Unnoted(string techText)
+    {
+        var chamfer = System.Text.RegularExpressions.Regex.Match(techText, @"未注倒角\s*C?\s*(\d+(?:\.\d+)?)");
+        var fillet = System.Text.RegularExpressions.Regex.Match(techText, @"未注圆角\s*R?\s*(\d+(?:\.\d+)?)");
+        static double? Meters(System.Text.RegularExpressions.Match match)
+            => match.Success ? double.Parse(match.Groups[1].Value, CultureInfo.InvariantCulture) / 1000 + 0.00005 : null;
+        return (Meters(chamfer), Meters(fillet));
+    }
+
+    private static bool SmallChamfer(SheetSegment line, double scale, double chamfer)
+    {
+        var (dx, dy) = (Math.Abs(line.X2 - line.X1) / scale, Math.Abs(line.Y2 - line.Y1) / scale);
+        return dx > 1e-9 && dy > 1e-9 && dx <= chamfer && dy <= chamfer && Math.Abs(dx - dy) <= 0.1 * Math.Max(dx, dy);
+    }
+
+    private static List<MissingDimension> CheckModel(List<(CheckView View, int Index)> views, double chamfer, double fillet)
     {
         var net = new OutlineCoverage();
         var dimensioned = new List<ModelPlane>();
@@ -82,7 +104,8 @@ internal static class DimensionCheckPlanner
             chamfers[view] = covered;
             // REQ-DQ-04：C 尺寸已定两条直角边。N×C 合标若数量足够，等尺寸斜边都受约束；
             // 把端点连进尺寸网，其他视图看到的倒角内边也随之确定。不能仅因同值就推定整组已标。
-            foreach (var line in covered)
+            // 1.24.0：未注倒角（技术要求定的 C1 等）也定了两条直角边——真机：C1 倒角内边被报「缺竖直位置尺寸」。
+            foreach (var line in covered.Concat(view.Lines.Where(line => SmallChamfer(line, view.Frame.Scale, chamfer))))
                 foreach (var axis in Axes)
                     net.Connect(view.Frame.Plane(axis, axis == PositionAxis.Horizontal ? line.X1 : line.Y1),
                         view.Frame.Plane(axis, axis == PositionAxis.Horizontal ? line.X2 : line.Y2));
@@ -220,8 +243,7 @@ internal static class DimensionCheckPlanner
                     continue;
                 if (chamfers[view].Any(c => DimensionGeometry.SameSegment(c, line)))
                     continue;
-                var (dx, dy) = (Math.Abs(line.X2 - line.X1) / scale, Math.Abs(line.Y2 - line.Y1) / scale);
-                if (dx <= DefaultChamfer && dy <= DefaultChamfer && Math.Abs(dx - dy) <= 0.1 * Math.Max(dx, dy))
+                if (SmallChamfer(line, scale, chamfer))
                     continue;
                 if (view.Dimensions.Any(dimension => dimension.Anchors.Any(anchor => anchor.Segment is { } segment && DimensionGeometry.SameSegment(segment, line))))
                     continue;
@@ -255,7 +277,7 @@ internal static class DimensionCheckPlanner
             }
 
             // 圆弧（R1 以上）：半径（整圆是直径）与圆心两向位置；相切的方向已由直边连上。
-            foreach (var arc in view.Arcs.Where(arc => arc.ModelRadius > DefaultFillet))
+            foreach (var arc in view.Arcs.Where(arc => arc.ModelRadius > fillet))
             {
                 var full = arc.Sweep >= 2 * Math.PI - 1e-6;
                 var problems = new List<string>();

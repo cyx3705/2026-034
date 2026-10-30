@@ -23,6 +23,7 @@ internal static class DimensionCheck
         Run: Run);
 
     // swAnnotationType_e
+    private const int AnnotationNote = 6;
     private const int AnnotationCenterLine = 15;
 
     /// <summary>弹窗正文最多列几条（多的写「另有 N 处」，全文在控制台）。</summary>
@@ -61,7 +62,8 @@ internal static class DimensionCheck
                 scan.Lines, scan.Candidates, scan.Arcs, dimensions, CenterLines(api, view)));
         }
 
-        var missing = DimensionCheckPlanner.Check(checks);
+        var (chamfer, fillet) = DimensionCheckPlanner.Unnoted(TechText(api, document));
+        var missing = DimensionCheckPlanner.Check(checks, chamfer, fillet);
         api.Call(document, "IModelDoc2", "ClearSelection2", true);
         foreach (var item in missing)
         {
@@ -87,15 +89,55 @@ internal static class DimensionCheck
         {
             var here = missing.Where(item => item.View == v).ToList();
             lines.Add(here.Count == 0 ? $"视图「{checks[v].Name}」：没有漏标。" : $"视图「{checks[v].Name}」：{here.Count} 处漏标——");
-            lines.AddRange(here.Select(item => "  · " + item.Text));
+            lines.AddRange(here.Select(item => "  · " + item.Text + Ids(scans[v], item)));
         }
 
+        var unnoted = chamfer is null && fillet is null
+            ? string.Empty
+            : $"（按技术要求：{string.Join("、", new[] { chamfer is { } c ? $"未注倒角 C{DimensionCheckPlanner.Mm(c - 0.00005)}" : null, fillet is { } f ? $"未注圆角 R{DimensionCheckPlanner.Mm(f - 0.00005)}" : null }.OfType<string>())} 不查）";
+        if (unnoted.Length > 0)
+            lines.Insert(0, unnoted.Trim('（', '）') + "。");
         var head = missing.Count == 0
             ? $"未标尺寸：当前图纸页 {checks.Count} 个视图都没有查出漏标。"
             : $"未标尺寸：当前图纸页 {checks.Count} 个视图共 {missing.Count} 处漏标，已在 SolidWorks 里选中（高亮）漏标的边。";
         if (missing.Count > 0)
             Popup(context, "未标尺寸", head, lines);
         return QuickOutcome.Ok(head + Environment.NewLine + string.Join(Environment.NewLine, lines));
+    }
+
+    /// <summary>漏标对象在图纸 SVG（<c>check.svg view=</c>）里的编号（1.24.0）：直边 E、孔 H；圆弧没有编号。</summary>
+    private static string Ids(ScannedView scan, MissingDimension item)
+    {
+        var ids = item.Target switch
+        {
+            CheckTarget.Line => item.Indexes.Select(i => "E" + i).ToList(),
+            CheckTarget.Hole => item.Indexes.Where(i => i < scan.Candidates.Count).Select(i => "H" + scan.Candidates[i].Index).Distinct().ToList(),
+            _ => [],
+        };
+        return ids.Count == 0 ? string.Empty : $" [{string.Join("、", ids)}]";
+    }
+
+    /// <summary>图纸页上注释的全文（找技术要求里的「未注倒角 / 圆角」用）；图框外模板备用的也算不上——只取图框里的。</summary>
+    private static string TechText(SolidWorksApi api, object document)
+    {
+        var space = DrawingSvg.Space(api, document).Space;
+        var texts = new List<string>();
+        foreach (var view in SheetLookup.Views(api, document).Where(view => SheetLookup.IsSheet(api, view)))
+        {
+            foreach (var (name, annotation) in SheetLookup.Annotations(api, view))
+            {
+                if (api.CallInt(annotation, "IAnnotation", "GetType") != AnnotationNote
+                    || api.Call(annotation, "IAnnotation", "GetSpecificAnnotation") is not { } note)
+                    continue;
+                // 列表那一行的字截到 80 字，技术要求第 5 条就截掉了；判「未注」用注释原文。
+                var text = api.CallString(note, "INote", "GetText");
+                if (text.Contains("未注", StringComparison.Ordinal)
+                    && DimList.SheetPlace(DimList.Row(api, DrawingSheet.Name(api, view), name, annotation), space) is null)
+                    texts.Add(text);
+            }
+        }
+
+        return string.Join("\n", texts);
     }
 
     /// <summary>视图里中心线注解（对称轴）的线条。读不了的跳过。</summary>

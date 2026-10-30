@@ -46,7 +46,7 @@ internal static class HolePosition
 
         var holes = HoleCalloutPlanner.Recognize(scan.Candidates);
         if (holes.Count == 0)
-            return QuickOutcome.Ok($"视图「{viewName}」里没有正对图纸的孔，没有加尺寸。");
+            return QuickOutcome.Nothing($"视图「{viewName}」里没有正对图纸的孔，没有加尺寸。");
 
         var (leftIndex, topIndex) = HolePositionPlanner.Datums(scan.Lines);
         if (leftIndex is not { } l || topIndex is not { } t)

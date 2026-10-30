@@ -52,7 +52,7 @@ internal sealed class QuickCommandRunner(StrenuaOptions options, ICommandBus? bu
         }
 
         // 1.21.0：MCP 来的改图指令，回执带本步改动的 SVG（检查类、只读的不改图，不带）。
-        if (!command.Readonly && command.CommandClass != "check" && StepFeedback.Wanted(context.Source))
+        if (!command.Readonly && !command.SelfReport && command.CommandClass != "check" && StepFeedback.Wanted(context.Source))
             run = StepFeedback.Wrap(run);
 
         CancellationTokenSource cancellation;
@@ -71,13 +71,18 @@ internal sealed class QuickCommandRunner(StrenuaOptions options, ICommandBus? bu
         }
 
         QuickOutcome outcome;
+        string? lastProgress = null;
         try
         {
             outcome = await SolidWorksSession.RunAsync(
                 session => run(new QuickCommandContext(
                     session,
                     Options,
-                    message => context.Progress?.Report(message),
+                    message =>
+                    {
+                        lastProgress = message;
+                        context.Progress?.Report(message);
+                    },
                     state => SetState(command.Key, state),
                     cancellation.Token,
                     bus)),
@@ -95,8 +100,9 @@ internal sealed class QuickCommandRunner(StrenuaOptions options, ICommandBus? bu
         }
         catch (Exception ex)
         {
-            // 非预期的 COM / 反射错误：把类型带上，否则「参数错误」这类消息根本看不出是哪一步。
-            outcome = QuickOutcome.Fail($"「{command.Title}」出错：{ex.GetType().Name}: {ex.Message}");
+            // 非预期的 COM / 反射错误：带上类型、出错的 SolidWorks 调用、本模块调用位置和最后一条进度（1.24.0），不翻日志就知道是哪一步。
+            outcome = QuickOutcome.Fail($"「{command.Title}」出错：{QuickError.Describe(ex)}"
+                + (lastProgress is null ? string.Empty : $"{Environment.NewLine}出错前最后一步：{lastProgress}"));
         }
         finally
         {

@@ -175,10 +175,10 @@ internal static partial class Tests
         var text = dimension.Element(ns + "text")!;
         Equal("80", text.Value);
         Equal("translate(95 201) scale(1 -1)", text.Attribute("transform")!.Value);
-        // 中心符号线画线、不画方框。
+        // 中心符号线只给线的外框（1.24.0），不画线、不画方框。
         var mark = document.Descendants(ns + "g").Single(v => (string?)v.Attribute("id") == "工程图视图1" && (string?)v.Attribute("class") == "view").Descendants().Single(e => (string?)e.Attribute("id") == "中心符号线1");
-        True(mark.Attribute("class")!.Value.Contains("center") && mark.Element(ns + "rect") is null, "中心符号线");
-        Equal("M75 150L85 150", mark.Element(ns + "path")!.Attribute("d")!.Value);
+        True(mark.Attribute("class")!.Value.Contains("center") && mark.Element(ns + "rect") is null && mark.Element(ns + "path") is null, "中心符号线");
+        Equal("75,150,85,150", mark.Attribute("data-box")!.Value);
         // 多行注释拆 tspan，全文另在 data-text。
         var note = document.Descendants(ns + "g").Single(v => (string?)v.Attribute("id") == "图纸1" && (string?)v.Attribute("class") == "view").Descendants().Single(e => (string?)e.Attribute("id") == "注释1");
         Equal(2, note.Descendants(ns + "tspan").Count());

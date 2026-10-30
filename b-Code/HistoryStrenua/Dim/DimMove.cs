@@ -27,6 +27,7 @@ internal static class DimMove
             QuickArgs.Dy("挪动：向上为正（mm），如 6"),
         ],
         Example: StrenuaIdentity.Domain + ".dim.move view=工程图视图1 name=D1 dy=6",
+        SelfReport: true,
         Bind: arguments =>
         {
             var view = QuickArgs.Name(arguments, "view");

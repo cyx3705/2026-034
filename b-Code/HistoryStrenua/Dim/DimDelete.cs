@@ -23,6 +23,7 @@ internal static class DimDelete
             new QuickParameter("name", "名字", "注解名（标注列表的 name 列），几个用逗号分开，如 D1,D3", true),
         ],
         Example: StrenuaIdentity.Domain + ".dim.delete view=工程图视图1 name=D1,D3",
+        SelfReport: true,
         Bind: arguments =>
         {
             var view = QuickArgs.Name(arguments, "view");

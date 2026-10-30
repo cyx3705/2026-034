@@ -108,6 +108,11 @@ internal static partial class Tests
         ("tech ai: deletions only", TestTechAiApply),
         ("tech ai: reading the model's answers", TestTechAiAnswers),
         ("tech ai: apollo command line and receipt", TestTechAiCommand),
+        ("feedback: errors name the SolidWorks call and the step (1.24.0)", TestQuickError),
+        ("feedback: callout leaders too long or crossing (1.24.0)", TestLeaders),
+        ("feedback: svg leaders and center mark boxes (1.24.0)", TestSvgLeaders),
+        ("feedback: idle steps and sheet list filter (1.24.0)", TestIdleAndSheetPlace),
+        ("feedback: unnoted chamfers from the tech note (1.24.0)", TestUnnotedChamfer),
     };
 
     static Registrar Registry()

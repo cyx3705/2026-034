@@ -40,7 +40,7 @@ internal static class CenterMark
         var existing = ReadCenterMarks(api, scan.Geometry, scan.View);
         var plan = CenterMarkPlanner.Plan(scan.Candidates, existing.Select(mark => mark.Mark).ToList());
         if (plan.HoleCount == 0)
-            return QuickOutcome.Ok($"视图「{viewName}」里没有正对图纸的孔，中心符号线没有改动。");
+            return QuickOutcome.Nothing($"视图「{viewName}」里没有正对图纸的孔，中心符号线没有改动。");
 
         context.Report($"中心符号线：视图「{viewName}」认出 {plan.Summary}，"
             + $"删掉 {plan.Obsolete.Count} 个旧中心符号线后按种重标。");

@@ -29,7 +29,8 @@ internal sealed record SvgView(string Name, string Kind, string Parent, string S
 
 /// <summary>
 /// 一个注解：方框画字占的地方（<paramref name="TextBox"/>，没有就用整个外框），<c>data-box</c> 另写连尺寸界线、引线在内的整个外框（<paramref name="Box"/>）；
-/// 尺寸再带它量的两头（<paramref name="Measures"/>）。中心符号线、中心线本身就是线，画 <paramref name="Lines"/>（并成一条 path），不画方框。
+/// 尺寸再带它量的两头（<paramref name="Measures"/>）。中心线本身就是线，画 <paramref name="Lines"/>（并成一条 path），不画方框；
+/// 中心符号线只给线的外框（1.24.0）；孔标注的 <paramref name="Lines"/> 是引线（1.24.0），画出来并在 <c>data-leader</c> 给总长。
 /// 竖直尺寸的字按 <paramref name="Angle"/>（弧度，逆时针）转过来。差异里 <paramref name="Change"/> 是 added / removed / changed。
 /// </summary>
 internal sealed record SvgAnnotation(string Name, string Kind, string Text, string Value, SheetRect? Box, SheetPoint? TextAt,
@@ -179,13 +180,24 @@ internal static class DrawingSvgWriter
             return;
         }
 
+        // 1.24.0：孔标注的引线（Lines 在有外框的注解上就是引线）给总长，挪过的也给——引线拉长、交叉是挪孔标注最常见的毛病。
+        var leader = !center && annotation.Lines.Count > 0;
+        if (leader)
+            svg.Append($" data-leader=\"{Mm(LeaderPlanner.Length(annotation.Lines))}\"");
         if (annotation.Change == "moved")
         {
-            // 字没变、只挪了：只给新方框（字上一次已经给过）。
+            // 字没变、只挪了：只给新方框（字上一次已经给过）与引线。
             if ((annotation.TextBox ?? annotation.Box) is { } moved)
-                svg.Append($"><rect{Rect(moved)}/></g>\n");
+                svg.Append($"><rect{Rect(moved)}/>{(leader ? $"<path d=\"{Path(annotation.Lines)}\"/>" : string.Empty)}</g>\n");
             else
                 svg.Append("/>\n");
+            return;
+        }
+
+        // 1.24.0：中心符号线一组几十段十字和连接线，坐标对谁都没用（孔心在 H 里），只给外框。中心线（一根）照画。
+        if (center && annotation.Kind == "中心符号线")
+        {
+            svg.Append($" data-box=\"{Box(Bounds(annotation.Lines))}\"/>\n");
             return;
         }
 
@@ -207,6 +219,10 @@ internal static class DrawingSvgWriter
                 anchor: annotation.TextAt is null ? "middle" : "start", angle: annotation.Angle));
         svg.Append("</g>\n");
     }
+
+    private static SheetRect Bounds(IReadOnlyList<SheetSegment> lines)
+        => new(lines.Min(l => Math.Min(l.X1, l.X2)), lines.Min(l => Math.Min(l.Y1, l.Y2)),
+            lines.Max(l => Math.Max(l.X1, l.X2)), lines.Max(l => Math.Max(l.Y1, l.Y2)));
 
     /// <summary>首尾相接的线段连成折线（曲线边近似出来的就是一串首尾相接的小段）。</summary>
     internal static List<List<SheetPoint>> Polylines(IReadOnlyList<SheetSegment> segments)

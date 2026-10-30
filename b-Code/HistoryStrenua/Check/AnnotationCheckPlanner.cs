@@ -69,10 +69,49 @@ internal static class AnnotationCheckPlanner
 
             if (frame is { } f && self.Texts.SelectMany(text => text.Corners()).Any(p => p.X < f.Left || p.X > f.Right || p.Y < f.Bottom || p.Y > f.Top))
                 issues.Add(new OverlapIssue(self.Index, null, "文字出了图框"));
+
+            if (self.Kind == CalloutKind)
+                LeaderIssues(annotations, i, issues);
         }
 
         return issues;
     }
+
+    /// <summary>孔标注的类名（<see cref="OverlapCheck.Kind"/> 从尺寸里分出来的）。</summary>
+    public const string CalloutKind = "孔标注";
+
+    /// <summary>
+    /// 孔标注的引线（1.24.0）：过长、和别的孔标注引线交叉、横穿别的标注的线（尺寸线、尺寸界线）、穿过别的标注的字。
+    /// 中心符号线、中心线不算——孔本来就在它们上面，引线必然跨过。两个孔标注引线交叉只报一次。
+    /// </summary>
+    private static void LeaderIssues(IReadOnlyList<CheckedAnnotation> annotations, int i, List<OverlapIssue> issues)
+    {
+        var self = annotations[i];
+        var leaders = LeaderPlanner.Leaders(self.Lines);
+        if (leaders.Count == 0)
+            return;
+        var length = LeaderPlanner.Length(leaders);
+        if (length > LeaderPlanner.LongLeader)
+            issues.Add(new OverlapIssue(self.Index, null, $"引线过长（{DrawingSvgWriter.Mm(length)} mm，孔标注宜放在孔旁）"));
+        for (var j = 0; j < annotations.Count; j++)
+        {
+            var other = annotations[j];
+            if (j == i || IsMark(other))
+                continue;
+            if (other.Kind == CalloutKind)
+            {
+                if (j > i && LeaderPlanner.Crossings(leaders, LeaderPlanner.Leaders(other.Lines)) > 0)
+                    issues.Add(new OverlapIssue(self.Index, other.Index, $"引线与「{Label(other)}」的引线交叉"));
+            }
+            else if (LeaderPlanner.Crossings(leaders, other.Lines) > 0)
+                issues.Add(new OverlapIssue(self.Index, other.Index, $"引线横穿「{Label(other)}」的线"));
+
+            if (other.Texts.Any(text => leaders.Any(leader => ClearancePlanner.Hits(text, leader))))
+                issues.Add(new OverlapIssue(self.Index, other.Index, $"引线穿过「{Label(other)}」的文字"));
+        }
+    }
+
+    private static bool IsMark(CheckedAnnotation annotation) => annotation.Kind is "中心符号线" or "中心线";
 
     /// <summary>回执里称呼一个注解：「孔标注 D3@工程图视图1」。</summary>
     public static string Label(CheckedAnnotation annotation)

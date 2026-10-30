@@ -33,7 +33,7 @@ internal static class SymmetryAxes
         var holes = HoleCalloutPlanner.Recognize(scan.Candidates);
         var axes = SymmetryPlanner.Axes(scan.Lines, scan.CurveSegments, holes, ArcCenterPlanner.Locatable(scan.Arcs, scan.Lines, holes));
         if (axes.Count == 0)
-            return QuickOutcome.Ok($"视图「{scan.ViewName}」不对称（或孔都在轴上、没有要定位的圆弧），没有加对称轴。");
+            return QuickOutcome.Nothing($"视图「{scan.ViewName}」不对称（或孔都在轴上、没有要定位的圆弧），没有加对称轴。");
         var names = string.Join("、", axes.Select(axis => axis.Name));
         var (added, failed) = Insert(api, scan, axes);
         api.Call(scan.Document, "IModelDoc2", "GraphicsRedraw2");

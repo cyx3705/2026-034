@@ -33,9 +33,9 @@ internal static class DowelSymbol
 
         var plan = DowelPlanner.Plan(scan.Candidates, MarkedCenters(api, scan));
         if (plan.DowelCount == 0)
-            return QuickOutcome.Ok($"视图「{viewName}」里没有异形孔向导的销钉孔，没有加销钉符号。");
+            return QuickOutcome.Nothing($"视图「{viewName}」里没有异形孔向导的销钉孔，没有加销钉符号。");
         if (plan.EdgeIndices.Count == 0)
-            return QuickOutcome.Ok($"视图「{viewName}」里 {plan.DowelCount} 个销钉孔都已有销钉符号，没有新加。");
+            return QuickOutcome.Nothing($"视图「{viewName}」里 {plan.DowelCount} 个销钉孔都已有销钉符号，没有新加。");
 
         context.SetState("加销钉符号");
         context.Report($"销钉符号：视图「{viewName}」认出 {plan.DowelCount} 个销钉孔，开始为其中 {plan.EdgeIndices.Count} 个加销钉符号。");

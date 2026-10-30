@@ -33,7 +33,7 @@ internal static class SquareSlot
         var slots = found.Where(slot => IsOpening(scan, slot)).ToList();
         var bosses = found.Count - slots.Count;
         if (slots.Count == 0)
-            return QuickOutcome.Ok($"视图「{viewName}」里没有封闭的方形槽" + (bosses > 0 ? $"（{bosses} 个矩形是凸台，不标）" : string.Empty) + "，没有加尺寸。");
+            return QuickOutcome.Nothing($"视图「{viewName}」里没有封闭的方形槽" + (bosses > 0 ? $"（{bosses} 个矩形是凸台，不标）" : string.Empty) + "，没有加尺寸。");
 
         var (leftIndex, topIndex) = HolePositionPlanner.Datums(scan.Lines);
         if (leftIndex is not { } l || topIndex is not { } t)

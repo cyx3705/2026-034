@@ -41,7 +41,7 @@ internal static class DowelFit
         var (document, viewName) = (scan.Document, scan.ViewName);
         var dowels = DowelFitPlanner.Dowels(scan.Candidates);
         if (dowels.Count == 0)
-            return QuickOutcome.Ok($"视图「{viewName}」里没有异形孔向导的销钉孔，销孔标注没有改动。");
+            return QuickOutcome.Nothing($"视图「{viewName}」里没有异形孔向导的销钉孔，销孔标注没有改动。");
 
         var scale = scan.Geometry.Scale;
         var (leftIndex, topIndex) = HolePositionPlanner.Datums(scan.Lines);

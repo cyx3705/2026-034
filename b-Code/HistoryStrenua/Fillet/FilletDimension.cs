@@ -37,7 +37,7 @@ internal static class FilletDimension
         var scan = HoleScan.Scan(context, "圆弧标注", withLines: true, view: view, withArcs: true);
         var (document, viewName) = (scan.Document, scan.ViewName);
         if (scan.Arcs.Count == 0)
-            return QuickOutcome.Ok($"视图「{viewName}」里没有正对图纸的圆角与（孔以外的）整圆，没有加尺寸。"
+            return QuickOutcome.Nothing($"视图「{viewName}」里没有正对图纸的圆角与（孔以外的）整圆，没有加尺寸。"
                 + (scan.CircleArcs > 0 ? $"{scan.CircleArcs} 段是孔上的弧，归孔类指令。" : string.Empty));
 
         // 1.11.0「避障」开着时连视图里已有注解的线与文字一起躲。
@@ -51,7 +51,7 @@ internal static class FilletDimension
             + (scan.CircleArcs > 0 ? $"，{scan.CircleArcs} 段是孔上的弧不标（孔归孔类指令）" : string.Empty);
         var found = $"{plan.ArcCount} 个圆角" + (plan.CircleCount > 0 ? $"、{plan.CircleCount} 个整圆" : string.Empty);
         if (plan.Targets.Count == 0)
-            return QuickOutcome.Ok($"视图「{viewName}」：{found}{skipped}，没有新加。");
+            return QuickOutcome.Nothing($"视图「{viewName}」：{found}{skipped}，没有新加。");
 
         context.SetState("加圆角尺寸");
         context.Report($"圆弧标注：视图「{viewName}」认出 {found}，加 {plan.Targets.Count} 个 R / Ø 尺寸。");

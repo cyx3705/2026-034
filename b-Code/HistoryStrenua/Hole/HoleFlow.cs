@@ -46,6 +46,7 @@ internal static class HoleFlow
 
         var lines = new List<string>();
         var failures = new List<string>();
+        var idleViews = 0;
         for (var i = 0; i < views.Count; i++)
         {
             var view = views[i];
@@ -62,6 +63,8 @@ internal static class HoleFlow
                 continue;
             }
 
+            var idle = new List<string>();
+            var viewLines = new List<string>();
             foreach (var (title, step) in Steps)
             {
                 context.Cancellation.ThrowIfCancellationRequested();
@@ -75,12 +78,34 @@ internal static class HoleFlow
                 {
                     outcome = QuickOutcome.Fail(ex.Message);
                 }
+                catch (Exception ex) when (QuickError.Unexpected(ex))
+                {
+                    outcome = QuickOutcome.Fail($"视图「{viewName}」{title}出错：{QuickError.Describe(ex)}");
+                }
 
-                lines.Add($"[{title}] {outcome.Message}");
+                if (outcome.Idle)
+                    idle.Add(title);
+                else
+                    viewLines.Add($"[{title}] {outcome.Message}");
                 if (!outcome.Success)
                     failures.Add($"视图「{viewName}」{title}");
             }
+
+            // 1.24.0：没东西可标的步骤合成一行；六步全没有就这个视图一行。
+            if (viewLines.Count == 0)
+            {
+                idleViews++;
+                lines.Add($"视图「{viewName}」：没有正对图纸的孔，{Steps.Length} 步都没有改动。");
+                continue;
+            }
+
+            lines.AddRange(viewLines);
+            if (idle.Count > 0)
+                lines.Add($"[没有可标的] 视图「{viewName}」：{string.Join("、", idle)}。");
         }
+
+        if (failures.Count == 0 && lines.All(line => line.StartsWith("视图「", StringComparison.Ordinal)))
+            return QuickOutcome.Nothing($"孔标注全流程：当前图纸页没有要标的孔（{idleViews} 个视图没有正对图纸的孔，轴测图跳过），没有改动。");
 
         var head = $"孔标注全流程：当前图纸页 {views.Count} 个视图都已做完"
             + (failures.Count > 0 ? $"，{failures.Count} 步没成（{string.Join("、", failures)}）" : string.Empty)

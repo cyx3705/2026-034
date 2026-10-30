@@ -61,7 +61,7 @@ internal static class Outline
         }
 
         if (allStations.Count == 0)
-            return QuickOutcome.Ok($"视图「{viewName}」的外轮廓除基准外没有竖直 / 水平边，没有加尺寸。");
+            return QuickOutcome.Nothing($"视图「{viewName}」的外轮廓除基准外没有竖直 / 水平边，没有加尺寸。");
 
         // 1.8.1：别的视图（同一模型、不是轴测图）已经定了的站不再标；这一页别的视图读一遍尺寸。
         context.SetState("读别的视图");

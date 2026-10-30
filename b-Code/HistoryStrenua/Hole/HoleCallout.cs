@@ -46,7 +46,7 @@ internal static class HoleCallout
         var plan = HoleCalloutPlanner.Plan(scan.Candidates, ExistingCalloutCenters(api, scan.Geometry, scan.View),
             kind => HoleCoveragePlanner.Callout(kind, covering, HoleCoveragePlanner.Counterbore(kind, part), normal));
         if (plan.HoleCount == 0)
-            return QuickOutcome.Ok($"视图「{viewName}」里没有正对图纸的孔，没有加标注。");
+            return QuickOutcome.Nothing($"视图「{viewName}」里没有正对图纸的孔，没有加标注。");
 
         context.SetState("加标注");
         context.Report(plan.Targets.Count == 0

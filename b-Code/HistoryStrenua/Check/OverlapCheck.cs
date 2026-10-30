@@ -4,7 +4,7 @@ namespace HistoryStrenua;
 
 /// <summary>
 /// 快捷指令「注解重叠」（1.12.0，检查类）：当前图纸页全部视图里的尺寸、孔标注、注释等，文字有没有互相压、压到别的注解的线、
-/// 压到视图轮廓线与孔、压到图纸注释与图框线、出了图框；列进控制台并在 SolidWorks 里选中。
+/// 压到视图轮廓线与孔、压到图纸注释与图框线、出了图框，孔标注引线过长 / 交叉（1.24.0）；列进控制台并在 SolidWorks 里选中。
 /// </summary>
 /// <remarks>
 /// <para>怎么算压到见 <see cref="AnnotationCheckPlanner"/>（与避障同一判法）。视图的线取「孔类」同一套识别（<see cref="HoleScan.Scan"/>：直边、
@@ -17,8 +17,8 @@ internal static class OverlapCheck
         Key: "check-overlap",
         CommandName: StrenuaIdentity.Domain + ".check.overlap",
         Title: "注解重叠",
-        Summary: "当前图纸页全部视图查尺寸、孔标注、注释的文字有没有互相压、压线、出图框，列出并在 SolidWorks 里选中，不改图。",
-        Usage: "不用点视图：当前图纸页上全部视图里的尺寸、孔标注、注释等逐个查——文字和别的注解的文字重叠、压在别的注解的线（尺寸线、尺寸界线、引线、中心符号线）上、压在视图轮廓线或孔上（相邻视图的也算）、压在图纸上的注释（技术要求、标题栏的字）或图框 / 标题栏线上、出了图框。判法与「避障」相同，自己的线不算。查出来的列进控制台，并在 SolidWorks 里选中压到别处的那些注解；不挪、不删任何东西。轴测图只查注解之间。",
+        Summary: "当前图纸页全部视图查尺寸、孔标注、注释的文字有没有互相压、压线、出图框，孔标注引线有没有过长、交叉、横穿别的线，列出并在 SolidWorks 里选中，不改图。",
+        Usage: "不用点视图：当前图纸页上全部视图里的尺寸、孔标注、注释等逐个查——文字和别的注解的文字重叠、压在别的注解的线（尺寸线、尺寸界线、引线、中心符号线）上、压在视图轮廓线或孔上（相邻视图的也算）、压在图纸上的注释（技术要求、标题栏的字）或图框 / 标题栏线上、出了图框；孔标注的引线超过 40 mm、和别的孔标注引线交叉、横穿尺寸线 / 尺寸界线、穿过别的字（中心符号线、中心线不算）。判法与「避障」相同，自己的线不算。查出来的列进控制台，并在 SolidWorks 里选中压到别处的那些注解；不挪、不删任何东西。轴测图只查注解之间。",
         Run: Run);
 
     // swAnnotationType_e.swDisplayDimension
@@ -106,6 +106,6 @@ internal static class OverlapCheck
         => type == AnnotationDimension
             && api.Call(annotation, "IAnnotation", "GetSpecificAnnotation") is { } display
             && api.CallBool(display, "IDisplayDimension", "IsHoleCallout")
-                ? "孔标注"
+                ? AnnotationCheckPlanner.CalloutKind
                 : AnnotationCheckPlanner.KindName(type);
 }

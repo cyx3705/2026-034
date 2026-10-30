@@ -19,14 +19,15 @@ internal static class DrawingFinish
         var first = Clear(context, drawing);
         var arranged = DrawingArrange.Run(context, DrawingSheet.Read(context, drawing, "整理标注"));
         var last = Clear(context, drawing);
-        var message = $"整理标注：避让移动 {first.Moved + last.Moved} 次，剩余 {last.Stuck.Count} 个文字冲突。"
+        var message = $"整理标注：避让移动 {first.Moved + last.Moved} 次，剩余 {last.Stuck.Count} 个冲突（文字压线压字、孔标注引线交叉或过长）。"
             + (last.Stuck.Count > 0 ? "\n· " + string.Join("、", last.Stuck) : string.Empty)
             + "\n" + arranged.Message;
         return last.Stuck.Count == 0 && arranged.Success ? QuickOutcome.Ok(message) : QuickOutcome.Fail(message);
     }
 
+    /// <summary>整页上的一个注解。<c>Mark</c> = 中心符号线、中心线：孔就在它们上面，孔标注引线跨过它们不算交叉。</summary>
     private sealed record Shape(object Annotation, string Name, SheetRect View, bool Movable, bool Callout,
-        IReadOnlyList<SheetSegment> Lines, IReadOnlyList<TextBox> Texts);
+        IReadOnlyList<SheetSegment> Lines, IReadOnlyList<TextBox> Texts, bool Mark = false);
 
     private static (int Moved, List<string> Stuck) Clear(QuickCommandContext context, object drawing)
     {
@@ -70,7 +71,8 @@ internal static class DrawingFinish
                         (lines, texts) = Clearance.DisplayGeometry(api, annotation);
                     }
                 }
-                shapes.Add(new Shape(annotation, name + "/" + api.CallString(annotation, "IAnnotation", "GetName"), rect, movable, callout, lines, texts));
+                shapes.Add(new Shape(annotation, name + "/" + api.CallString(annotation, "IAnnotation", "GetName"), rect, movable, callout, lines, texts,
+                    annotationType is CenterMark or CenterLine));
             }
         }
         var keepouts = DrawingSheet.KeepOutRects(api, drawing).Select(r => new TextBox(r.Left, r.Bottom, r.Width, r.Height)).ToList();
@@ -79,7 +81,16 @@ internal static class DrawingFinish
         var moved = 0;
         Obstacles ObstaclesFor(int i) => new(geometry.Concat(shapes.Where((_, j) => i != j).SelectMany(s => s.Lines)).ToList(),
             keepouts.Concat(shapes.Where((_, j) => i != j).SelectMany(s => s.Texts)).ToList());
-        int Hits(Shape s, Obstacles obstacles) => ClearancePlanner.Hits(s.Texts, obstacles)
+        // 1.24.0：孔标注的引线也算——和别的标注的线交叉一处算一样，超过 LongLeader 也算一样（真机：只看文字时把孔标注推到 45 mm 外、引线互相交叉还报 0 冲突）。
+        IEnumerable<SheetSegment> OtherLines(int i) => shapes.Where((s, j) => i != j && !s.Mark).SelectMany(s => s.Lines);
+        int LeaderHits(Shape s, int i)
+        {
+            if (!s.Callout)
+                return 0;
+            var leaders = LeaderPlanner.Leaders(s.Lines);
+            return LeaderPlanner.Crossings(leaders, OtherLines(i)) + (LeaderPlanner.Length(leaders) > LeaderPlanner.LongLeader ? 1 : 0);
+        }
+        int Hits(Shape s, int i, Obstacles obstacles) => ClearancePlanner.Hits(s.Texts, obstacles) + LeaderHits(s, i)
             + (AnnotationPlacementPlanner.Within(s.Texts, frame.Value) ? 0 : 100);
         // 后加的尺寸界线也会压到先前文字，所以整页跑有上限的三轮。每次读回确认变好才保留，避免反复漂移。
         for (var pass = 0; pass < 3; pass++)
@@ -91,7 +102,7 @@ internal static class DrawingFinish
                 var shape = shapes[i];
                 if (!shape.Movable || shape.Texts.Count == 0) continue;
                 var obstacles = ObstaclesFor(i);
-                var hits = Hits(shape, obstacles);
+                var hits = Hits(shape, i, obstacles);
                 if (hits == 0) continue;
                 var position = api.CallDoubles(shape.Annotation, "IAnnotation", "GetPosition");
                 if (position.Length < 3) continue;
@@ -108,7 +119,7 @@ internal static class DrawingFinish
                         // SW 移动孔标注时会换引线端、重排公差文字；预测平移不等于实际显示，必须读回。
                         var crossing = lines.Count(line => obstacles.Texts.Any(text => ClearancePlanner.Hits(text, line)));
                         var beforeCrossing = shape.Lines.Count(line => obstacles.Texts.Any(text => ClearancePlanner.Hits(text, line)));
-                        if (texts.Count > 0 && Hits(after, obstacles) < hits && crossing <= beforeCrossing)
+                        if (texts.Count > 0 && Hits(after, i, obstacles) < hits && crossing <= beforeCrossing)
                         {
                             shapes[i] = after; moved++; changed = true; accepted = true;
                         }
@@ -126,8 +137,12 @@ internal static class DrawingFinish
         }
         api.Call(drawing, "IModelDoc2", "ClearSelection2", true);
         api.Call(drawing, "IModelDoc2", "GraphicsRedraw2");
-        return (moved, shapes.Where((s, i) => s.Texts.Count > 0 && Hits(s, ObstaclesFor(i)) > 0).Select(s => s.Name).ToList());
+        return (moved, shapes.Where((s, i) => s.Texts.Count > 0 && Hits(s, i, ObstaclesFor(i)) > 0).Select(s => s.Name).ToList());
     }
+
+    // swAnnotationType_e
+    private const int CenterMark = 13;
+    private const int CenterLine = 15;
 
     internal static int? ExactPrecision(double millimeters)
         => !double.IsFinite(millimeters) ? null

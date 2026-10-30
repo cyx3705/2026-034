@@ -37,7 +37,7 @@ internal static class ArcCenter
         var scan = HoleScan.Scan(context, "圆心位置", withLines: true, view: view, withArcs: true);
         var (document, viewName) = (scan.Document, scan.ViewName);
         if (scan.Arcs.Count == 0)
-            return QuickOutcome.Ok($"视图「{viewName}」里没有正对图纸的圆弧（孔以外），没有加尺寸。");
+            return QuickOutcome.Nothing($"视图「{viewName}」里没有正对图纸的圆弧（孔以外），没有加尺寸。");
 
         var (leftIndex, topIndex) = HolePositionPlanner.Datums(scan.Lines);
         if (leftIndex is not { } l || topIndex is not { } t)

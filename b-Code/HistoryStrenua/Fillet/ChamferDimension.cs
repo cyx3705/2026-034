@@ -37,7 +37,7 @@ internal static class ChamferDimension
         var scan = HoleScan.Scan(context, "倒角标注", withLines: true, view: view, withChamfers: true);
         var (document, viewName) = (scan.Document, scan.ViewName);
         if (scan.Chamfers.Count == 0)
-            return QuickOutcome.Ok($"视图「{viewName}」里没有侧着看成斜线的倒角，没有加 C 尺寸。");
+            return QuickOutcome.Nothing($"视图「{viewName}」里没有侧着看成斜线的倒角，没有加 C 尺寸。");
 
         var (here, elsewhere) = Existing(context, scan);
         // 1.11.0「避障」开着时连视图里已有注解的线与文字一起躲；1.15.0 起再躲同一页别的视图（外框当一块不许压的地方）和它们的注解——

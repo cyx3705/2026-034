@@ -93,10 +93,7 @@ internal static class DrawingSvg
         var api = context.Api;
         context.SetState("读图纸");
         var title = api.CallString(drawing, "IModelDoc2", "GetTitle");
-        var sheetObject = api.Call(drawing, "IDrawingDoc", "GetCurrentSheet");
-        var properties = sheetObject is null ? [] : api.CallDoubles(sheetObject, "ISheet", "GetProperties2");
-        var (width, height) = properties.Length > 6 && properties[5] > 0 ? (properties[5], properties[6]) : (0.420, 0.297);
-        var space = SheetSpace.Standard(width, height);
+        var (width, height, space) = Space(api, drawing);
 
         var views = new List<SvgView>();
         var blocks = new List<SvgBlock>();
@@ -122,6 +119,15 @@ internal static class DrawingSvg
         return only is null
             ? new SvgSheet(title, sheetName, width, height, space.Frame, blocks, views)
             : new SvgSheet(title, sheetName, width, height, null, [], views);
+    }
+
+    /// <summary>当前图纸页的纸宽、纸高与按国标估的图框、标题栏等格子（读不到纸张按 A3）。「标注列表」滤图框格子也用（1.24.0）。</summary>
+    internal static (double Width, double Height, SheetSpace Space) Space(SolidWorksApi api, object drawing)
+    {
+        var sheetObject = api.Call(drawing, "IDrawingDoc", "GetCurrentSheet");
+        var properties = sheetObject is null ? [] : api.CallDoubles(sheetObject, "ISheet", "GetProperties2");
+        var (width, height) = properties.Length > 6 && properties[5] > 0 ? (properties[5], properties[6]) : (0.420, 0.297);
+        return (width, height, SheetSpace.Standard(width, height));
     }
 
     /// <summary>图纸页本身：标题栏 / 修改栏 / 图号框各一块（里面的注释并成一段字），图框外的不出，其余是注解。</summary>
@@ -226,6 +232,8 @@ internal static class DrawingSvg
 
         if (type is AnnotationCenterMark or AnnotationCenterLine)
             return new SvgAnnotation(name, row["kind"], string.Empty, string.Empty, null, null, 0, string.Empty, lines);
+        // 1.24.0：孔标注带上引线（真机：只画字框时引线拉了 45 mm、互相交叉，SVG 里看不出来）。
+        var leaders = row["kind"] == AnnotationCheckPlanner.CalloutKind ? LeaderPlanner.Leaders(lines) : [];
         var box = Rect(row);
         var first = texts.Count > 0 ? texts[0] : (TextBox?)null;
         // 真机第一版方框取整个外框（连尺寸界线、引线），一大片虚线框互相叠着，看着像标注占满了视图；方框改画字占的地方，整个外框留在 data-box。
@@ -234,7 +242,7 @@ internal static class DrawingSvg
             ? null
             : new SheetRect(corners.Min(p => p.X), corners.Min(p => p.Y), corners.Max(p => p.X), corners.Max(p => p.Y));
         return new SvgAnnotation(name, row["kind"], text, row["value"], box,
-            first is { } t ? new SheetPoint(t.X, t.Y) : null, first?.Height ?? 0, measures ?? string.Empty, [],
+            first is { } t ? new SheetPoint(t.X, t.Y) : null, first?.Height ?? 0, measures ?? string.Empty, leaders,
             textBox, first?.Angle ?? 0);
     }
 

@@ -79,6 +79,10 @@ internal sealed class SolidWorksApi : IDisposable
             {
                 return Own(info.Invoke(target, arguments));
             }
+            catch (Exception ex) when (QuickError.TagCall(ex, interfaceName, method))
+            {
+                throw; // 不会到：TagCall 只记下是哪个调用、恒为 false
+            }
             catch (TargetInvocationException ex) when (ex.InnerException is COMException com
                                                         && com.HResult is CallRejected or RetryLater
                                                         && DateTime.UtcNow < deadline)

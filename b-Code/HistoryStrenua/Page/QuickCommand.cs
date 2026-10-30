@@ -37,6 +37,9 @@ namespace HistoryStrenua;
 /// 页面上归哪一类（1.23.0，用户定：基础类的视图指令挪进视图类、其余并进一键类，页数少）；null 时就是 <see cref="CommandClass"/>。
 /// 只动页面，指令名不变，MCP 调用照旧。
 /// </param>
+/// <param name="SelfReport">
+/// 回执自己已读回改了什么（挪标注「现在占…」、删标注、改尺寸读回显示文字），经 MCP 调用也不再附本步 SVG（1.24.0：附上的和文字说的完全重复）。
+/// </param>
 internal sealed record QuickCommand(
     string Key,
     string CommandName,
@@ -49,7 +52,8 @@ internal sealed record QuickCommand(
     string? Example = null,
     bool Readonly = false,
     Func<CommandContext, Func<QuickCommandContext, QuickOutcome>>? Bind = null,
-    string? Page = null)
+    string? Page = null,
+    bool SelfReport = false)
 {
     /// <summary>带参数的指令的 <see cref="Run"/>：只经 <see cref="Bind"/> 执行，走到这里说明调用方没给参数。</summary>
     public static QuickOutcome Unbound(QuickCommandContext context) => QuickOutcome.Fail("这条指令要带参数。");
@@ -81,6 +85,14 @@ internal sealed record QuickOutcome(bool Success, string Message, object? Data =
     public static QuickOutcome Ok(string message, object data) => new(true, message, data);
 
     public static QuickOutcome Fail(string message) => new(false, message);
+
+    /// <summary>
+    /// 成功但图上什么都没动（没有可标的东西、都已标过）。1.24.0：多步、多视图的汇总把这类合成一行，回执不再一行一行「没有…」。
+    /// </summary>
+    public static QuickOutcome Nothing(string message) => new(true, message) { Idle = true };
+
+    /// <summary>见 <see cref="Nothing"/>。</summary>
+    public bool Idle { get; init; }
 }
 
 /// <summary>快捷指令执行时手里的东西。</summary>

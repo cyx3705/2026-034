@@ -28,7 +28,8 @@ internal static class DimEdit
             new QuickParameter("tol", "公差", "对称公差 ±mm，如 0.02；none 去掉公差；省略不改。孔标注不支持", false, 2),
         ],
         Example: StrenuaIdentity.Domain + ".dim.edit view=工程图视图1 name=D1 tol=0.02",
-        Bind: Bind);
+        Bind: Bind,
+        SelfReport: true);
 
     // swAnnotationType_e / swTolType_e
     private const int AnnotationDimension = 4;

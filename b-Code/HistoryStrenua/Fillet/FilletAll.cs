@@ -28,6 +28,7 @@ internal static class FilletAll
         var views = HoleScan.SheetViews(api, document);
         var lines = new List<string>();
         var failures = new List<string>();
+        var idle = new List<string>();
         var done = 0;
         foreach (var view in views)
         {
@@ -45,16 +46,28 @@ internal static class FilletAll
             {
                 outcome = QuickOutcome.Fail(ex.Message);
             }
+            catch (Exception ex) when (QuickError.Unexpected(ex))
+            {
+                outcome = QuickOutcome.Fail($"视图「{name}」{title}出错：{QuickError.Describe(ex)}");
+            }
 
             done++;
-            lines.Add("· " + outcome.Message);
+            if (outcome.Idle)
+                idle.Add($"「{name}」");
+            else
+                lines.Add("· " + outcome.Message);
             if (!outcome.Success)
                 failures.Add($"视图「{name}」");
         }
 
         api.Call(document, "IModelDoc2", "ClearSelection2", true);
         if (done == 0)
-            return QuickOutcome.Ok($"{title}：当前图纸页上没有要标的视图（轴测图跳过），没有改动。");
+            return QuickOutcome.Nothing($"{title}：当前图纸页上没有要标的视图（轴测图跳过），没有改动。");
+        // 1.24.0：没东西可标的视图合成一行；全都没有就整条一行。
+        if (idle.Count == done)
+            return QuickOutcome.Nothing($"{title}：{done} 个视图都没有可标的，没有改动。");
+        if (idle.Count > 0)
+            lines.Add($"· 没有可标的：视图{string.Join("、", idle)}。");
         var head = $"{title}：当前图纸页 {done} 个视图都已做完"
             + (failures.Count > 0 ? $"，{failures.Count} 个没成（{string.Join("、", failures)}）" : string.Empty) + "。";
         var message = head + Environment.NewLine + string.Join(Environment.NewLine, lines);

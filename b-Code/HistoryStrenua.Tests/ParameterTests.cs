@@ -5,7 +5,7 @@ using HistoryVulcan.Core.Commands;
 /// <summary>带参数的快捷指令（1.20.0「视图」「标注」两类）。</summary>
 internal static partial class Tests
 {
-    static readonly string[] ParameterClasses = ["view", "dim", "check"];
+    static readonly string[] ParameterClasses = ["view", "dim", "doc", "check"];
 
     static IEnumerable<QuickCommand> ParameterCommands()
         => QuickCommands.All.Where(command => command.Arguments.Count > 0 || command.Bind is not null);
@@ -14,7 +14,7 @@ internal static partial class Tests
     {
         var registry = Registry();
         var commands = ParameterCommands().ToList();
-        Equal("check.svg,view.list,view.move,dim.list,dim.delete,dim.move,dim.edit",
+        Equal("check.svg,view.list,view.move,dim.list,dim.delete,dim.move,dim.edit,dim.add,dim.hole,dim.center,doc.open,doc.activate,doc.save,doc.close",
             string.Join(",", commands.Select(command => command.CommandName["strenua.".Length..])));
         foreach (var command in commands)
         {
@@ -76,7 +76,7 @@ internal static partial class Tests
 
         // 同名参数共用一个框，按组分行：对象 / 位置 / 文字。
         Equal("视图|X,Y,右移,上移,解除对齐", Inputs("view"));
-        Equal("视图,名字|X,Y,右移,上移|前缀,后缀,公差", Inputs("dim"));
+        Equal("视图,名字,从,到,方向,孔,孔组|X,Y,右移,上移|前缀,后缀,公差", Inputs("dim"));
         // 每个按钮的动作只引用本面板有的框（Aurora：取不到的占位符整条拒绝执行）。
         foreach (var commandClass in ParameterClasses)
         {

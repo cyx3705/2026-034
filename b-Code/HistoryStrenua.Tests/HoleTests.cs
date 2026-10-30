@@ -660,7 +660,7 @@ internal static partial class Tests
         Equal("onekey-drawing,onekey-sheetmetal,onekey-frame,onekey-machined,hole-flow,dowel-symbol,center-mark,hole-position,hole-callout,dowel-fit,square-slot,"
             + "drawing-basic,drawing-create,drawing-project,drawing-iso,drawing-arrange,drawing-finish,symmetry-axes,outline-all,outline,fillet-flow,arc-center-all,arc-all,chamfer-all,arc-center,arc,chamfer,"
             + "check-dimension,check-decimal,check-dangling,check-overlap,snapshot,svg,tech-ai,"
-            + "view-list,view-move,dim-list,dim-delete,dim-move,dim-edit",
+            + "view-list,view-move,dim-list,dim-delete,dim-move,dim-edit,dim-add,dim-hole,dim-center,doc-list,doc-open,doc-activate,doc-save,doc-close",
             string.Join(",", QuickCommands.All.Select(command => command.Key)));
     }
 

@@ -197,6 +197,14 @@ internal static class QuickCommands
         DimDelete.Command,
         DimMove.Command,
         DimEdit.Command,
+        DimAdd.Command,
+        DimHole.Command,
+        DimCenter.Command,
+        DocOpen.ListCommand,
+        DocOpen.OpenCommand,
+        DocOpen.ActivateCommand,
+        DocSave.SaveCommand,
+        DocSave.CloseCommand,
     ];
 
     /// <summary>
@@ -209,7 +217,7 @@ internal static class QuickCommands
     /// 1.23.0（用户定，页数少）：「基础」类拆掉——新建工程图、投影视图、轴测图、排版进「视图」，其余（基础出图、整理标注、对称轴、外轮廓）并进「一键」；
     /// 按 <see cref="QuickCommand.PageClass"/> 分，指令名（<c>strenua.drawing.*</c>）不变。
     /// </summary>
-    public static IReadOnlyList<string> ClassOrder { get; } = ["onekey", "hole", "fillet", "view", "dim", "tech", "check"];
+    public static IReadOnlyList<string> ClassOrder { get; } = ["onekey", "hole", "fillet", "view", "dim", "doc", "tech", "check"];
 
     /// <summary>命令类 → 页面上的类名。新类不登记也能用，只是显示成英文类名。</summary>
     private static readonly IReadOnlyDictionary<string, string> ClassTitles =
@@ -221,6 +229,7 @@ internal static class QuickCommands
             ["fillet"] = "倒圆",
             ["view"] = "视图",
             ["dim"] = "标注",
+            ["doc"] = "文档",
             ["tech"] = "要求",
             ["check"] = "检查",
         };

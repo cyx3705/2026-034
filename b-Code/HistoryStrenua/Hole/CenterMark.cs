@@ -128,6 +128,15 @@ internal static class CenterMark
         return true;
     }
 
+    /// <summary>点名的孔：一个建单个，多个建线性组并打开连接线（<see cref="DimCenter"/>）。</summary>
+    internal static object? InsertMarks(SolidWorksApi api, ScannedView scan, IReadOnlyList<int> edgeIndices)
+    {
+        var mark = Insert(api, scan, edgeIndices, edgeIndices.Count > 1 ? StyleLinearGroup : StyleSingle, slot: false);
+        if (mark is not null && edgeIndices.Count > 1 && api.CallInt(mark, "ICenterMark", "get_Style") == StyleLinearGroup)
+            api.Call(mark, "ICenterMark", "set_ConnectionLines", LinearConnectLines);
+        return mark;
+    }
+
     private static object? Insert(SolidWorksApi api, ScannedView scan, IReadOnlyList<int> edgeIndices, int style, bool slot)
     {
         api.Call(scan.Document, "IModelDoc2", "ClearSelection2", true);

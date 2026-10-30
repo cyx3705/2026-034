@@ -92,6 +92,22 @@ internal static partial class Tests
         Equal(string.Empty, Inputs("hole"));
     }
 
+    static void TestFineToolArguments()
+    {
+        Equal(new GeometryRef(false, 3), GeometryRef.Parse("E3", "from"));
+        Equal(new GeometryRef(true, 26), GeometryRef.Parse(" h26 ", "from"));
+        Throws(() => GeometryRef.Parse("D1", "from"), "只认 E / H");
+        Throws(() => GeometryRef.Parse("H", "from"), "要带序号");
+        // 直边要和量的方向垂直才有坐标：竖直边量水平有 X，量竖直没有。
+        var vertical = new SheetSegment(0.06, 0.08, 0.06, 0.2);
+        Equal<double?>(0.06, GeometryRef.Coordinate(vertical, horizontal: true));
+        Equal<double?>(null, GeometryRef.Coordinate(vertical, horizontal: false));
+        True(DimAdd.Axis("h") && !DimAdd.Axis("竖直"), "方向");
+        Throws(() => DimAdd.Axis("x"), "方向写错");
+        Equal(3, DocOpen.TypeOf(@"D:\a\图.SLDDRW"));
+        Throws(() => DocOpen.TypeOf(@"D:\a\图.pdf"), "不是 SolidWorks 文档");
+    }
+
     static void TestParameterArguments()
     {
         Equal(new MoveRequest(true, 120, null), Move(("x", "120")));

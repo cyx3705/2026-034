@@ -112,6 +112,7 @@ internal static partial class Tests
         ("feedback: callout leaders too long or crossing (1.24.0)", TestLeaders),
         ("feedback: svg leaders and center mark boxes (1.24.0)", TestSvgLeaders),
         ("feedback: idle steps and sheet list filter (1.24.0)", TestIdleAndSheetPlace),
+        ("fine tools: geometry ids, axis and doc types (1.25.0)", TestFineToolArguments),
         ("feedback: unnoted chamfers from the tech note (1.24.0)", TestUnnotedChamfer),
     };
 

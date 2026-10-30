@@ -32,6 +32,27 @@ internal static class LeaderPlanner
     /// <summary>引线总长。</summary>
     public static double Length(IEnumerable<SheetSegment> leaders) => leaders.Sum(Length);
 
+    /// <summary>
+    /// 文字平移 (<paramref name="dx"/>, <paramref name="dy"/>) 后引线大概的样子：靠文字那头跟着走，箭头那头（离文字远的）钉在孔边不动。
+    /// 只拿来筛候选位置——SolidWorks 挪孔标注会换引线端，真结果以读回为准。
+    /// </summary>
+    public static List<SheetSegment> Predict(IReadOnlyList<SheetSegment> leaders, IReadOnlyList<TextBox> texts, double dx, double dy)
+    {
+        if (texts.Count == 0)
+            return [.. leaders];
+        var corners = texts.SelectMany(text => text.Corners()).ToList();
+        var (cx, cy) = (corners.Average(p => p.X), corners.Average(p => p.Y));
+        double Distance(double x, double y) => (x - cx) * (x - cx) + (y - cy) * (y - cy);
+        return leaders.Select(line => Distance(line.X1, line.Y1) <= Distance(line.X2, line.Y2)
+                ? line with { X1 = line.X1 + dx, Y1 = line.Y1 + dy }
+                : line with { X2 = line.X2 + dx, Y2 = line.Y2 + dy })
+            .ToList();
+    }
+
+    /// <summary>引线的毛病数：与 <paramref name="others"/> 交叉几处，超过 <see cref="LongLeader"/> 再加一。</summary>
+    public static int Problems(IReadOnlyList<SheetSegment> leaders, IReadOnlyList<SheetSegment> others)
+        => Crossings(leaders, others) + (Length(leaders) > LongLeader ? 1 : 0);
+
     /// <summary><paramref name="leaders"/> 与 <paramref name="others"/> 交叉了几处。</summary>
     public static int Crossings(IReadOnlyList<SheetSegment> leaders, IEnumerable<SheetSegment> others)
         => others.Sum(other => leaders.Count(leader => Cross(leader, other)));

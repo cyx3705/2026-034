@@ -82,14 +82,8 @@ internal static class DrawingFinish
         Obstacles ObstaclesFor(int i) => new(geometry.Concat(shapes.Where((_, j) => i != j).SelectMany(s => s.Lines)).ToList(),
             keepouts.Concat(shapes.Where((_, j) => i != j).SelectMany(s => s.Texts)).ToList());
         // 1.24.0：孔标注的引线也算——和别的标注的线交叉一处算一样，超过 LongLeader 也算一样（真机：只看文字时把孔标注推到 45 mm 外、引线互相交叉还报 0 冲突）。
-        IEnumerable<SheetSegment> OtherLines(int i) => shapes.Where((s, j) => i != j && !s.Mark).SelectMany(s => s.Lines);
-        int LeaderHits(Shape s, int i)
-        {
-            if (!s.Callout)
-                return 0;
-            var leaders = LeaderPlanner.Leaders(s.Lines);
-            return LeaderPlanner.Crossings(leaders, OtherLines(i)) + (LeaderPlanner.Length(leaders) > LeaderPlanner.LongLeader ? 1 : 0);
-        }
+        List<SheetSegment> OtherLines(int i) => shapes.Where((s, j) => i != j && !s.Mark).SelectMany(s => s.Lines).ToList();
+        int LeaderHits(Shape s, int i) => s.Callout ? LeaderPlanner.Problems(LeaderPlanner.Leaders(s.Lines), OtherLines(i)) : 0;
         int Hits(Shape s, int i, Obstacles obstacles) => ClearancePlanner.Hits(s.Texts, obstacles) + LeaderHits(s, i)
             + (AnnotationPlacementPlanner.Within(s.Texts, frame.Value) ? 0 : 100);
         // 后加的尺寸界线也会压到先前文字，所以整页跑有上限的三轮。每次读回确认变好才保留，避免反复漂移。
@@ -106,10 +100,17 @@ internal static class DrawingFinish
                 if (hits == 0) continue;
                 var position = api.CallDoubles(shape.Annotation, "IAnnotation", "GetPosition");
                 if (position.Length < 3) continue;
+                var leaders = shape.Callout ? LeaderPlanner.Leaders(shape.Lines) : [];
+                var others = shape.Callout ? OtherLines(i) : [];
+                var tries = 0;
                 foreach (var offset in AnnotationPlacementPlanner.Offsets(shape.Texts, shape.View, shape.Callout))
                 {
                     var shifted = ClearancePlanner.Shift(shape.Texts, offset.X, offset.Y);
                     if (!AnnotationPlacementPlanner.Within(shifted, frame.Value) || ClearancePlanner.Hits(shifted, obstacles) > 0) continue;
+                    // 1.24.0：先按「箭头端不动」估引线，估出来不比现在好的不去真挪（真机：每个候选都 SetPosition2 + 读回，整理标注跑了 5 分钟以上）；
+                    // 真试也有上限，估得准的话头几个就成。
+                    if (leaders.Count > 0 && LeaderPlanner.Problems(LeaderPlanner.Predict(leaders, shape.Texts, offset.X, offset.Y), others) >= hits) continue;
+                    if (shape.Callout && ++tries > MaxTries) break;
                     var accepted = false;
                     try
                     {
@@ -139,6 +140,9 @@ internal static class DrawingFinish
         api.Call(drawing, "IModelDoc2", "GraphicsRedraw2");
         return (moved, shapes.Where((s, i) => s.Texts.Count > 0 && Hits(s, i, ObstaclesFor(i)) > 0).Select(s => s.Name).ToList());
     }
+
+    /// <summary>一个孔标注一轮最多真挪几次（每次 SetPosition2 + 读回 + 还原）；尺寸的文字是刚性平移，预测准，不设限。</summary>
+    private const int MaxTries = 12;
 
     // swAnnotationType_e
     private const int CenterMark = 13;

@@ -234,6 +234,14 @@ internal static partial class Tests
         True(diff.Geometry.Count == 0 && diff.Scan.SetEquals(["V1"]), "只为新尺寸的两头扫 V1，不带几何");
         Equal("V1 +1 ~1 -1；V2 挪了 (+10, 0)", diff.Summary);
 
+        // 字没变、只挪了的记 moved：不重扫、差异里只给新方框不重复文字（真机：技术要求被挪，9 条全文又带了一遍）。
+        var nudged = SheetDelta.Diff(before, Sheet("底板", View("V1", main, "1:2", Dim("D1", "80", 0.065), before.Views[0].Annotations[1], before.Views[0].Annotations[2]), before.Views[1]));
+        Equal("D1:moved", string.Join(",", nudged.Views.Single().Annotations.Select(a => a.Name + ":" + a.Change)));
+        True(nudged.Scan.Count == 0, "只挪了不重扫");
+        Equal("V1 →1", nudged.Summary);
+        var nudgedSvg = DrawingSvgWriter.Write(SheetDelta.Fill(before, nudged, new Dictionary<string, SvgView>()));
+        True(nudgedSvg.Contains("data-change=\"moved\"><rect", StringComparison.Ordinal) && !nudgedSvg.Contains("<text", StringComparison.Ordinal), "moved 只给方框");
+
         // 换比例：带几何、全部注解重给。
         var rescaled = SheetDelta.Diff(before, Sheet("底板", View("V1", main with { Right = 0.2 }, "1:1", Dim("D1", "80", 0.06)), before.Views[1]));
         Equal("rescaled", rescaled.Views.Single().Change);

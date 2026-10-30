@@ -112,7 +112,7 @@ internal static class DrawingSvgWriter
     {
         svg.Append("<!-- PowerSW 图纸 SVG：坐标为图纸 mm、左下角为原点（与 strenua.view.* / dim.* 的 x、y 相同）。id 形如视图组内的「E3」（直边）、「H0」（孔）、「RD1」（注解名），视图组 id 是视图名。"
               + "标注只画方框与显示的字，data-measures 是尺寸量的两头；标题栏等图框格子整块一个方框，字在 data-text。"
-              + "改图指令经 MCP 调用时回执只给本步差异（data-delta，data-change=added/removed/changed/moved/rescaled，几何只在新建、换比例的视图里给）。 -->\n");
+              + "改图指令经 MCP 调用时回执只给本步差异（data-delta，data-change=added/removed/changed（字变了）/moved（只挪了，只给新方框）/rescaled，几何只在新建、换比例的视图里给）。 -->\n");
         svg.Append("<style>")
             .Append(".frame{fill:none;stroke:#000;stroke-width:.5}.block{fill:none;stroke:#888;stroke-width:.25}")
             .Append(".outline{fill:none;stroke:#bbb;stroke-width:.1;stroke-dasharray:2 1}.edge,.curve{fill:none;stroke:#000;stroke-width:.35}")
@@ -135,7 +135,8 @@ internal static class DrawingSvgWriter
         if (view.Outline is { } outline)
             svg.Append($" data-box=\"{Box(outline)}\"");
         svg.Append(">\n");
-        if (view.Note.Length > 0)
+        // 差异里只有新建、换比例的视图才带说明（真机：图纸页那组每步都带一句「图框外 28 个注释没有画」）。
+        if (view.Note.Length > 0 && (!delta || view.Change is "added" or "rescaled"))
             svg.Append($"<!-- {Escape(view.Note)} -->\n");
         // 差异里视图本身没变的，外框已在 data-box，不再画一遍。
         if (view.Outline is { } box && view.Change != "removed" && (!delta || view.Change.Length > 0))
@@ -175,6 +176,16 @@ internal static class DrawingSvgWriter
         if (annotation.Change == "removed")
         {
             svg.Append("/>\n");
+            return;
+        }
+
+        if (annotation.Change == "moved")
+        {
+            // 字没变、只挪了：只给新方框（字上一次已经给过）。
+            if ((annotation.TextBox ?? annotation.Box) is { } moved)
+                svg.Append($"><rect{Rect(moved)}/></g>\n");
+            else
+                svg.Append("/>\n");
             return;
         }
 

@@ -69,12 +69,13 @@ internal static class SheetDelta
                 From = moved ? was.Outline?.Center : null,
                 Annotations = changes,
             });
-            if (changes.Any(a => a.Change != "removed" && (a.Kind.EndsWith("尺寸", StringComparison.Ordinal) || a.Kind == "孔标注")))
+            // 只挪了的不用重扫（不写量的两头），省几秒。
+            if (changes.Any(a => a.Change is "added" or "changed" && (a.Kind.EndsWith("尺寸", StringComparison.Ordinal) || a.Kind == "孔标注")))
                 scan.Add(view.Name);
             var parts = new List<string>();
             if (moved)
                 parts.Add($"挪了 ({Signed(dx)}, {Signed(dy)})");
-            foreach (var (change, sign) in new[] { ("added", "+"), ("changed", "~"), ("removed", "-") })
+            foreach (var (change, sign) in new[] { ("added", "+"), ("changed", "~"), ("moved", "→"), ("removed", "-") })
                 if (changes.Count(a => a.Change == change) is > 0 and var n)
                     parts.Add(sign + n);
             summary.Add(view.Name + " " + string.Join(" ", parts));
@@ -120,8 +121,11 @@ internal static class SheetDelta
         {
             if (!old.TryGetValue(annotation.Name, out var was))
                 result.Add(annotation with { Change = "added" });
-            else if (was.Text != annotation.Text || was.Value != annotation.Value || Moved(was.TextBox ?? was.Box, annotation.TextBox ?? annotation.Box, dx, dy))
+            else if (was.Text != annotation.Text || was.Value != annotation.Value)
                 result.Add(annotation with { Change = "changed" });
+            // 1.22.0 真机：整理标注挪了技术要求，差异里又带了一遍 9 条全文——字没变的只是 moved，只给新方框。
+            else if (Moved(was.TextBox ?? was.Box, annotation.TextBox ?? annotation.Box, dx, dy))
+                result.Add(annotation with { Change = "moved" });
         }
 
         var names = after.Select(a => a.Name).ToHashSet(StringComparer.Ordinal);

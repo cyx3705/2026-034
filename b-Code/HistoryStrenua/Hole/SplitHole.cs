@@ -97,8 +97,8 @@ internal static class SplitHole
         return -1;
     }
 
-    /// <summary>直径尺寸前缀：同种不止一个写「N x 」。</summary>
-    public static string Prefix(int count) => count > 1 ? count.ToString(CultureInfo.InvariantCulture) + " x " : string.Empty;
+    /// <summary>直径尺寸前缀：同种不止一个写「N x 」。真机：写了前缀 SolidWorks 就不再自动带 Ø，要自己写上。</summary>
+    public static string Prefix(int count) => (count > 1 ? count.ToString(CultureInfo.InvariantCulture) + " x " : string.Empty) + "<MOD-DIAM>";
 
     /// <summary>沉孔那一行（SolidWorks 符号代码），如 ⌴Ø11 ↧6；<paramref name="depth"/> 单位米。</summary>
     public static string CounterboreLine(double diameter, double depth)

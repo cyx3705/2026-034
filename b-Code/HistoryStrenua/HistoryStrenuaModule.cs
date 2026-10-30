@@ -74,8 +74,16 @@ public sealed class HistoryStrenuaModule : IModuleContextAware
                     Position = 0,
                     AllowedValues = QuickCommands.All.Select(command => command.Key).ToArray(),
                 },
+                new ParameterSpec
+                {
+                    Name = "back",
+                    Description = "往前第几次的回执：省略或 0 为最近一次，1 为上一次；每条指令留最近 20 次",
+                    Required = false,
+                    Position = 1,
+                },
             ],
-            Handler = CommandDescriptor.Sync(context => runner.Last(context.RequireString("key").Trim())),
+            Handler = CommandDescriptor.Sync(context => runner.Last(context.RequireString("key").Trim(),
+                int.TryParse(context.GetString("back"), out var back) && back > 0 ? back : 0)),
         });
 
         registry.Register(new CommandDescriptor

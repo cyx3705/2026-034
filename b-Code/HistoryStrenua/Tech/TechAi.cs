@@ -43,6 +43,7 @@ internal static class TechAi
     private const string ChooseSystem =
         "你是机械设计工程师，负责给 SolidWorks 工程图选技术要求模板。看图纸截图与图纸基本信息 JSON，判断零件类别（机加件、焊接件、钣金、铝型材、装配图……）、"
         + "材料与工艺，从候选模板标题里必须选一份最贴近的作为基础；只能选给出的标题，不得新写技术要求。"
+        + "图纸信息里没有材料时不要猜材料，不得按公司名、用途或常见做法推测；机加件选通用的钢材模板。"
         + "只输出一个 JSON 对象，不要别的文字：{\"base\": \"候选标题原文之一\", \"reason\": \"一句话理由\"}。";
 
     /// <summary>
@@ -117,6 +118,9 @@ internal static class TechAi
 
         if (baseName is null)
             return (null, "AI 没有从现有模板中选出一份；当前只允许选择并删减已有条目");
+        // 1.25.0：模型仍可能猜（真机：公司名含「机器人」所以选有色金属）。零件没指定材料就不许选有色金属。
+        if (baseName.Contains("有色", StringComparison.Ordinal) && !info.Contains("\"材料\"", StringComparison.Ordinal) && names.Contains(context.Options.TechDefault))
+            (baseName, chooseReason) = (context.Options.TechDefault, $"零件没指定材料，不按 AI 的猜测选有色金属（AI 原话：{chooseReason}）");
         var template = templates.First(item => item.Name == baseName);
         var based = TechAiEdit.Parse(template.Text);
         context.SetState("AI 删减");

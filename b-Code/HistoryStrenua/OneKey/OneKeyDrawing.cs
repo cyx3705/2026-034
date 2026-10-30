@@ -77,7 +77,13 @@ internal static class OneKeyDrawing
             steps.Failures.Add("基础出图");
 
         var kind = fixedKind ?? PartKind.Machined;
-        if (fixedKind is null)
+        if (fixedKind is null && basic.Outcome.Message.Contains("「钣金", StringComparison.Ordinal))
+        {
+            // 1.25.0：技术要求选了钣金就按钣金标（真机外壳：模板选钣金、再问一次又判加工件，两边矛盾）。
+            kind = PartKind.SheetMetal;
+            steps.Lines.Add("零件类别：技术要求已选钣金模板，按钣金标。");
+        }
+        else if (fixedKind is null)
         {
             context.Report("一键出图：视图已建好、排好，让 AI 判断零件类别。");
             var judged = PartKindAi.Classify(context, drawing);

@@ -141,17 +141,41 @@ internal sealed class QuickCommandRunner(StrenuaOptions options, ICommandBus? bu
     private void Finish(string key, string state, string result, object? data = null)
     {
         lock (_gate)
-            _status[key] = new QuickCommandStatus(state, result, DateTime.Now, data);
+        {
+            var status = new QuickCommandStatus(state, result, DateTime.Now, data);
+            _status[key] = status;
+            if (!_history.TryGetValue(key, out var list))
+                _history[key] = list = [];
+            list.Insert(0, status);
+            if (list.Count > HistorySize)
+                list.RemoveAt(list.Count - 1);
+        }
     }
+
+    /// <summary>每条指令留最近几次回执（1.25.0，真机批量出图：下一张一跑，上一张的回执就没了）。</summary>
+    private const int HistorySize = 20;
+
+    private readonly Dictionary<string, List<QuickCommandStatus>> _history = new(StringComparer.Ordinal);
 
     /// <summary>
     /// 上一次执行的结论（1.22.0）：长指令（一键出图、孔标注全流程）经 MCP 转发时调用方先超时，指令照跑完、回执就丢了——
     /// 用 <c>strenua.quick.last</c> 取回原样的文字与数据（含本步反馈的 SVG）。还在跑回执「执行中」，没跑过回失败。
     /// </summary>
-    public CommandResult Last(string key)
+    /// <param name="key">指令 key。</param>
+    /// <param name="back">往前第几次（0 = 最近一次）。</param>
+    public CommandResult Last(string key, int back = 0)
     {
         lock (_gate)
         {
+            if (back > 0)
+            {
+                if (!_history.TryGetValue(key, out var list) || back >= list.Count)
+                    return CommandResult.Fail($"key={key} 没有往前第 {back} 次的回执（留了 {(list?.Count ?? 0)} 次）。");
+                var old = list[back];
+                var title = $"[{old.State} {FormatTime(old.FinishedAt)}] ";
+                return old.Data is null ? CommandResult.Ok(title + old.Result) : CommandResult.Ok(title + old.Result, old.Data);
+            }
+
             if (_runningKey == key)
                 return CommandResult.Ok($"「{_runningTitle}」还在执行（{StatusOf(key).State}），等一会儿再取。");
             if (!_status.TryGetValue(key, out var status) || status.FinishedAt is null)

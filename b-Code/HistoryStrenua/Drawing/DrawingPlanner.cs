@@ -844,9 +844,14 @@ internal sealed record SheetSpace(double Width, double Height, SheetRect Frame, 
     /// 用户「高悦精密」模板实测的国标图框（A4 横放与 A3 相同）：内框四边 5 mm；标题栏 180 × 44 在右下，修改栏 160 × 13 在右上，
     /// 图号框 41 × 11 在左上。选模板时只知道纸张大小，就按这个估；建出图纸后再加上读到的图纸注解（见 <c>DrawingCreate</c>）。
     /// </summary>
+    /// <summary>A2 的长边（米）：从这么宽起模板有装订边。</summary>
+    private const double LargeSheetWidth = 0.590;
+
     public static SheetSpace Standard(double width, double height)
     {
-        var frame = new SheetRect(0.005, 0.005, width - 0.005, height - 0.005);
+        // 真机模板：A3、A4 四边 5 mm；A2 起左边装订 25 mm、其余 10 mm（1.25.0：一律按 5 mm 算时夹爪的尺寸落到 A2 图框线外，还报没冲突）。
+        var (bind, edge) = width >= LargeSheetWidth ? (0.025, 0.010) : (0.005, 0.005);
+        var frame = new SheetRect(bind, edge, width - edge, height - edge);
         return new SheetSpace(width, height, frame,
         [
             new SheetRect(frame.Right - 0.180, frame.Bottom, frame.Right, frame.Bottom + 0.044),

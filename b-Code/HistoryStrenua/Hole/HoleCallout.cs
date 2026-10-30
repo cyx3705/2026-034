@@ -36,6 +36,8 @@ internal static class HoleCallout
     /// </summary>
     private static bool InsertSplit(SolidWorksApi api, ScannedView scan, HoleEdge hole, SheetPoint at, PartGeometry? part)
     {
+        var through = Through(api, scan, hole, at);
+        api.Call(scan.Document, "IModelDoc2", "ClearSelection2", true);
         var dimension = api.CallBool(scan.View, "IView", "SelectEntity", scan.Edges[hole.Index], false)
             ? api.Call(scan.Document, "IModelDoc2", "AddDiameterDimension2", at.X, at.Y, 0.0)
             : null;
@@ -43,18 +45,31 @@ internal static class HoleCallout
             return false;
         var holes = HoleCalloutPlanner.Recognize(scan.Candidates);
         var count = holes.Count(other => other.Kind == hole.Kind && Math.Abs(other.Radius - hole.Radius) <= HoleCalloutPlanner.CenterTolerance);
-        var prefix = SplitHole.Prefix(count);
-        if (prefix.Length > 0)
-            api.Call(dimension, "IDisplayDimension", "SetText", DimensionScan.TextPrefix, prefix);
+        api.Call(dimension, "IDisplayDimension", "SetText", DimensionScan.TextPrefix, SplitHole.Prefix(count));
 
         var wider = SplitHole.Merge(scan.Candidates)
             .Where(other => other.Radius > hole.Radius + HoleCalloutPlanner.CenterTolerance && HoleCalloutPlanner.SameCenter(other.X, other.Y, hole.X, hole.Y))
             .Select(other => (double?)other.Radius).Max();
         var (depth, cbore) = SplitDepths(part, hole, scan.Geometry.Scale, wider);
-        api.Call(dimension, "IDisplayDimension", "SetText", DimensionScan.TextSuffix, depth is { } d ? $" <HOLE-DEPTH> {SplitHole.Mm(d)}" : " 贯穿");
+        api.Call(dimension, "IDisplayDimension", "SetText", DimensionScan.TextSuffix, !through && depth is { } d ? $" <HOLE-DEPTH> {SplitHole.Mm(d)}" : " 完全贯穿");
         if (wider is { } radius && cbore is { } deep)
             api.Call(dimension, "IDisplayDimension", "SetText", TextCalloutBelow, SplitHole.CounterboreLine(radius * 2 / scan.Geometry.Scale, deep));
         return true;
+    }
+
+    /// <summary>
+    /// 通不通问 SolidWorks：临时加一个孔标注读它写没写「贯穿」，读完删掉。用零件总厚判不准——夹爪局部 22 厚、总厚 40，通孔被判成盲孔。
+    /// </summary>
+    private static bool Through(SolidWorksApi api, ScannedView scan, HoleEdge hole, SheetPoint at)
+    {
+        var probe = api.CallBool(scan.View, "IView", "SelectEntity", scan.Edges[hole.Index], false)
+            ? api.Call(scan.Document, "IDrawingDoc", "AddHoleCallout2", at.X, at.Y, 0.0)
+            : null;
+        if (probe is null || api.Call(probe, "IDisplayDimension", "GetAnnotation") is not { } annotation)
+            return false;
+        var text = DimList.Shown(api, annotation);
+        HolePosition.Discard(api, scan, probe);
+        return text.Contains("贯穿", StringComparison.Ordinal);
     }
 
     /// <summary>盲孔的深度（通孔为 null）与沉孔深度，从零件圆柱面算；读不到零件都是 null。</summary>
@@ -63,7 +78,7 @@ internal static class HoleCallout
         if (part is null || hole.Axis is not { } axis || part.Holes.FirstOrDefault(axis.Matches) is not { } partHole
             || partHole.RangeAlong(partHole.Axis) is not { } range)
             return (null, null);
-        double? depth = range.Max - range.Min < part.Box.Extent(partHole.Axis.Normalized()) - PartHole.AxisTolerance ? range.Max - range.Min : null;
+        double? depth = range.Max - range.Min;
         if (wider is null)
             return (depth, null);
         var probe = new PartCylinder(partHole.Axis, partHole.Point, wider.Value / scale, true, true, string.Empty, []);

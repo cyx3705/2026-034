@@ -67,6 +67,7 @@ internal static partial class Tests
         ("check: dimension network, sizes, cross-view and symmetry", TestDimensionCheck),
         ("check: two-decimal numbers", TestDecimalCheck),
         ("check: drawing as SVG — sheet mm, numbered geometry, boxed annotations (1.21.0)", TestDrawingSvg),
+        ("check: step feedback is only what changed, within budget (1.21.0)", TestStepDelta),
         ("drawing: named view orientation is verified", TestMainViewRetry),
         ("hole position: avoids title block and revision block", TestPositionAvoidsKeepOuts),
         ("distinct holes stay distinct", TestDistinctHoles),

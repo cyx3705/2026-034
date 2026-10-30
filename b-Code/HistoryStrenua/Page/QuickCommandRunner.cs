@@ -51,6 +51,10 @@ internal sealed class QuickCommandRunner(StrenuaOptions options, ICommandBus? bu
             }
         }
 
+        // 1.21.0：MCP 来的改图指令，回执带本步改动的 SVG（检查类、只读的不改图，不带）。
+        if (!command.Readonly && command.CommandClass != "check" && StepFeedback.Wanted(context.Source))
+            run = StepFeedback.Wrap(run);
+
         CancellationTokenSource cancellation;
         lock (_gate)
         {

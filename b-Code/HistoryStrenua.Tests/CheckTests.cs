@@ -200,4 +200,74 @@ internal static partial class Tests
         // 真机：孔标注显示数据里的符号是代码。
         Equal("4 x Ø 11 完全贯穿 ⌴ Ø 18 ↧ 11 <X-Y>", DimList.Readable("4 x <MOD-DIAM> 11 完全贯穿 <HOLE-SPOT> <MOD-DIAM> 18 <HOLE-DEPTH> 11 <X-Y>"));
     }
+
+    /// <summary>1.21.0：每一步只回本步改了的——注解按名字比、跟着视图挪的不算改、新建 / 换比例的视图才带几何；预算按档降。</summary>
+    static void TestStepDelta()
+    {
+        static SvgAnnotation Dim(string name, string text, double x) =>
+            new(name, "线性尺寸", text, text, new SheetRect(x, 0.2, x + 0.01, 0.205), new SheetPoint(x, 0.2), 0.0035, "", [], new SheetRect(x, 0.2, x + 0.005, 0.2035));
+        static SvgView View(string name, SheetRect outline, string scale, params SvgAnnotation[] annotations) =>
+            new(name, "模型", "", scale, outline, [], [], [], annotations);
+        static SvgSheet Sheet(string title, params SvgView[] views) => new(title, "图纸1", 0.42, 0.297, null, [], views);
+
+        var main = new SheetRect(0.05, 0.1, 0.15, 0.2);
+        var side = new SheetRect(0.2, 0.1, 0.22, 0.2);
+        var before = Sheet("底板", View("V1", main, "1:2", Dim("D1", "80", 0.06), Dim("D2", "40", 0.08), Dim("D3", "20", 0.1)), View("V2", side, "1:2", Dim("D1", "16", 0.2)));
+
+        // 没变化。
+        True(SheetDelta.Diff(before, before).Empty, "没变化");
+
+        // V1：D2 删了、D3 字变了、新加 D4；V2 整个往右挪 10 mm（它的 D1 跟着挪，不算改）。
+        var shifted = new SheetRect(0.21, 0.1, 0.23, 0.2);
+        var after = Sheet("底板",
+            View("V1", main, "1:2", Dim("D1", "80", 0.06), Dim("D3", "25", 0.1), Dim("D4", "10", 0.12)),
+            View("V2", shifted, "1:2", Dim("D1", "16", 0.21)));
+        var diff = SheetDelta.Diff(before, after);
+        Equal("V1,V2", string.Join(",", diff.Views.Select(v => v.Name)));
+        var v1 = diff.Views[0];
+        Equal("", v1.Change);
+        Equal("D3:changed,D4:added,D2:removed", string.Join(",", v1.Annotations.Select(a => a.Name + ":" + a.Change)));
+        var v2 = diff.Views[1];
+        Equal("moved", v2.Change);
+        Equal(0, v2.Annotations.Count);
+        True(Math.Abs(v2.From!.Value.X - 0.21) < 1e-9 && Math.Abs(v2.From.Value.Y - 0.15) < 1e-9, "挪前的中心");
+        True(diff.Geometry.Count == 0 && diff.Scan.SetEquals(["V1"]), "只为新尺寸的两头扫 V1，不带几何");
+        Equal("V1 +1 ~1 -1；V2 挪了 (+10, 0)", diff.Summary);
+
+        // 换比例：带几何、全部注解重给。
+        var rescaled = SheetDelta.Diff(before, Sheet("底板", View("V1", main with { Right = 0.2 }, "1:1", Dim("D1", "80", 0.06)), before.Views[1]));
+        Equal("rescaled", rescaled.Views.Single().Change);
+        True(rescaled.Geometry.SetEquals(["V1"]), "换比例带几何");
+
+        // 换了一张图（一键出图从零件建新图）：整页都是新的。
+        var fresh = SheetDelta.Diff(null, after);
+        True(fresh.Views.All(v => v.Change == "added") && fresh.Geometry.SetEquals(["V1", "V2"]), "新图整页 added");
+
+        // 填几何：只给带几何的视图；差异里的注解换成扫过的那份（带量的两头），变更标记留着。
+        var scannedV1 = after.Views[0] with
+        {
+            Lines = [new SheetSegment(0.05, 0.1, 0.15, 0.1)],
+            Annotations = after.Views[0].Annotations.Select(a => a with { Measures = "E0 y=100 ↔ x=1" }).ToList(),
+        };
+        var filled = SheetDelta.Fill(after, diff, new Dictionary<string, SvgView> { ["V1"] = scannedV1 });
+        True(filled.Delta && filled.Blocks.Count == 0, "差异不画格子");
+        Equal(0, filled.Views[0].Lines.Count);
+        Equal("E0 y=100 ↔ x=1", filled.Views[0].Annotations.First(a => a.Name == "D4").Measures);
+        Equal("added", filled.Views[0].Annotations.First(a => a.Name == "D4").Change);
+
+        var svg = DrawingSvgWriter.Write(filled);
+        True(svg.Contains("data-delta=\"true\"", StringComparison.Ordinal) && svg.Contains("id=\"V1:D2\" data-kind=\"线性尺寸\" data-change=\"removed\"/>", StringComparison.Ordinal), "删掉的只留一个标记");
+        True(svg.Contains("data-change=\"moved\" data-from=\"210,150\"", StringComparison.Ordinal), "挪了的视图给原中心");
+
+        // 精简档：不出 text、不写 data-box，字进 data-text；只有标注档不出几何。
+        var withGeometry = filled with { Views = [filled.Views[0] with { Lines = scannedV1.Lines }] };
+        var compact = DrawingSvgWriter.Write(withGeometry, SvgDetail.Ladder[1]);
+        True(!compact.Contains("<text", StringComparison.Ordinal) && !compact.Contains("data-box=\"60", StringComparison.Ordinal)
+             && compact.Contains("data-text=\"10\"", StringComparison.Ordinal) && compact.Contains("V1:E0", StringComparison.Ordinal), "精简档");
+        True(!DrawingSvgWriter.Write(withGeometry, SvgDetail.Ladder[2]).Contains("V1:E0", StringComparison.Ordinal), "只有标注档不出几何");
+        True(DrawingSvgWriter.Write(withGeometry, SvgDetail.Ladder[0]).Length > compact.Length, "越往后越短");
+
+        // 只对 MCP 来的调用带反馈。
+        True(StepFeedback.Wanted("module:HistoryPortunus:MCP:client") && !StepFeedback.Wanted("ui") && !StepFeedback.Wanted(null), "来源");
+    }
 }

@@ -12,24 +12,48 @@ namespace HistoryStrenua;
 /// <param name="Frame">图框（国标估计）；读不到为 null。</param>
 /// <param name="Blocks">图框里整块的格子：标题栏、修改栏、图号框，内容合成一段字。</param>
 /// <param name="Views">图纸页本身（放图纸上的注释）与各视图。</param>
+/// <param name="Delta">只是这一步改了的东西（<see cref="SheetDelta"/>）：不画图框、格子，元素带 <c>data-change</c>。</param>
 internal sealed record SvgSheet(string Title, string SheetName, double Width, double Height, SheetRect? Frame,
-    IReadOnlyList<SvgBlock> Blocks, IReadOnlyList<SvgView> Views);
+    IReadOnlyList<SvgBlock> Blocks, IReadOnlyList<SvgView> Views, bool Delta = false);
 
 /// <summary>图框里的一块（标题栏……）：只画方框 + 标签，格子里的字合成一段放在 <c>data-text</c>。</summary>
 internal sealed record SvgBlock(string Id, string Label, SheetRect Rect, string Text);
 
-/// <summary>一个视图：外框、可见直边（编号 E）、曲线（折线近似）、孔（编号 H）、注解。图纸页本身没有几何，只有注解。</summary>
+/// <summary>
+/// 一个视图：外框、可见直边（编号 E）、曲线（折线近似）、孔（编号 H）、注解。图纸页本身没有几何，只有注解。
+/// 差异里 <paramref name="Change"/> 是 added / removed / moved / rescaled（空 = 视图本身没变，只是里面的注解变了），moved 时 <paramref name="From"/> 是原来的中心。
+/// </summary>
 internal sealed record SvgView(string Name, string Kind, string Parent, string Scale, SheetRect? Outline,
     IReadOnlyList<SheetSegment> Lines, IReadOnlyList<SheetSegment> Curves, IReadOnlyList<HoleEdge> Holes,
-    IReadOnlyList<SvgAnnotation> Annotations, string Note = "");
+    IReadOnlyList<SvgAnnotation> Annotations, string Note = "", string Change = "", SheetPoint? From = null);
 
 /// <summary>
 /// 一个注解：方框画字占的地方（<paramref name="TextBox"/>，没有就用整个外框），<c>data-box</c> 另写连尺寸界线、引线在内的整个外框（<paramref name="Box"/>）；
 /// 尺寸再带它量的两头（<paramref name="Measures"/>）。中心符号线、中心线本身就是线，画 <paramref name="Lines"/>（并成一条 path），不画方框。
-/// 竖直尺寸的字按 <paramref name="Angle"/>（弧度，逆时针）转过来。
+/// 竖直尺寸的字按 <paramref name="Angle"/>（弧度，逆时针）转过来。差异里 <paramref name="Change"/> 是 added / removed / changed。
 /// </summary>
 internal sealed record SvgAnnotation(string Name, string Kind, string Text, string Value, SheetRect? Box, SheetPoint? TextAt,
-    double TextHeight, string Measures, IReadOnlyList<SheetSegment> Lines, SheetRect? TextBox = null, double Angle = 0);
+    double TextHeight, string Measures, IReadOnlyList<SheetSegment> Lines, SheetRect? TextBox = null, double Angle = 0, string Change = "");
+
+/// <summary>
+/// 写多细（1.21.0，用户定：回执超过 1 万字就不如一张截图，按预算一级级降）。
+/// </summary>
+/// <param name="Geometry">画零件几何（直边、曲线、孔）。几何是静的，视图建好、换比例时给一次，之后按编号引用。</param>
+/// <param name="Compact">注解只留方框与属性（字放进 <c>data-text</c>、不出 text 元素、不写 data-box），中心符号线不画线。</param>
+internal sealed record SvgDetail(bool Geometry = true, bool Compact = false)
+{
+    public static SvgDetail Full { get; } = new();
+
+    /// <summary>预算从细到粗依次试的几档；都超了就降成截图。</summary>
+    public static IReadOnlyList<SvgDetail> Ladder { get; } = [Full, new(true, true), new(false, true)];
+
+    public string Label => (Geometry, Compact) switch
+    {
+        (true, false) => "完整",
+        (true, true) => "几何 + 精简标注",
+        _ => "只有标注",
+    };
+}
 
 /// <summary>
 /// 把一页图纸写成 SVG（1.21.0，用户定：AI 调完 MCP 拿 SVG 代码当反馈，不看图片）。纯文本，离线可测。
@@ -42,24 +66,29 @@ internal sealed record SvgAnnotation(string Name, string Kind, string Text, stri
 /// </remarks>
 internal static class DrawingSvgWriter
 {
-    public static string Write(SvgSheet sheet)
+    public static string Write(SvgSheet sheet, SvgDetail? detail = null)
     {
+        detail ??= SvgDetail.Full;
         var w = Mm(sheet.Width);
         var h = Mm(sheet.Height);
         var svg = new StringBuilder();
         svg.Append($"<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 {w} {h}\" width=\"{w}mm\" height=\"{h}mm\"")
-            .Append($" data-title=\"{Escape(sheet.Title)}\" data-sheet=\"{Escape(sheet.SheetName)}\" data-units=\"mm\" data-origin=\"bottom-left\">\n");
-        svg.Append("<!-- PowerSW 图纸 SVG：坐标为图纸 mm、左下角为原点（与 strenua.view.* / dim.* 的 x、y 相同）。")
-            .Append("id 形如「视图名:E3」（直边）、「视图名:H0」（孔）、「视图名:D1」（注解名）。")
-            .Append("标注只画方框（data-box 外框）与显示的字，data-measures 是尺寸量的两头；标题栏等图框格子整块一个方框，字在 data-text。 -->\n");
+            .Append($" data-title=\"{Escape(sheet.Title)}\" data-sheet=\"{Escape(sheet.SheetName)}\" data-units=\"mm\" data-origin=\"bottom-left\"")
+            .Append(sheet.Delta ? " data-delta=\"true\"" : string.Empty)
+            .Append($" data-detail=\"{detail.Label}\">\n");
+        svg.Append(sheet.Delta
+            ? "<!-- PowerSW 本步改动：只有改了的视图与注解，data-change=added/removed/changed/moved/rescaled；坐标为图纸 mm、左下角为原点；几何只在新建、换比例的视图里给（别的视图按 strenua.check.svg view= 取）。 -->\n"
+            : "<!-- PowerSW 图纸 SVG：坐标为图纸 mm、左下角为原点（与 strenua.view.* / dim.* 的 x、y 相同）。id 形如「视图名:E3」（直边）、「视图名:H0」（孔）、「视图名:D1」（注解名）。"
+              + "标注只画方框与显示的字，data-measures 是尺寸量的两头；标题栏等图框格子整块一个方框，字在 data-text。 -->\n");
         svg.Append("<style>")
             .Append(".frame{fill:none;stroke:#000;stroke-width:.5}.block{fill:none;stroke:#888;stroke-width:.25}")
             .Append(".outline{fill:none;stroke:#bbb;stroke-width:.1;stroke-dasharray:2 1}.edge,.curve{fill:none;stroke:#000;stroke-width:.35}")
             .Append(".hole{fill:none;stroke:#000;stroke-width:.25}.ann rect{fill:none;stroke:#06c;stroke-width:.15;stroke-dasharray:1 .5}")
             .Append(".center{fill:none;stroke:#c00;stroke-width:.13;stroke-dasharray:3 1 .5 1}text{font-family:sans-serif;fill:#06c}")
-            .Append(".block text{fill:#888}</style>\n");
+            .Append(".block text{fill:#888}[data-change=removed] rect{stroke:#c00}</style>\n");
         svg.Append($"<g transform=\"matrix(1 0 0 -1 0 {h})\">\n");
-        svg.Append($"<rect class=\"sheet\" x=\"0\" y=\"0\" width=\"{w}\" height=\"{h}\" fill=\"#fff\"/>\n");
+        if (!sheet.Delta)
+            svg.Append($"<rect class=\"sheet\" x=\"0\" y=\"0\" width=\"{w}\" height=\"{h}\" fill=\"#fff\"/>\n");
         if (sheet.Frame is { } frame)
             svg.Append($"<rect class=\"frame\" id=\"frame\"{Rect(frame)}/>\n");
         foreach (var block in sheet.Blocks)
@@ -73,14 +102,18 @@ internal static class DrawingSvgWriter
         }
 
         foreach (var view in sheet.Views)
-            WriteView(svg, view);
+            WriteView(svg, view, detail);
         svg.Append("</g>\n</svg>\n");
         return svg.ToString();
     }
 
-    private static void WriteView(StringBuilder svg, SvgView view)
+    private static void WriteView(StringBuilder svg, SvgView view, SvgDetail detail)
     {
         svg.Append($"<g class=\"view\" id=\"{Escape(view.Name)}\" data-kind=\"{Escape(view.Kind)}\"");
+        if (view.Change.Length > 0)
+            svg.Append($" data-change=\"{view.Change}\"");
+        if (view.From is { } from)
+            svg.Append($" data-from=\"{Mm(from.X)},{Mm(from.Y)}\"");
         if (view.Parent.Length > 0)
             svg.Append($" data-parent=\"{Escape(view.Parent)}\"");
         if (view.Scale.Length > 0)
@@ -90,47 +123,58 @@ internal static class DrawingSvgWriter
         svg.Append(">\n");
         if (view.Note.Length > 0)
             svg.Append($"<!-- {Escape(view.Note)} -->\n");
-        if (view.Outline is { } box)
+        if (view.Outline is { } box && view.Change != "removed")
             svg.Append($"<rect class=\"outline\"{Rect(box)}/>\n");
-        for (var i = 0; i < view.Lines.Count; i++)
+        if (detail.Geometry)
         {
-            var line = view.Lines[i];
-            svg.Append($"<line class=\"edge\" id=\"{Escape(view.Name)}:E{i}\" x1=\"{Mm(line.X1)}\" y1=\"{Mm(line.Y1)}\" x2=\"{Mm(line.X2)}\" y2=\"{Mm(line.Y2)}\"/>\n");
-        }
+            for (var i = 0; i < view.Lines.Count; i++)
+            {
+                var line = view.Lines[i];
+                svg.Append($"<line class=\"edge\" id=\"{Escape(view.Name)}:E{i}\" x1=\"{Mm(line.X1)}\" y1=\"{Mm(line.Y1)}\" x2=\"{Mm(line.X2)}\" y2=\"{Mm(line.Y2)}\"/>\n");
+            }
 
-        foreach (var points in Polylines(view.Curves))
-            svg.Append($"<polyline class=\"curve\" points=\"{string.Join(" ", points.Select(p => Mm(p.X) + "," + Mm(p.Y)))}\"/>\n");
-        foreach (var hole in view.Holes)
-        {
-            svg.Append($"<circle class=\"hole\" id=\"{Escape(view.Name)}:H{hole.Index}\" cx=\"{Mm(hole.X)}\" cy=\"{Mm(hole.Y)}\" r=\"{Mm(hole.Radius)}\"");
-            if (hole.Kind.Length > 0)
-                svg.Append($" data-kind=\"{Escape(hole.Kind)}\"");
-            svg.Append("/>\n");
+            foreach (var points in Polylines(view.Curves))
+                svg.Append($"<polyline class=\"curve\" points=\"{string.Join(" ", points.Select(p => Mm(p.X) + "," + Mm(p.Y)))}\"/>\n");
+            foreach (var hole in view.Holes)
+            {
+                svg.Append($"<circle class=\"hole\" id=\"{Escape(view.Name)}:H{hole.Index}\" cx=\"{Mm(hole.X)}\" cy=\"{Mm(hole.Y)}\" r=\"{Mm(hole.Radius)}\"");
+                if (hole.Kind.Length > 0)
+                    svg.Append($" data-kind=\"{Escape(hole.Kind)}\"");
+                svg.Append("/>\n");
+            }
         }
 
         foreach (var annotation in view.Annotations)
-            WriteAnnotation(svg, view.Name, annotation);
+            WriteAnnotation(svg, view.Name, annotation, detail);
         svg.Append("</g>\n");
     }
 
-    private static void WriteAnnotation(StringBuilder svg, string view, SvgAnnotation annotation)
+    private static void WriteAnnotation(StringBuilder svg, string view, SvgAnnotation annotation, SvgDetail detail)
     {
         var center = annotation.Lines.Count > 0 && annotation.Box is null;
         svg.Append($"<g class=\"ann{(center ? " center" : string.Empty)}\" id=\"{Escape(view)}:{Escape(annotation.Name)}\" data-kind=\"{Escape(annotation.Kind)}\"");
+        if (annotation.Change.Length > 0)
+            svg.Append($" data-change=\"{annotation.Change}\"");
+        if (annotation.Change == "removed")
+        {
+            svg.Append("/>\n");
+            return;
+        }
+
         if (annotation.Value.Length > 0)
             svg.Append($" data-value=\"{Escape(annotation.Value)}\"");
         if (annotation.Measures.Length > 0)
             svg.Append($" data-measures=\"{Escape(annotation.Measures)}\"");
-        if (annotation.Box is { } box)
+        if (!detail.Compact && annotation.Box is { } box)
             svg.Append($" data-box=\"{Box(box)}\"");
-        if (annotation.Text.Contains('\n'))
+        if (annotation.Text.Length > 0 && (detail.Compact || annotation.Text.Contains('\n')))
             svg.Append($" data-text=\"{Escape(annotation.Text.Replace("\n", " / "))}\"");
         svg.Append('>');
-        if (annotation.Lines.Count > 0)
+        if (annotation.Lines.Count > 0 && !detail.Compact)
             svg.Append($"<path d=\"{Path(annotation.Lines)}\"/>");
         if ((annotation.TextBox ?? annotation.Box) is { } rect)
             svg.Append($"<rect{Rect(rect)}/>");
-        if (annotation.Text.Length > 0 && (annotation.TextAt ?? annotation.Box?.Center) is { } at)
+        if (!detail.Compact && annotation.Text.Length > 0 && (annotation.TextAt ?? annotation.Box?.Center) is { } at)
             svg.Append(Text(at, annotation.TextHeight > 0 ? annotation.TextHeight : 0.0035, annotation.Text,
                 anchor: annotation.TextAt is null ? "middle" : "start", angle: annotation.Angle));
         svg.Append("</g>\n");

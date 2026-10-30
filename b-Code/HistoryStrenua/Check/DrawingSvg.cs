@@ -20,10 +20,20 @@ internal static class DrawingSvg
         Key: "svg",
         CommandName: StrenuaIdentity.Domain + ".check.svg",
         Title: "图纸 SVG",
-        Summary: "把当前图纸页读成 SVG 代码回执（给 AI 当反馈）：零件边与孔精确带编号，标注画方框加显示文字，坐标为图纸 mm；不改图。",
-        Usage: "不用点视图：读当前图纸页，回执的数据就是一段 SVG（同时存到模块数据目录 snapshots 里，只留最近 30 份，可用浏览器打开）。坐标是图纸 mm、左下角为原点，和视图、标注类的 X / Y 相同。每个视图一组：可见直边（id「视图名:E序号」）、曲线（折线近似）、孔（「视图名:H序号」，带孔种）；尺寸、孔标注、注释只画外框方框和图上显示的字，尺寸另写量的两头（data-measures）；中心符号线、中心线画成线。标题栏、修改栏、图号框各一个方框，格子里的字合在 data-text。不改图。",
+        Summary: "把当前图纸页（或一个视图）读成 SVG 代码回执给 AI：边与孔带编号，标注画方框加字，坐标为图纸 mm；超过 1 万字降级，最后回截图。",
+        Usage: "「视图」空着读整页，填视图名只读那一个视图（要某个视图的完整几何就用它）。回执的数据是一段 SVG（完整的一份另存到模块数据目录 snapshots，可用浏览器打开）。坐标是图纸 mm、左下角为原点，和视图、标注类的 X / Y 相同。每个视图一组：可见直边（id「视图名:E序号」）、曲线（折线近似）、孔（「视图名:H序号」，带孔种）；尺寸、孔标注、注释只画字占的方框和图上显示的字，尺寸另写量的两头（data-measures）；中心符号线、中心线画成线。标题栏、修改栏、图号框各一个方框，格子里的字合在 data-text。回执超过 1 万字就依次降成「几何 + 精简标注」「只有标注」，还超就回整页截图的路径。不改图。",
         // 要存一份文件，所以和「图纸截图」一样不标只读（宿主的只读 = 不写文件）。
-        Run: Run);
+        Run: QuickCommand.Unbound,
+        Parameters: [new QuickParameter("view", "视图", "视图名（视图列表的 name 列）；省略时读整页", false)],
+        Example: StrenuaIdentity.Domain + ".check.svg view=工程图视图1",
+        Bind: arguments =>
+        {
+            var view = QuickArgs.Optional(arguments, "view");
+            return context => Run(context, view);
+        });
+
+    /// <summary>回执 SVG 的预算（用户定：超过 1 万字就不如一张截图）。</summary>
+    public const int Budget = 10_000;
 
     // swAnnotationType_e
     private const int AnnotationNote = 6;
@@ -33,20 +43,44 @@ internal static class DrawingSvg
     private static readonly string[] BlockLabels = ["标题栏", "修改栏", "图号框"];
     private static readonly string[] BlockIds = ["title-block", "revision-block", "number-block"];
 
-    private static QuickOutcome Run(QuickCommandContext context)
+    private static QuickOutcome Run(QuickCommandContext context, string? viewName)
     {
         var drawing = HoleScan.ActiveDrawing(context);
-        var sheet = Read(context, drawing);
-        var svg = DrawingSvgWriter.Write(sheet);
-        var file = Save(context, sheet.Title, svg);
+        if (viewName is not null)
+            SheetLookup.View(context.Api, drawing, viewName);
+        var sheet = Read(context, drawing, only: viewName);
+        var file = Save(context, sheet.Title, DrawingSvgWriter.Write(sheet));
         var views = sheet.Views.Where(view => view.Outline is not null).ToList();
-        var message = $"图纸 SVG：「{sheet.Title}」当前图纸页 {views.Count} 个视图、{views.Sum(view => view.Lines.Count)} 条直边、{views.Sum(view => view.Holes.Count)} 个孔、"
-            + $"{sheet.Views.Sum(view => view.Annotations.Count)} 个注解，SVG {svg.Length} 字（数据里是全文），已存 {file}";
-        return QuickOutcome.Ok(message, svg);
+        var scope = viewName is null ? "当前图纸页" : $"视图「{viewName}」";
+        var counts = $"{views.Count} 个视图、{views.Sum(view => view.Lines.Count)} 条直边、{views.Sum(view => view.Holes.Count)} 个孔、{sheet.Views.Sum(view => view.Annotations.Count)} 个注解";
+        var (svg, how) = Budgeted(context, drawing, sheet);
+        var message = $"图纸 SVG：「{sheet.Title}」{scope} {counts}；{how}。完整 SVG 已存 {file}";
+        return svg is null ? QuickOutcome.Ok(message) : QuickOutcome.Ok(message, svg);
     }
 
-    /// <summary>读当前图纸页（后续每一步回执 SVG 也从这里读）。</summary>
-    internal static SvgSheet Read(QuickCommandContext context, object drawing)
+    /// <summary>
+    /// 按预算挑写多细（<see cref="SvgDetail.Ladder"/>），挑得出返回 SVG 与说明；都超预算就存一张整页截图，返回 null 与截图路径。
+    /// </summary>
+    internal static (string? Svg, string How) Budgeted(QuickCommandContext context, object drawing, SvgSheet sheet)
+    {
+        var size = 0;
+        foreach (var detail in SvgDetail.Ladder)
+        {
+            var svg = DrawingSvgWriter.Write(sheet, detail);
+            if (svg.Length <= Budget)
+                return (svg, $"SVG {svg.Length} 字（{detail.Label}）在数据里");
+            size = svg.Length;
+        }
+
+        var png = DrawingSnapshot.Save(context, drawing);
+        return (null, $"最精简的 SVG 也有 {size} 字，超过 {Budget} 字，改回整页截图 {png}（要细节用 strenua.check.svg view=视图名）");
+    }
+
+    /// <summary>
+    /// 读当前图纸页（每一步回执也从这里读）。<paramref name="scan"/> 决定哪些视图扫几何（不给就全扫），
+    /// <paramref name="only"/> 只读一个视图（这时不出图框、格子）。
+    /// </summary>
+    internal static SvgSheet Read(QuickCommandContext context, object drawing, Func<string, bool>? scan = null, string? only = null)
     {
         var api = context.Api;
         context.SetState("读图纸");
@@ -62,18 +96,24 @@ internal static class DrawingSvg
         foreach (var view in SheetLookup.Views(api, drawing))
         {
             context.Cancellation.ThrowIfCancellationRequested();
+            var name = DrawingSheet.Name(api, view);
+            if (SheetLookup.IsSheet(api, view))
+                sheetName = name;
+            if (only is not null && name != only)
+                continue;
             if (SheetLookup.IsSheet(api, view))
             {
-                sheetName = DrawingSheet.Name(api, view);
                 var (sheetView, sheetBlocks) = SheetNotes(api, view, sheetName, space);
                 views.Add(sheetView);
                 blocks.AddRange(sheetBlocks);
             }
             else
-                views.Add(View(context, drawing, view));
+                views.Add(View(context, drawing, view, scan?.Invoke(name) ?? true));
         }
 
-        return new SvgSheet(title, sheetName, width, height, space.Frame, blocks, views);
+        return only is null
+            ? new SvgSheet(title, sheetName, width, height, space.Frame, blocks, views)
+            : new SvgSheet(title, sheetName, width, height, null, [], views);
     }
 
     /// <summary>图纸页本身：标题栏 / 修改栏 / 图号框各一块（里面的注释并成一段字），图框外的不出，其余是注解。</summary>
@@ -108,8 +148,11 @@ internal static class DrawingSvg
         return (new SvgView(sheetName, "图纸页", string.Empty, string.Empty, null, [], [], [], annotations, note), blocks);
     }
 
-    /// <summary>一个视图：几何沿用 <see cref="HoleScan.Scan"/>（读不了的视图只出外框与注解，原因写进注释）。</summary>
-    private static SvgView View(QuickCommandContext context, object drawing, object view)
+    /// <summary>
+    /// 一个视图：几何沿用 <see cref="HoleScan.Scan"/>（读不了的视图只出外框与注解，原因写进注释）。<paramref name="scan"/> 为 false 时不扫
+    /// （每一步回执前后各读一次只为比差异，扫几何要几秒）。
+    /// </summary>
+    private static SvgView View(QuickCommandContext context, object drawing, object view, bool scan = true)
     {
         var api = context.Api;
         var row = ViewList.Row(context, drawing, view);
@@ -119,7 +162,11 @@ internal static class DrawingSvg
         IReadOnlyList<HoleEdge> holes = [];
         var measures = new Dictionary<string, string>(StringComparer.Ordinal);
         var note = string.Empty;
-        if (api.Call(view, "IView", "get_ReferencedDocument") is null)
+        if (!scan)
+        {
+            // 只比差异，不扫。
+        }
+        else if (api.Call(view, "IView", "get_ReferencedDocument") is null)
             note = "没有引用模型（空视图或轻化），只画外框与注解";
         else if (row["kind"].EndsWith("·轴测", StringComparison.Ordinal))
             // 真机：轴测图的孔都是椭圆，折线近似出来占了整份 SVG 的三分之一，又没有谁按它标尺寸——只画外框。
@@ -128,14 +175,14 @@ internal static class DrawingSvg
         {
             try
             {
-                var scan = HoleScan.Scan(context, "图纸 SVG", withLines: true, view: view, quiet: true);
-                lines = scan.Lines;
-                curves = scan.CurveSegments;
-                holes = scan.Candidates;
-                foreach (var dimension in DimensionScan.Read(api, scan))
-                    measures[api.CallString(dimension.Annotation, "IAnnotation", "GetName")] = Measures(dimension.Geometry, scan.Lines, scan.Candidates);
-                if (scan.BendLines > 0)
-                    note = $"钣金折弯线 {scan.BendLines} 条没有画（不当边、不当基准）";
+                var scanned = HoleScan.Scan(context, "图纸 SVG", withLines: true, view: view, quiet: true);
+                lines = scanned.Lines;
+                curves = scanned.CurveSegments;
+                holes = scanned.Candidates;
+                foreach (var dimension in DimensionScan.Read(api, scanned))
+                    measures[api.CallString(dimension.Annotation, "IAnnotation", "GetName")] = Measures(dimension.Geometry, scanned.Lines, scanned.Candidates);
+                if (scanned.BendLines > 0)
+                    note = $"钣金折弯线 {scanned.BendLines} 条没有画（不当边、不当基准）";
             }
             catch (Exception ex) when (ex is COMException or InvalidCastException or QuickCommandException)
             {

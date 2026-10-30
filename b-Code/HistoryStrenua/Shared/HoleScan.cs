@@ -195,7 +195,8 @@ internal static class HoleScan
             ?? throw new QuickCommandException("SolidWorks 里没有打开的文档。请先打开工程图。");
         if (api.CallInt(document, "IModelDoc2", "GetType") != DocumentDrawing)
             throw new QuickCommandException($"当前活动文档「{api.CallString(document, "IModelDoc2", "GetTitle")}」不是工程图。请切到工程图再按。");
-        if (context.TargetDrawing is not null && !ReferenceEquals(active, document))
+        if (context.TargetDrawing is not null && !ReferenceEquals(active, document)
+            && (active is null || api.CallString(active, "IModelDoc2", "GetTitle") != api.CallString(document, "IModelDoc2", "GetTitle")))
         {
             // REQ-DQ-06：右防护板真机在中心符号线之后活动窗口变为引用零件。
             // 只能激活本命令已经绑定的图；图被关闭/激活失败就停这步，不落到别的活动文档上。

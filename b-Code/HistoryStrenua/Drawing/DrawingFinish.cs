@@ -7,8 +7,8 @@ internal static class DrawingFinish
 {
     public static QuickCommand Command { get; } = new(
         "drawing-finish", StrenuaIdentity.Domain + ".drawing.finish", "整理标注",
-        "当前页标注完成后，按整页轮廓、注解和图框避让孔标注与线性尺寸，再按真实标注占位排版；未解冲突明确报告，不保存。",
-        "不用点视图：标注后按一下，孔标注移到空白处，线性尺寸先沿线滑、必要时在视图外换层；不改数值、公差和附着。按全部注解真实占位排版，再复核避让。遵守避障开关；坐标尺寸不移动。仍有冲突则列出标注名称，请检查后保存。",
+        "当前页标注完成后，按整页轮廓、注解和图框避让线性尺寸，再按真实标注占位排版；孔标注不挪，未解冲突明确报告，不保存。",
+        "不用点视图：标注后按一下，线性尺寸先沿线滑、必要时在视图外换层；不改数值、公差和附着。按全部注解真实占位排版，再复核避让。遵守避障开关；坐标尺寸、孔标注不移动（孔标注压字、引线交叉留给人或 AI 用「挪标注」修，「注解重叠」会列出来）。仍有冲突则列出标注名称，请检查后保存。",
         context => Run(context, HoleScan.ActiveDrawing(context)),
         Row: 2, Page: "onekey");
 
@@ -19,15 +19,14 @@ internal static class DrawingFinish
         var first = Clear(context, drawing);
         var arranged = DrawingArrange.Run(context, DrawingSheet.Read(context, drawing, "整理标注"));
         var last = Clear(context, drawing);
-        var message = $"整理标注：避让移动 {first.Moved + last.Moved} 次，剩余 {last.Stuck.Count} 个冲突（文字压线压字、孔标注引线交叉或过长）。"
+        var message = $"整理标注：避让移动 {first.Moved + last.Moved} 次，剩余 {last.Stuck.Count} 个文字冲突（孔标注不挪，引线交叉、过长见「注解重叠」）。"
             + (last.Stuck.Count > 0 ? "\n· " + string.Join("、", last.Stuck) : string.Empty)
             + "\n" + arranged.Message;
         return last.Stuck.Count == 0 && arranged.Success ? QuickOutcome.Ok(message) : QuickOutcome.Fail(message);
     }
 
-    /// <summary>整页上的一个注解。<c>Mark</c> = 中心符号线、中心线：孔就在它们上面，孔标注引线跨过它们不算交叉。</summary>
     private sealed record Shape(object Annotation, string Name, SheetRect View, bool Movable, bool Callout,
-        IReadOnlyList<SheetSegment> Lines, IReadOnlyList<TextBox> Texts, bool Mark = false);
+        IReadOnlyList<SheetSegment> Lines, IReadOnlyList<TextBox> Texts);
 
     private static (int Moved, List<string> Stuck) Clear(QuickCommandContext context, object drawing)
     {
@@ -56,7 +55,8 @@ internal static class DrawingFinish
                     ? api.CallString(note, "INote", "GetText") : string.Empty;
                 // 框架一键的“采用 xx 铝型材”是普通注释，不能留在轴测图边线上；它与尺寸一样可沿图纸移动，
                 // 引线会跟随注释。其他用户普通注释保持原位。
-                var movable = display is not null && (callout || HolePositionPlanner.IsLinear(api.CallInt(display, "IDisplayDimension", "get_Type2")))
+                // 1.24.0（用户定）：孔标注不挪——整页逐个候选试挪又慢又会把它推到远处、引线交叉；交错就留着，由人或 AI 用「挪标注」修。
+                var movable = display is not null && !callout && HolePositionPlanner.IsLinear(api.CallInt(display, "IDisplayDimension", "get_Type2"))
                     || noteText.Contains("铝型材", StringComparison.Ordinal);
                 if (movable && !callout && display is not null && api.Call(display, "IDisplayDimension", "GetDimension2", 0) is { } dimension)
                 {
@@ -71,8 +71,7 @@ internal static class DrawingFinish
                         (lines, texts) = Clearance.DisplayGeometry(api, annotation);
                     }
                 }
-                shapes.Add(new Shape(annotation, name + "/" + api.CallString(annotation, "IAnnotation", "GetName"), rect, movable, callout, lines, texts,
-                    annotationType is CenterMark or CenterLine));
+                shapes.Add(new Shape(annotation, name + "/" + api.CallString(annotation, "IAnnotation", "GetName"), rect, movable, callout, lines, texts));
             }
         }
         var keepouts = DrawingSheet.KeepOutRects(api, drawing).Select(r => new TextBox(r.Left, r.Bottom, r.Width, r.Height)).ToList();
@@ -81,10 +80,7 @@ internal static class DrawingFinish
         var moved = 0;
         Obstacles ObstaclesFor(int i) => new(geometry.Concat(shapes.Where((_, j) => i != j).SelectMany(s => s.Lines)).ToList(),
             keepouts.Concat(shapes.Where((_, j) => i != j).SelectMany(s => s.Texts)).ToList());
-        // 1.24.0：孔标注的引线也算——和别的标注的线交叉一处算一样，超过 LongLeader 也算一样（真机：只看文字时把孔标注推到 45 mm 外、引线互相交叉还报 0 冲突）。
-        List<SheetSegment> OtherLines(int i) => shapes.Where((s, j) => i != j && !s.Mark).SelectMany(s => s.Lines).ToList();
-        int LeaderHits(Shape s, int i) => s.Callout ? LeaderPlanner.Problems(LeaderPlanner.Leaders(s.Lines), OtherLines(i)) : 0;
-        int Hits(Shape s, int i, Obstacles obstacles) => ClearancePlanner.Hits(s.Texts, obstacles) + LeaderHits(s, i)
+        int Hits(Shape s, Obstacles obstacles) => ClearancePlanner.Hits(s.Texts, obstacles)
             + (AnnotationPlacementPlanner.Within(s.Texts, frame.Value) ? 0 : 100);
         // 后加的尺寸界线也会压到先前文字，所以整页跑有上限的三轮。每次读回确认变好才保留，避免反复漂移。
         for (var pass = 0; pass < 3; pass++)
@@ -96,21 +92,14 @@ internal static class DrawingFinish
                 var shape = shapes[i];
                 if (!shape.Movable || shape.Texts.Count == 0) continue;
                 var obstacles = ObstaclesFor(i);
-                var hits = Hits(shape, i, obstacles);
+                var hits = Hits(shape, obstacles);
                 if (hits == 0) continue;
                 var position = api.CallDoubles(shape.Annotation, "IAnnotation", "GetPosition");
                 if (position.Length < 3) continue;
-                var leaders = shape.Callout ? LeaderPlanner.Leaders(shape.Lines) : [];
-                var others = shape.Callout ? OtherLines(i) : [];
-                var tries = 0;
                 foreach (var offset in AnnotationPlacementPlanner.Offsets(shape.Texts, shape.View, shape.Callout))
                 {
                     var shifted = ClearancePlanner.Shift(shape.Texts, offset.X, offset.Y);
                     if (!AnnotationPlacementPlanner.Within(shifted, frame.Value) || ClearancePlanner.Hits(shifted, obstacles) > 0) continue;
-                    // 1.24.0：先按「箭头端不动」估引线，估出来不比现在好的不去真挪（真机：每个候选都 SetPosition2 + 读回，整理标注跑了 5 分钟以上）；
-                    // 真试也有上限，估得准的话头几个就成。
-                    if (leaders.Count > 0 && LeaderPlanner.Problems(LeaderPlanner.Predict(leaders, shape.Texts, offset.X, offset.Y), others) >= hits) continue;
-                    if (shape.Callout && ++tries > MaxTries) break;
                     var accepted = false;
                     try
                     {
@@ -120,7 +109,7 @@ internal static class DrawingFinish
                         // SW 移动孔标注时会换引线端、重排公差文字；预测平移不等于实际显示，必须读回。
                         var crossing = lines.Count(line => obstacles.Texts.Any(text => ClearancePlanner.Hits(text, line)));
                         var beforeCrossing = shape.Lines.Count(line => obstacles.Texts.Any(text => ClearancePlanner.Hits(text, line)));
-                        if (texts.Count > 0 && Hits(after, i, obstacles) < hits && crossing <= beforeCrossing)
+                        if (texts.Count > 0 && Hits(after, obstacles) < hits && crossing <= beforeCrossing)
                         {
                             shapes[i] = after; moved++; changed = true; accepted = true;
                         }
@@ -138,15 +127,8 @@ internal static class DrawingFinish
         }
         api.Call(drawing, "IModelDoc2", "ClearSelection2", true);
         api.Call(drawing, "IModelDoc2", "GraphicsRedraw2");
-        return (moved, shapes.Where((s, i) => s.Texts.Count > 0 && Hits(s, i, ObstaclesFor(i)) > 0).Select(s => s.Name).ToList());
+        return (moved, shapes.Where((s, i) => s.Movable && s.Texts.Count > 0 && Hits(s, ObstaclesFor(i)) > 0).Select(s => s.Name).ToList());
     }
-
-    /// <summary>一个孔标注一轮最多真挪几次（每次 SetPosition2 + 读回 + 还原）；尺寸的文字是刚性平移，预测准，不设限。</summary>
-    private const int MaxTries = 12;
-
-    // swAnnotationType_e
-    private const int CenterMark = 13;
-    private const int CenterLine = 15;
 
     internal static int? ExactPrecision(double millimeters)
         => !double.IsFinite(millimeters) ? null

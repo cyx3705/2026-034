@@ -68,7 +68,12 @@ internal static class DrawingSvg
         {
             var svg = DrawingSvgWriter.Write(sheet, detail);
             if (svg.Length <= Budget)
-                return (svg, $"SVG {svg.Length} 字（{detail.Label}）在数据里");
+            {
+                // 真机：孔标注全流程的差异没有几何（没有新建视图），标签却写「几何 + 精简标注」——按实际有没有几何说。
+                var label = sheet.Views.Any(view => view.Lines.Count + view.Holes.Count + view.Curves.Count > 0) ? detail.Label : detail.Compact ? "精简标注" : "完整标注";
+                return (svg, $"SVG {svg.Length} 字（{label}）在数据里");
+            }
+
             size = svg.Length;
         }
 

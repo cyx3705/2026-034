@@ -199,8 +199,26 @@ internal static class HoleCallout
                + (deferred > 0 ? $"，{deferred} 种沉孔在这个视图背面、留给看得见沉孔的视图（{Views(CalloutPlace.Deferred)}）标" : string.Empty);
     }
 
+    /// <summary>
+    /// 在指定孔上加一个孔标注并把折点对准（<see cref="DimHole"/>、<see cref="CalloutPlacer"/> 用）。文字先落在目标一侧，SolidWorks 才接对引线那一头。
+    /// 失败返回 null。调用前要激活视图。
+    /// </summary>
+    internal static object? Insert(SolidWorksApi api, ScannedView scan, int edgeIndex, CalloutSpot spot)
+    {
+        api.Call(scan.Document, "IModelDoc2", "ClearSelection2", true);
+        var offset = spot.TextLeft ? -InitialTextOffset : InitialTextOffset;
+        var callout = HolePosition.SelectEdge(api, scan, scan.Edges[edgeIndex], false)
+            ? api.Call(scan.Document, "IDrawingDoc", "AddHoleCallout2", spot.Shoulder.X + offset, spot.Shoulder.Y, 0.0)
+            : null;
+        api.Call(scan.Document, "IModelDoc2", "ClearSelection2", true);
+        if (callout is null || api.Call(callout, "IDisplayDimension", "GetAnnotation") is not { } annotation)
+            return null;
+        AlignShoulder(api, annotation, spot.Shoulder, spot.TextLeft);
+        return annotation;
+    }
+
     /// <summary>视图引用的零件（1.15.0 起孔标注读一次，判沉孔朝向与对面孔共用）；装配视图不读模型，为 null。</summary>
-    private static PartGeometry? ReadPart(QuickCommandContext context, ScannedView scan)
+    internal static PartGeometry? ReadPart(QuickCommandContext context, ScannedView scan)
     {
         var api = context.Api;
         var model = api.Call(scan.View, "IView", "get_ReferencedDocument");
@@ -217,7 +235,7 @@ internal static class HoleCallout
     /// 不动孔标注里的变量（改上方那行要把「6 x」等写死）。<c>GetText(后缀)</c> 读回总是空的，有没有写过看显示数据里的文字。
     /// 两样都要时写「 (反面) (含对面)」，整段后缀一起写。文字变长后引线折点会跟着动，按写之前的折点再对一次（<see cref="AlignShoulder"/>）。
     /// </remarks>
-    private static OppositeMarks MarkSuffixes(QuickCommandContext context, ScannedView scan, PartGeometry? part)
+    internal static OppositeMarks MarkSuffixes(QuickCommandContext context, ScannedView scan, PartGeometry? part)
     {
         if (part is null)
             return default;

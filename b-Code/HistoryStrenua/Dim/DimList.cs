@@ -31,6 +31,18 @@ internal static class DimList
     // swAnnotationType_e
     private const int AnnotationDimension = 4;
     private const int AnnotationNote = 6;
+    private const int AnnotationCenterMark = 13;
+
+    /// <summary>中心符号线连着哪些孔（图纸 SVG 的编号，同心的只取最先那个）：要删一组、拆一组时不用靠外框猜。</summary>
+    private static string MarkedHoles(SolidWorksApi api, ScannedView scan, object annotation)
+    {
+        var ids = HoleCallout.AttachedCircleCenters(api, scan.Geometry, annotation)
+            .Select(center => scan.Candidates.Select((hole, i) => (hole, i))
+                .Where(item => HoleCalloutPlanner.SameCenter(center, new SheetPoint(item.hole.X, item.hole.Y)))
+                .Select(item => (int?)item.i).FirstOrDefault())
+            .OfType<int>().Distinct().Select(i => "H" + i);
+        return string.Join(",", ids);
+    }
 
     private static QuickOutcome Run(QuickCommandContext context, string? viewName)
     {
@@ -46,10 +58,17 @@ internal static class DimList
             var name = DrawingSheet.Name(api, view);
             var sheet = SheetLookup.IsSheet(api, view);
             var listed = new List<Dictionary<string, string>>();
+            ScannedView? scan = null;
             foreach (var (annotationName, annotation) in SheetLookup.Annotations(api, view))
             {
                 context.Cancellation.ThrowIfCancellationRequested();
                 var row = Row(api, name, annotationName, annotation);
+                if (!sheet && api.CallInt(annotation, "IAnnotation", "GetType") == AnnotationCenterMark)
+                {
+                    scan ??= HoleScan.Scan(context, "标注列表", view: view, quiet: true);
+                    row["holes"] = MarkedHoles(api, scan, annotation);
+                }
+
                 // 1.24.0 真机：整页列表 80 多行里九成是标题栏格子、公差表数字、分区字母和模板备用的技术要求。
                 if (sheet && SheetPlace(row, space) is { } place)
                 {
@@ -111,6 +130,7 @@ internal static class DimList
             ["bottom"] = string.Empty,
             ["right"] = string.Empty,
             ["top"] = string.Empty,
+            ["holes"] = string.Empty,
         };
         try
         {
@@ -220,6 +240,8 @@ internal static class DimList
             parts.Add($"位置 ({row["x"]}, {row["y"]})");
         else if (row["left"].Length > 0)
             parts.Add($"外框 ({row["left"]}, {row["bottom"]})–({row["right"]}, {row["top"]})");
+        if (row.TryGetValue("holes", out var holes) && holes.Length > 0)
+            parts.Add("孔 " + holes);
         return "  · " + string.Join("  ", parts);
     }
 }

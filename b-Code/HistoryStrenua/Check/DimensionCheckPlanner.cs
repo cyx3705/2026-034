@@ -92,6 +92,12 @@ internal static class DimensionCheckPlanner
         return dx > 1e-9 && dy > 1e-9 && dx <= chamfer && dy <= chamfer && Math.Abs(dx - dy) <= 0.1 * Math.Max(dx, dy);
     }
 
+    private static bool ShortEdge(SheetSegment line, double scale, double chamfer)
+    {
+        var (dx, dy) = (Math.Abs(line.X2 - line.X1) / scale, Math.Abs(line.Y2 - line.Y1) / scale);
+        return Math.Min(dx, dy) <= 1e-9 && Math.Max(dx, dy) > 1e-9 && Math.Max(dx, dy) <= chamfer;
+    }
+
     private static List<MissingDimension> CheckModel(List<(CheckView View, int Index)> views, double chamfer, double fillet)
     {
         var net = new OutlineCoverage();
@@ -105,7 +111,8 @@ internal static class DimensionCheckPlanner
             // REQ-DQ-04：C 尺寸已定两条直角边。N×C 合标若数量足够，等尺寸斜边都受约束；
             // 把端点连进尺寸网，其他视图看到的倒角内边也随之确定。不能仅因同值就推定整组已标。
             // 1.24.0：未注倒角（技术要求定的 C1 等）也定了两条直角边——真机：C1 倒角内边被报「缺竖直位置尺寸」。
-            foreach (var line in covered.Concat(view.Lines.Where(line => SmallChamfer(line, view.Frame.Scale, chamfer))))
+            // 倒角顺着看时斜边投影成一条短直边（真机移动安装版5 下视图的 1 mm 短边），两头同样由未注倒角定。
+            foreach (var line in covered.Concat(view.Lines.Where(line => SmallChamfer(line, view.Frame.Scale, chamfer) || ShortEdge(line, view.Frame.Scale, chamfer))))
                 foreach (var axis in Axes)
                     net.Connect(view.Frame.Plane(axis, axis == PositionAxis.Horizontal ? line.X1 : line.Y1),
                         view.Frame.Plane(axis, axis == PositionAxis.Horizontal ? line.X2 : line.Y2));
@@ -130,6 +137,23 @@ internal static class DimensionCheckPlanner
                 if (dimension.Type is RadialDimension or DiameterDimension && !double.IsNaN(dimension.Value))
                 {
                     sizes.Add(dimension.Type == DiameterDimension ? dimension.Value / 2 : dimension.Value);
+                    continue;
+                }
+
+                // 只连一条边、量它自身跨度的尺寸（dim.add 只给 from）：定的是这条边的两头。
+                if (dimension.Linear && dimension.Anchors is [{ Segment: { } edge }])
+                {
+                    foreach (var axis in Axes)
+                    {
+                        var (a, b) = axis == PositionAxis.Horizontal ? (edge.X1, edge.X2) : (edge.Y1, edge.Y2);
+                        if (!DimensionGeometry.Same(Math.Abs(a - b) / view.Frame.Scale, dimension.Value))
+                            continue;
+                        var (from, to) = (view.Frame.Plane(axis, a), view.Frame.Plane(axis, b));
+                        net.Connect(from, to);
+                        dimensioned.Add(from);
+                        dimensioned.Add(to);
+                    }
+
                     continue;
                 }
 
@@ -202,6 +226,28 @@ internal static class DimensionCheckPlanner
 
         bool Sized(double modelRadius) => sizes.Any(size => Math.Abs(size - modelRadius) <= DimensionGeometry.ValueTolerance);
 
+        // 圆弧侧着看时，它和相邻面的交线在别的视图里是一条直边（真机夹爪2 右视图）。圆弧的圆心、半径都定了，这条线就定了，不用再标。
+        // 不把端点连进尺寸网：那样端点碰巧落在已标的边上时，没标的圆心也会被当成标过。
+        bool ArcEnd(CheckView view, PositionAxis axis, double coordinate)
+        {
+            var plane = view.Frame.Plane(axis, coordinate);
+            foreach (var (other, _) in views)
+            {
+                foreach (var arc in other.Arcs.Where(arc => arc.ModelRadius > fillet && Sized(arc.ModelRadius)))
+                {
+                    if (!InMain(other, PositionAxis.Horizontal, arc.Center.X) || !InMain(other, PositionAxis.Vertical, arc.Center.Y))
+                        continue;
+                    foreach (var end in new[] { arc.Start, arc.End })
+                    {
+                        if (end is { } point && Axes.Any(a => other.Frame.Plane(a, a == PositionAxis.Horizontal ? point.X : point.Y).Same(plane)))
+                            return true;
+                    }
+                }
+            }
+
+            return false;
+        }
+
         // 4. 逐个视图查。
         var result = new List<MissingDimension>();
         foreach (var (view, index) in views)
@@ -226,7 +272,7 @@ internal static class DimensionCheckPlanner
                     .ToList();
                 foreach (var group in Cluster(straight, item => item.Coordinate))
                 {
-                    if (InMain(view, axis, group[0].Coordinate))
+                    if (InMain(view, axis, group[0].Coordinate) || ArcEnd(view, axis, group[0].Coordinate))
                         continue;
                     var text = axis == PositionAxis.Horizontal
                         ? $"竖直边（左起 {FromLeft(group[0].Coordinate)}）缺水平位置尺寸"

@@ -743,6 +743,25 @@ internal static class DrawingPlanner
     /// <summary>主视图每个孔、圆弧面至少分到这么大的图面（300 mm²），再挤标注就叠成一团（夹爪 A4 1:3 只有 295 mm²，用户用了 A3 1:2；底层1 A3 1:5 是 303 mm²）。</summary>
     public const double MinAreaPerFeature = 300e-6;
 
+    /// <summary>图幅长边到这么宽（米）算 A2 及以上。</summary>
+    private const double LargeSheetLongSide = 0.590;
+
+    /// <summary>够不上「看得清」但还不至于要上 A2 的下限：每个特征 100 mm²、最小孔 0.5 mm。</summary>
+    private const double ReadableAreaPerFeature = 100e-6;
+    private const double ReadableHole = 0.0005;
+
+    /// <summary>
+    /// 上 A2 之前的宽松判断。主视图是窄边时（真机后板：1100 × 20 的侧面上 22 个孔）面积只反映视图窄，不反映挤，
+    /// 所以短边至少按长边的四分之一算；夹爪的 16 个「窗口」也不再把它从 A3 推到 A2。
+    /// </summary>
+    private static bool Readable(double longSide, double w, double h, int features, double? smallest, double scale)
+    {
+        var area = longSide * Math.Max(Math.Min(w, h), longSide / 4) * scale * scale;
+        return longSide * scale >= MinMainSide - 1e-9
+            && (features == 0 || area / features >= ReadableAreaPerFeature - 1e-12)
+            && (smallest is null || smallest * scale >= ReadableHole - 1e-9);
+    }
+
     /// <summary>
     /// 比例，从大到小：国标优先比例，加上用户用过的 1:3（移动安装板1，国标「允许选用」系列）；放大比例只给很小的零件
     /// （最大跨度 40 mm 以下 2:1，16 mm 以下 5:1）。
@@ -807,6 +826,23 @@ internal static class DrawingPlanner
         if (fits.Count == 0)
             return null;
         var chosen = fits.FirstOrDefault(item => item.Legible);
+
+        // A2 门槛（用户定：A2 很少用，不该容易命中）：A3 及以下放得下、又没到真看不清（见 Readable）就不上 A2。
+        if (chosen.Template is null || chosen.Template.Width >= LargeSheetLongSide)
+        {
+            var smaller = fits
+                .Where(item => item.Template.Width < LargeSheetLongSide && Readable(longSide, w, h, features, smallest, item.Scale))
+                .OrderByDescending(item => item.Scale)
+                .ThenBy(item => item.Template.Width * item.Template.Height)
+                .ToList();
+            if (smaller.Count > 0)
+            {
+                var best = smaller[0];
+                return new SheetChoice(best.Template, best.Scale, best.Layout, best.Slots,
+                    $"A2 门槛：{best.Template.SizeName} 放得下也还看得清，不上 A2（主视图长边 {longSide * best.Scale * 1000:0} mm）");
+            }
+        }
+
         if (chosen.Template is not null)
             return new SheetChoice(chosen.Template, chosen.Scale, chosen.Layout, chosen.Slots,
                 $"放得下且看得清的最小图幅（主视图长边 {longSide * chosen.Scale * 1000:0} mm"

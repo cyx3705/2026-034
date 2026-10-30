@@ -171,6 +171,7 @@ internal static class QuickCommands
         HoleCallout.Command,
         DowelFit.Command,
         SquareSlot.Command,
+        CalloutPlacer.Command,
         DrawingBasic.Command,
         DrawingCreate.Command,
         DrawingProject.Command,

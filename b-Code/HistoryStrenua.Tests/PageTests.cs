@@ -17,6 +17,7 @@ internal static partial class Tests
             "strenua.hole.flow",
             "strenua.hole.dowelfit",
             "strenua.hole.squareslot",
+            "strenua.hole.place",
             "strenua.drawing.outline",
             "strenua.drawing.outlineall",
             "strenua.onekey.drawing",
@@ -298,7 +299,7 @@ internal static partial class Tests
         foreach (var group in QuickCommands.All.GroupBy(c => c.PageClass).Where(g => g.Key != "tech"))
             Equal(string.Join("|", group.GroupBy(c => c.Row).OrderBy(r => r.Key).Select(r => string.Join(",", r.Select(c => c.Title)))), Row(group.Key));
         // 1.17.0（用户定）：外轮廓挪到基础类，孔类加「方形槽」。
-        Equal("孔标注全流程,销钉符号,中心符号线,孔位尺寸,孔标注,销孔标注,方形槽", Row("hole"));
+        Equal("孔标注全流程,销钉符号,中心符号线,孔位尺寸,孔标注,销孔标注,方形槽,孔标注选位", Row("hole"));
         // 1.16.0（用户定）：出图类改名「基础」、一键出图改成「基础出图」只做这一类；倒圆倒角改名「倒圆」并加「全图倒圆倒角」。
         // 1.23.0（用户定，页数少）：基础类拆掉——视图的四个进视图类第二行，其余并进一键类第三行；指令名不变。
         True(QuickCommands.All.All(c => c.PageClass != "drawing"), "页面上没有基础类了");

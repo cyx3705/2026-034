@@ -84,7 +84,7 @@ internal static partial class Tests
                 .Single(node => node.TryGetProperty("id", out var id) && id.GetString() == StrenuaPage.ClassPanelId(commandClass));
             var boxes = Descendants(panel).Where(node => node.TryGetProperty("kind", out var kind) && kind.GetString() == "textbox")
                 .Select(node => node.GetProperty("id").GetString()!).ToHashSet();
-            foreach (var command in QuickCommands.All.Where(command => command.CommandClass == commandClass))
+            foreach (var command in QuickCommands.All.Where(command => command.PageClass == commandClass))
                 True(command.Arguments.All(parameter => boxes.Contains(parameter.Name)), $"{command.Title} 的参数在面板上没有框");
         }
 

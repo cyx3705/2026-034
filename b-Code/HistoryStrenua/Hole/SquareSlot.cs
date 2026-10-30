@@ -18,7 +18,7 @@ internal static class SquareSlot
         CommandName: StrenuaIdentity.Domain + ".hole.squareslot",
         Title: "方形槽",
         Summary: "点一个工程图视图，标出封闭方形槽（矩形窗口）的位置与长宽：以零件左、上直边为基准，照「尺寸链」开关出线性或坐标尺寸。",
-        Usage: "在工程图里点一个视图（先点后按、先按后点都行，60 秒内）。视图里四条直边围成的封闭矩形窗口（直角或四角同样大的圆角；开口槽归外轮廓，凸台不标）各标一组：「尺寸链」关时每个方向一层，基准到近边、近边到远边两个尺寸并排，排在已有尺寸外面（重按先删旧的）；「尺寸链」开时四条边加进孔的那组坐标尺寸。基准同孔位尺寸（零件最左、最上直边，钣金折弯处的线不算）。「避障」开着时新加尺寸的数字压线就沿尺寸线滑开。",
+        Usage: "在工程图里点一个视图（先点后按、先按后点都行，60 秒内）。视图里四条直边围成的封闭矩形窗口（直角或四角同样大的圆角；开口槽归外轮廓，凸台不标）各标一组：「尺寸链」关时每个方向一层，基准到近边、近边到远边两个尺寸并排，排在已有尺寸外面，上方 / 下方（左侧 / 右侧）每个槽挑尺寸界线短的一侧（重按先删旧的）；「尺寸链」开时四条边加进孔的那组坐标尺寸。基准同孔位尺寸（零件最左、最上直边，钣金折弯处的线不算）。「避障」开着时新加尺寸的数字压线就沿尺寸线滑开。",
         Run: context => Run(context, null));
 
     /// <param name="context">快捷指令上下文。</param>
@@ -82,9 +82,9 @@ internal static class SquareSlot
                     return QuickOutcome.Fail($"视图「{viewName}」：有 {leftover} 个旧方形槽尺寸删不掉，没有重标（已删 {removed} 个）。请在 SolidWorks 里手工删掉后再按。");
 
                 context.SetState("加尺寸");
-                var (firstHorizontal, firstVertical) = Outline.FirstTiers(api, scan, left, top);
+                var sides = Outline.Sides(api, scan, left, top);
                 var before = Outline.DimensionNames(api, scan);
-                foreach (var dimension in SquareSlotPlanner.Dimensions(slots, left, top, firstHorizontal, firstVertical))
+                foreach (var dimension in SquareSlotPlanner.Dimensions(slots, sides))
                 {
                     context.Cancellation.ThrowIfCancellationRequested();
                     var from = dimension.From < 0 ? (dimension.Axis == PositionAxis.Horizontal ? l : t) : dimension.From;

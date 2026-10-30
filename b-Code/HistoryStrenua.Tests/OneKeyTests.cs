@@ -40,12 +40,13 @@ internal static partial class Tests
         var lines = SlotPlate();
         lines.AddRange([S(0.15, 0.02, 0.15, 0.05), S(0.18, 0.02, 0.18, 0.05), S(0.15, 0.05, 0.18, 0.05), S(0.15, 0.02, 0.18, 0.02)]);
         var slots = SquareSlotPlanner.Find(lines, OutlinePlanner.OuterLines(lines, []));
-        var dims = SquareSlotPlanner.Dimensions(slots, left: 0, top: 0.1, firstHorizontal: 0.01, firstVertical: 0.01);
+        var dims = SquareSlotPlanner.Dimensions(slots, new DimensionSides(0, 0.1, 0.2, 0, 0.01, 0.01, 0.01, 0.01));
         var invariant = System.Globalization.CultureInfo.InvariantCulture;
         string D(SlotDimension d) => $"{(d.Axis == PositionAxis.Horizontal ? "H" : "V")}{d.From}>{d.To}@{d.TextAt.X.ToString("0.###", invariant)},{d.TextAt.Y.ToString("0.###", invariant)}";
-        // 每个槽每个方向一层：基准 → 近边、近边 → 远边并排；近的槽在里。
-        Equal("H-1>8@0.025,0.11,H8>9@0.07,0.11,H-1>12@0.075,0.116,H12>13@0.165,0.116,"
-            + "V-1>10@-0.01,0.08,V10>11@-0.01,0.045,V-1>14@-0.016,0.075,V14>15@-0.016,0.035",
+        // 每个槽每个方向一层：基准 → 近边、近边 → 远边并排；近的槽在里。1.23.0：每个槽挑引线短的一侧——
+        // 两个槽都在板的下半，水平的都放下方（第二个在外一层）；竖直的左边那个放左侧、靠右那个放右侧。
+        Equal("H-1>8@0.025,-0.01,H8>9@0.07,-0.01,H-1>12@0.075,-0.016,H12>13@0.165,-0.016,"
+            + "V-1>10@-0.01,0.08,V10>11@-0.01,0.045,V-1>14@0.21,0.075,V14>15@0.21,0.035",
             string.Join(",", dims.Select(D)));
 
         DimensionAnchor E(int index) => DimensionAnchor.Line(lines[index], true);

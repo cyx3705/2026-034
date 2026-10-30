@@ -14,7 +14,8 @@ internal sealed record SlotDimension(PositionAxis Axis, int From, int To, SheetP
 /// 两条竖直边上下端对齐，两条水平边左右端对齐，四个角缺的一样多（直角缺 0，带圆角缺圆角半径）。是槽还是凸台图上分不出，
 /// 由执行体问 SolidWorks：贴着边、正对图纸的那张面往矩形里面延伸就是凸台，不标。</para>
 /// <para>标法（我定）：基准同孔位尺寸（零件最左、最上直边）。每个槽每个方向一层链：基准 → 近边（位置）、近边 → 远边（槽宽 / 槽高），
-/// 一层两个尺寸并排；层排在现有尺寸最外层再往外（同外轮廓 <see cref="OutlinePlanner.FirstTier"/>），近的槽在里。
+/// 一层两个尺寸并排；层排在现有尺寸最外层再往外（同外轮廓 <see cref="OutlinePlanner.FirstTier"/>），近的槽在里；
+/// 1.23.0 起每个槽挑引线短的一侧（上 / 下、左 / 右）。
 /// 尺寸链模式两条边都加进孔的那组坐标尺寸。</para>
 /// </remarks>
 internal static class SquareSlotPlanner
@@ -81,35 +82,48 @@ internal static class SquareSlotPlanner
     /// <summary>
     /// 普通模式的尺寸：每个槽每个方向一层（离基准近的槽在里），基准 → 近边、近边 → 远边两个尺寸并排在这一层上；
     /// 近边就在基准上（槽贴着基准边，不会是封闭槽，防御）时只标槽宽。
+    /// 1.23.0（用户定）：水平的这一层放上方还是下方、竖直的放左侧还是右侧，每个槽各挑尺寸界线（槽边引到尺寸线）短的一侧，
+    /// 两侧各自由里到外排层（<see cref="DimensionSides"/>）。
     /// </summary>
     /// <param name="slots">方形槽。</param>
-    /// <param name="left">左侧基准 X（图纸）。</param>
-    /// <param name="top">上侧基准 Y（图纸）。</param>
-    /// <param name="firstHorizontal">水平尺寸第一层在上侧基准之上多远。</param>
-    /// <param name="firstVertical">竖直尺寸第一层在左侧基准之左多远。</param>
-    public static List<SlotDimension> Dimensions(IReadOnlyList<SlotRect> slots, double left, double top, double firstHorizontal, double firstVertical)
+    /// <param name="sides">基准、视图外沿与四边第一层。</param>
+    public static List<SlotDimension> Dimensions(IReadOnlyList<SlotRect> slots, DimensionSides sides)
     {
         ArgumentNullException.ThrowIfNull(slots);
+        ArgumentNullException.ThrowIfNull(sides);
         var dimensions = new List<SlotDimension>();
-        var tier = 0;
+        var tiers = new int[2];
         foreach (var slot in slots.OrderBy(slot => slot.Rect.Left))
         {
-            var y = top + firstHorizontal + tier++ * HolePositionPlanner.TierStep;
-            if (slot.Rect.Left - left > HoleCalloutPlanner.CenterTolerance)
-                dimensions.Add(new SlotDimension(PositionAxis.Horizontal, -1, slot.Left, new SheetPoint((left + slot.Rect.Left) / 2, y)));
+            // 水平尺寸连在两条竖直边上：放上方从上端引、放下方从下端引，两条边一样长，比一条就够。
+            var far = Choose(PositionAxis.Horizontal, slot.Rect.Top, slot.Rect.Bottom);
+            var y = sides.Line(PositionAxis.Horizontal, far, tiers[far ? 1 : 0]++);
+            if (slot.Rect.Left - sides.Left > HoleCalloutPlanner.CenterTolerance)
+                dimensions.Add(new SlotDimension(PositionAxis.Horizontal, -1, slot.Left, new SheetPoint((sides.Left + slot.Rect.Left) / 2, y)));
             dimensions.Add(new SlotDimension(PositionAxis.Horizontal, slot.Left, slot.Right, new SheetPoint((slot.Rect.Left + slot.Rect.Right) / 2, y)));
         }
 
-        tier = 0;
+        tiers = new int[2];
         foreach (var slot in slots.OrderByDescending(slot => slot.Rect.Top))
         {
-            var x = left - firstVertical - tier++ * HolePositionPlanner.TierStep;
-            if (top - slot.Rect.Top > HoleCalloutPlanner.CenterTolerance)
-                dimensions.Add(new SlotDimension(PositionAxis.Vertical, -1, slot.Top, new SheetPoint(x, (top + slot.Rect.Top) / 2)));
+            var far = Choose(PositionAxis.Vertical, slot.Rect.Left, slot.Rect.Right);
+            var x = sides.Line(PositionAxis.Vertical, far, tiers[far ? 1 : 0]++);
+            if (sides.Top - slot.Rect.Top > HoleCalloutPlanner.CenterTolerance)
+                dimensions.Add(new SlotDimension(PositionAxis.Vertical, -1, slot.Top, new SheetPoint(x, (sides.Top + slot.Rect.Top) / 2)));
             dimensions.Add(new SlotDimension(PositionAxis.Vertical, slot.Top, slot.Bottom, new SheetPoint(x, (slot.Rect.Top + slot.Rect.Bottom) / 2)));
         }
 
         return dimensions;
+
+        // nearEnd / farEnd：槽边靠上方（左侧）、靠下方（右侧）那一端的坐标。
+        bool Choose(PositionAxis axis, double nearEnd, double farEnd)
+        {
+            var horizontal = axis == PositionAxis.Horizontal;
+            SheetPoint End(double at) => horizontal ? new SheetPoint(0, at) : new SheetPoint(at, 0);
+            var near = DimensionSides.Leader(axis, sides.Line(axis, false, tiers[0]), End(nearEnd));
+            var farLength = DimensionSides.Leader(axis, sides.Line(axis, true, tiers[1]), End(farEnd));
+            return DimensionSides.PreferFar(0, near, 0, farLength);
+        }
     }
 
     /// <summary>

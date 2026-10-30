@@ -63,7 +63,7 @@ internal sealed record ArcCenterPlan(
 /// <item>圆心正落在基准边上、或落在视图对称轴（<see cref="SymmetryPlanner"/>）上的那个方向不标；已有尺寸量到这个圆心的方向不重复标。</item>
 /// </list>
 /// <para>只认与直线相切；与另一段圆弧相切的那一端当不相切（圆心靠另一段弧定位要看那段弧定没定，不追）。
-/// 尺寸排在已有尺寸最外层之外，一个一层、近的在里（同外轮廓）。</para>
+/// 尺寸排在已有尺寸最外层之外，一个一层、近的在里（同外轮廓）；1.23.0 起每个圆心挑尺寸界线短的一侧（上 / 下、左 / 右，<see cref="DimensionSides"/>）。</para>
 /// </remarks>
 internal static class ArcCenterPlanner
 {
@@ -87,11 +87,15 @@ internal static class ArcCenterPlanner
     /// <param name="firstVertical">竖直尺寸第一层离左侧基准多远。</param>
     /// <param name="symmetry">视图的对称轴（圆心落在轴上的那个方向不标）；尺寸链模式不给。</param>
     /// <param name="drawn">视图里已有的中心线、草图线（图纸坐标）：已经把对齐的圆心串起来的不再加中心线。</param>
+    /// <param name="sides">
+    /// 两侧都能放（1.23.0）：视图外沿与四边第一层；给了就不看 <paramref name="firstHorizontal"/> / <paramref name="firstVertical"/>，
+    /// 每个圆心挑尺寸界线短的一侧。null 时照旧全在上方 / 左侧。
+    /// </param>
     public static ArcCenterPlan Plan(
         IReadOnlyList<FilletArc> arcs, IReadOnlyList<SheetSegment> lines, IReadOnlyList<HoleEdge> holes,
         double left, double top, double scale, IReadOnlyList<ViewDimension> existing,
         double firstHorizontal, double firstVertical, IReadOnlyList<SymmetryAxis>? symmetry = null,
-        IReadOnlyList<SheetSegment>? drawn = null)
+        IReadOnlyList<SheetSegment>? drawn = null, DimensionSides? sides = null)
     {
         ArgumentNullException.ThrowIfNull(arcs);
         ArgumentNullException.ThrowIfNull(lines);
@@ -161,7 +165,7 @@ internal static class ArcCenterPlanner
             }
         }
 
-        var pending = new List<(PositionAxis Axis, CenterRef Center)>();
+        var pending = new List<(PositionAxis Axis, IReadOnlyList<CenterRef> Same)>();
         var links = new List<ArcCenterLink>();
         var aligned = 0;
         var linkPresent = 0;
@@ -184,11 +188,8 @@ internal static class ArcCenterPlanner
                 }
                 else
                 {
-                    // 这一轮几个圆弧圆心对齐：标离尺寸近的那个，其余连上它。
-                    var representative = axis == PositionAxis.Horizontal
-                        ? same.OrderByDescending(item => item.Center.Y).First()
-                        : same.OrderBy(item => item.Center.X).First();
-                    pending.Add((axis, representative));
+                    // 这一轮几个圆弧圆心对齐：标离尺寸近的那个（放哪一侧定了再挑），其余连上它。
+                    pending.Add((axis, same));
                     aligned += same.Count - 1;
                     members = same;
                 }
@@ -205,18 +206,26 @@ internal static class ArcCenterPlanner
         }
 
         var targets = new List<ArcCenterTarget>();
+        var placing = sides ?? new DimensionSides(left, top, left, top, firstHorizontal, firstVertical, firstHorizontal, firstVertical);
         foreach (var axis in new[] { PositionAxis.Horizontal, PositionAxis.Vertical })
         {
-            var tier = 0;
-            foreach (var (_, reference) in pending.Where(item => item.Axis == axis).OrderBy(item => Math.Abs(Offset(axis, item.Center.Center, left, top))))
+            var tiers = new int[2];
+            foreach (var (_, same) in pending.Where(item => item.Axis == axis).OrderBy(item => Math.Abs(Offset(axis, item.Same[0].Center, left, top))))
             {
+                // 上方 / 左侧挑最上 / 最左的圆心，下方 / 右侧挑最下 / 最右的。
+                var near = axis == PositionAxis.Horizontal ? same.MaxBy(item => item.Center.Y)! : same.MinBy(item => item.Center.X)!;
+                var farRef = axis == PositionAxis.Horizontal ? same.MinBy(item => item.Center.Y)! : same.MaxBy(item => item.Center.X)!;
+                var far = sides is not null && DimensionSides.PreferFar(
+                    0, DimensionSides.Leader(axis, placing.Line(axis, false, tiers[0]), near.Center),
+                    0, DimensionSides.Leader(axis, placing.Line(axis, true, tiers[1]), farRef.Center));
+                var reference = far ? farRef : near;
                 var center = reference.Center;
+                var line = placing.Line(axis, far, tiers[far ? 1 : 0]++);
                 var textAt = axis == PositionAxis.Horizontal
-                    ? new SheetPoint((left + center.X) / 2, top + firstHorizontal + tier * HolePositionPlanner.TierStep)
-                    : new SheetPoint(left - firstVertical - tier * HolePositionPlanner.TierStep, (top + center.Y) / 2);
+                    ? new SheetPoint((left + center.X) / 2, line)
+                    : new SheetPoint(line, (top + center.Y) / 2);
                 targets.Add(new ArcCenterTarget(axis, reference.ArcIndex!.Value, Along(axis, center),
                     Math.Abs(Offset(axis, center, left, top)) / scale, textAt));
-                tier++;
             }
         }
 

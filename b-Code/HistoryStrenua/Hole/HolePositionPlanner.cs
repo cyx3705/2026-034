@@ -136,8 +136,9 @@ internal static class HolePositionPlanner
     /// 跨过对称轴的那段直接标两侧孔的距离。尺寸链模式不看它。
     /// </param>
     /// <param name="space">
-    /// 避障开着时（1.16.0）这个视图的外沿与图纸上不许压的地方：水平尺寸放在上方会压到修改栏、图号框（真机移动底板上视图）、
-    /// 出图框或别的视图，而放到下方压得少，就整组放到视图下方（竖直尺寸同理换到右侧），见 <see cref="ChooseSide"/>。null 时照旧上方 / 左侧。
+    /// 视图的外沿（最右、最下）与图纸上不许压的地方（避障开着时才有，1.16.0）。给了就两侧都能放（1.23.0，用户定）：
+    /// 水平尺寸上方或下方、竖直尺寸左侧或右侧，每种孔各挑一侧——先比压禁区几处，一样多比尺寸界线总长，选短的，见 <see cref="ChooseFar"/>。
+    /// null 时照旧全在上方 / 左侧。
     /// </param>
     public static HolePositionPlan Plan(
         IReadOnlyList<HoleEdge> edges, double left, double top, double scale, bool chainMode = false, IReadOnlyCollection<PositionAxis>? symmetric = null,
@@ -150,7 +151,7 @@ internal static class HolePositionPlanner
         var holes = HoleCalloutPlanner.Recognize(edges);
         var kinds = HoleCalloutPlanner.GroupKinds(HoleCalloutPlanner.Representatives(holes));
         if (chainMode)
-            return PlanChain(holes, kinds, left, top, scale);
+            return PlanChain(holes, kinds, left, top, scale, space);
 
         var dimensions = new List<PositionDimension>();
         var patterns = 0;
@@ -164,7 +165,6 @@ internal static class HolePositionPlanner
                 .ThenBy(chain => chain.Stops[0].Offset)
                 .ToList();
 
-            var tier = 0;
             // 已经标过的「中心线 → 中心线」段（基准记为 0）。尺寸按中心线标、不按孔标：
             // 并排的几种孔落在同一对中心线上时，那一段只标一次。
             var spans = new List<(double From, double To)>();
@@ -179,12 +179,14 @@ internal static class HolePositionPlanner
             }
 
             var mirrored = symmetric?.Contains(axis) == true;
-            var planned = new List<Planned>();
+            // 1.23.0：每种孔（一条链）各自挑放哪一侧，两侧各自由里到外排层。
+            var tiers = new int[2];
             foreach (var chain in chains)
             {
                 var stops = chain.Stops;
                 var first = stops[0];
                 var needDatum = !mirrored && Claim(0, first.Offset);
+                var items = new List<Planned>();
                 if (chain.Pattern)
                 {
                     var last = stops[^1];
@@ -192,42 +194,32 @@ internal static class HolePositionPlanner
                     if (Claim(first.Offset, last.Offset))
                     {
                         var prefix = PatternPrefix(stops.Count - 1, (last.Offset - first.Offset) / (stops.Count - 1) / scale);
-                        planned.Add(new Planned(first.Hole.Index, first.Hole, last.Hole, first.Offset, last.Offset, tier, prefix));
+                        items.Add(new Planned(first, last, used++, prefix));
                         patterns++;
-                        used++;
                     }
 
                     if (needDatum)
+                        items.Add(new Planned(null, first, used, string.Empty));
+                }
+                else
+                {
+                    if (needDatum)
+                        items.Add(new Planned(null, first, 0, string.Empty));
+
+                    for (var i = 1; i < stops.Count; i++)
                     {
-                        planned.Add(new Planned(null, null, first.Hole, 0, first.Offset, tier + used, string.Empty));
-                        used++;
+                        if (Claim(stops[i - 1].Offset, stops[i].Offset))
+                            items.Add(new Planned(stops[i - 1], stops[i], 0, string.Empty));
                     }
+                }
 
-                    tier += used;
+                if (items.Count == 0)
                     continue;
-                }
-
-                var added = 0;
-                if (needDatum)
-                {
-                    planned.Add(new Planned(null, null, first.Hole, 0, first.Offset, tier, string.Empty));
-                    added++;
-                }
-
-                for (var i = 1; i < stops.Count; i++)
-                {
-                    if (!Claim(stops[i - 1].Offset, stops[i].Offset))
-                        continue;
-                    planned.Add(new Planned(stops[i - 1].Hole.Index, stops[i - 1].Hole, stops[i].Hole, stops[i - 1].Offset, stops[i].Offset, tier, string.Empty));
-                    added++;
-                }
-
-                if (added > 0)
-                    tier++;
+                var far = space is not null && ChooseFar(axis, items, tiers, datum, space);
+                var side = far ? 1 : 0;
+                dimensions.AddRange(items.Select(item => Dimension(axis, item with { Tier = tiers[side] + item.Tier, Far = far }, datum, space)));
+                tiers[side] += items.Max(item => item.Tier) + 1;
             }
-
-            var far = space is not null && ChooseSide(axis, planned, datum, space).Flip;
-            dimensions.AddRange(planned.Select(item => Dimension(axis, item, datum, far ? space : null)));
         }
 
         var (holeCount, slotCount) = HoleCalloutPlanner.Count(holes);
@@ -239,9 +231,10 @@ internal static class HolePositionPlanner
     /// 0 点是基准边（水平组左侧直边、竖直组上侧直边，用户第四轮指出不是孔），其后每一列（行）孔一个坐标值，
     /// 不分孔的种类、不用阵列写法。同一坐标上的几个孔（不论哪种）算一站；正好落在基准边上的孔不另标。
     /// 竖直组的文字排在左侧直边左边 <see cref="OrdinateOffset"/>，水平组排在上侧直边上方同样远。
+    /// 给了 <paramref name="space"/>（1.23.0）整组可以换到下方 / 右侧（零件外沿外同样远）：各站孔引到文字那一列的界线总长短的一侧。
     /// </summary>
     private static HolePositionPlan PlanChain(
-        IReadOnlyList<HoleEdge> holes, IReadOnlyList<IReadOnlyList<HoleEdge>> kinds, double left, double top, double scale)
+        IReadOnlyList<HoleEdge> holes, IReadOnlyList<IReadOnlyList<HoleEdge>> kinds, double left, double top, double scale, PositionSpace? space)
     {
         var all = kinds.SelectMany(kind => kind).ToList();
         var groups = new List<OrdinateGroup>();
@@ -252,11 +245,22 @@ internal static class HolePositionPlanner
                 .ToList();
             if (stops.Count == 0)
                 continue;
-            var at = axis == PositionAxis.Horizontal
-                ? new SheetPoint(left, top + OrdinateOffset)
-                : new SheetPoint(left - OrdinateOffset, top);
+            var horizontal = axis == PositionAxis.Horizontal;
+            var nearLine = horizontal ? top + OrdinateOffset : left - OrdinateOffset;
+            var far = false;
+            if (space is not null)
+            {
+                var farLine = horizontal ? space.Bottom - OrdinateOffset : space.Right + OrdinateOffset;
+                far = DimensionSides.PreferFar(
+                    0, stops.Sum(stop => DimensionSides.Leader(axis, nearLine, Center(stop.Hole))),
+                    0, stops.Sum(stop => DimensionSides.Leader(axis, farLine, Center(stop.Far))));
+                if (far)
+                    nearLine = farLine;
+            }
+
+            var at = horizontal ? new SheetPoint(left, nearLine) : new SheetPoint(nearLine, top);
             groups.Add(new OrdinateGroup(
-                axis, stops.Select(stop => stop.Hole.Index).ToList(), stops.Select(stop => stop.Offset / scale).ToList(), at));
+                axis, stops.Select(stop => (far ? stop.Far : stop.Hole).Index).ToList(), stops.Select(stop => stop.Offset / scale).ToList(), at));
         }
 
         var (holeCount, slotCount) = HoleCalloutPlanner.Count(holes);
@@ -415,7 +419,11 @@ internal static class HolePositionPlanner
         return across <= HoleCalloutPlanner.CenterTolerance && along >= -CenterGap && along <= length + CenterGap;
     }
 
-    private sealed record Stop(double Offset, HoleEdge Hole);
+    /// <summary>一站：离基准多远；<see cref="Hole"/> 是尺寸放上方 / 左侧时挑的孔（最上 / 最左），<see cref="Far"/> 是放下方 / 右侧时挑的（最下 / 最右）。</summary>
+    internal sealed record Stop(double Offset, HoleEdge Hole, HoleEdge Far)
+    {
+        public HoleEdge On(bool far) => far ? Far : Hole;
+    }
 
     private sealed record KindChain(IReadOnlyList<Stop> Stops, bool Pattern)
     {
@@ -424,7 +432,8 @@ internal static class HolePositionPlanner
 
     /// <summary>
     /// 一种孔在一个方向上的「站」：同一坐标的孔算一站，按离基准由近到远排。
-    /// 每站挑离尺寸最近的那个孔（水平尺寸在上方，挑最上面的；竖直尺寸在左侧，挑最左的），尺寸界线短。
+    /// 每站挑离尺寸最近的那个孔（水平尺寸在上方，挑最上面的；竖直尺寸在左侧，挑最左的），尺寸界线短；
+    /// 尺寸放到另一侧时（1.23.0）挑最下 / 最右的那个（<see cref="Stop.Far"/>）。
     /// </summary>
     private static KindChain Chain(IReadOnlyList<HoleEdge> kind, PositionAxis axis, double datum, double scale)
     {
@@ -434,9 +443,17 @@ internal static class HolePositionPlanner
             var offset = axis == PositionAxis.Horizontal ? hole.X - datum : datum - hole.Y;
             var index = stops.FindIndex(stop => Math.Abs(stop.Offset - offset) <= HoleCalloutPlanner.CenterTolerance);
             if (index < 0)
-                stops.Add(new Stop(offset, hole));
-            else if (axis == PositionAxis.Horizontal ? hole.Y > stops[index].Hole.Y : hole.X < stops[index].Hole.X)
-                stops[index] = stops[index] with { Hole = hole };
+            {
+                stops.Add(new Stop(offset, hole, hole));
+                continue;
+            }
+
+            var stop = stops[index];
+            if (axis == PositionAxis.Horizontal ? hole.Y > stop.Hole.Y : hole.X < stop.Hole.X)
+                stop = stop with { Hole = hole };
+            if (axis == PositionAxis.Horizontal ? hole.Y < stop.Far.Y : hole.X > stop.Far.X)
+                stop = stop with { Far = hole };
+            stops[index] = stop;
         }
 
         stops.Sort((a, b) => a.Offset.CompareTo(b.Offset));
@@ -457,60 +474,56 @@ internal static class HolePositionPlanner
 
     /// <summary>
     /// 水平尺寸放在上侧基准之上、竖直尺寸放在左侧基准之左，第 <see cref="Planned.Tier"/> 层；文字居中。
-    /// 给了 <paramref name="far"/>（1.16.0 避开图框禁区）就换到视图另一边：水平的在视图最下沿之下、竖直的在最右沿之右，层照样由里到外。
+    /// <see cref="Planned.Far"/> 的放到视图另一边（1.16.0 起避禁区、1.23.0 起选引线短的一侧）：水平的在视图最下沿之下、竖直的在最右沿之右，层照样由里到外。
     /// </summary>
-    private static PositionDimension Dimension(PositionAxis axis, Planned item, Datum datum, PositionSpace? far = null)
-        => new(axis, item.From, item.To.Index, TextAt(axis, item, datum, far), item.Prefix);
+    private static PositionDimension Dimension(PositionAxis axis, Planned item, Datum datum, PositionSpace? space)
+        => new(axis, item.From?.On(item.Far).Index, item.To.On(item.Far).Index, TextAt(axis, item, datum, space), item.Prefix);
 
-    private static SheetPoint TextAt(PositionAxis axis, Planned item, Datum datum, PositionSpace? far)
+    private static SheetPoint TextAt(PositionAxis axis, Planned item, Datum datum, PositionSpace? space)
     {
-        var middle = (item.FromOffset + item.ToOffset) / 2;
+        var middle = ((item.From?.Offset ?? 0) + item.To.Offset) / 2;
         var away = FirstTier + item.Tier * TierStep;
+        var far = item.Far && space is not null;
         return axis == PositionAxis.Horizontal
-            ? new SheetPoint(datum.Left + middle, far is null ? datum.Top + away : far.Bottom - away)
-            : new SheetPoint(far is null ? datum.Left - away : far.Right + away, datum.Top - middle);
+            ? new SheetPoint(datum.Left + middle, far ? space!.Bottom - away : datum.Top + away)
+            : new SheetPoint(far ? space!.Right + away : datum.Left - away, datum.Top - middle);
     }
 
     /// <summary>
-    /// 这个方向的尺寸放哪一边：先比较两侧禁区命中数，命中相同时选尺寸界线总长更短的一侧；不按上下标注数量做均衡。
+    /// 一种孔的这几个尺寸（<paramref name="items"/>，层号从 0 起）放不放到另一侧（下方 / 右侧），1.23.0 起逐种孔挑：
+    /// 两侧各接在已排的层外面（<paramref name="tiers"/>：上方 / 左侧、下方 / 右侧各排了几层），先比压禁区与出图框几处，
+    /// 一样多比尺寸界线（孔心引到尺寸线）总长，短的一侧；一样长留在上方 / 左侧。
     /// </summary>
-    /// <returns>换不换边，以及换边后还压几处（不换时是默认边压几处）。</returns>
-    internal static (bool Flip, int Hits) ChooseSide(PositionAxis axis, IReadOnlyList<Planned> planned, Datum datum, PositionSpace space)
+    internal static bool ChooseFar(PositionAxis axis, IReadOnlyList<Planned> items, IReadOnlyList<int> tiers, Datum datum, PositionSpace space)
     {
-        int Hits(PositionSpace? far) => planned.Sum(item =>
+        int Hits(bool far) => items.Sum(item =>
         {
-            var box = Footprint(axis, item, datum, far);
+            var box = Footprint(axis, item with { Tier = tiers[far ? 1 : 0] + item.Tier, Far = far }, datum, space);
             return space.Blocked.Count(box.Overlaps) + (space.Frame is { } frame && !box.Within(frame) ? 1 : 0);
         });
 
-        double ExtensionLength(PositionAxis direction, Planned item, PositionSpace? far)
+        double Length(bool far) => items.Sum(item =>
         {
-            var at = TextAt(direction, item, datum, far);
-            if (direction == PositionAxis.Horizontal)
-            {
-                return Math.Abs(item.To.Y - at.Y) + (item.FromHole is { } horizontalFrom ? Math.Abs(horizontalFrom.Y - at.Y) : 0);
-            }
+            var placed = item with { Tier = tiers[far ? 1 : 0] + item.Tier, Far = far };
+            var at = TextAt(axis, placed, datum, space);
+            var line = axis == PositionAxis.Horizontal ? at.Y : at.X;
+            return DimensionSides.Leader(axis, line, Center(item.To.On(far)))
+                   + (item.From is { } from ? DimensionSides.Leader(axis, line, Center(from.On(far))) : 0);
+        });
 
-            return Math.Abs(item.To.X - at.X) + (item.FromHole is { } verticalFrom ? Math.Abs(verticalFrom.X - at.X) : 0);
-        }
-
-        var near = Hits(null);
-        var other = Hits(space);
-        if (near != other)
-            return other < near ? (true, other) : (false, near);
-        var nearLength = planned.Sum(item => ExtensionLength(axis, item, null));
-        var otherLength = planned.Sum(item => ExtensionLength(axis, item, space));
-        return otherLength < nearLength ? (true, other) : (false, near);
+        return DimensionSides.PreferFar(Hits(false), Length(false), Hits(true), Length(true));
     }
+
+    private static SheetPoint Center(HoleEdge hole) => new(hole.X, hole.Y);
 
     /// <summary>
     /// 一个尺寸大约占的地方：沿尺寸线是两头之间（不足 <see cref="FootprintText"/> 按文字宽算，居中），横着是文字那一条
     /// （尺寸线下 1.5 mm 到上 4 mm，数字站在尺寸线上）。
     /// </summary>
-    internal static SheetRect Footprint(PositionAxis axis, Planned item, Datum datum, PositionSpace? far)
+    internal static SheetRect Footprint(PositionAxis axis, Planned item, Datum datum, PositionSpace? space)
     {
-        var at = TextAt(axis, item, datum, far);
-        var span = Math.Max(Math.Abs(item.ToOffset - item.FromOffset), FootprintText);
+        var at = TextAt(axis, item, datum, space);
+        var span = Math.Max(Math.Abs(item.To.Offset - (item.From?.Offset ?? 0)), FootprintText);
         return axis == PositionAxis.Horizontal
             ? new SheetRect(at.X - span / 2, at.Y - 0.0015, at.X + span / 2, at.Y + 0.004)
             : new SheetRect(at.X - 0.004, at.Y - span / 2, at.X + 0.0015, at.Y + span / 2);
@@ -519,8 +532,8 @@ internal static class HolePositionPlanner
     /// <summary>估尺寸占地时数字最少算多宽（图纸 8 mm，「120」三位数加箭头）。</summary>
     private const double FootprintText = 0.008;
 
-    /// <summary>规划好、还没定放哪一边的一个尺寸：起点孔（null = 基准）、终点孔、两头离基准多远、第几层、前缀。</summary>
-    internal sealed record Planned(int? From, HoleEdge? FromHole, HoleEdge To, double FromOffset, double ToOffset, int Tier, string Prefix);
+    /// <summary>规划好的一个尺寸：起点站（null = 基准）、终点站、第几层、前缀、放没放到另一侧（下方 / 右侧）。</summary>
+    internal sealed record Planned(Stop? From, Stop To, int Tier, string Prefix, bool Far = false);
 
     internal readonly record struct Datum(double Left, double Top);
 }

@@ -16,8 +16,9 @@ internal static class DrawingBasic
         CommandName: StrenuaIdentity.Domain + ".drawing.basic",
         Title: "基础出图",
         Summary: "依次做新建工程图、投影视图、轴测图、排版、对称轴，出一张视图齐全、排好的新图（不插技术要求、不标注），不保存。",
-        Usage: "在 SolidWorks 里打开要出图的零件（或在装配体里选中一个零件）再按：依次做基础类的「新建工程图 → 投影视图 → 轴测图 → 排版 → 对称轴」（轴测图、投影视图照避障开关找空地）。不插技术要求、不标注——技术要求在「要求」类里点模板，标注用孔类、倒圆类，或直接用一键类的「一键出图」全做。某一步没成不中断，最后汇总。新图不保存。",
-        Run: context => Run(context).Outcome);
+        Usage: "在 SolidWorks 里打开要出图的零件（或在装配体里选中一个零件）再按：依次做视图类的「新建工程图 → 投影视图 → 轴测图 → 排版」与「对称轴」（轴测图、投影视图照避障开关找空地）。不插技术要求、不标注——技术要求在「要求」类里点模板，标注用孔类、倒圆类，或直接用「一键出图」全做。某一步没成不中断，最后汇总。新图不保存。",
+        Run: context => Run(context).Outcome,
+        Row: 2, Page: "onekey");
 
     /// <summary>做完的结论与新图（<c>IModelDoc2</c>）；新建工程图没成时新图为 null。</summary>
     internal sealed record Result(QuickOutcome Outcome, object? Drawing);

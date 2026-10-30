@@ -233,7 +233,7 @@ internal static class StrenuaPage
     /// </summary>
     private static IEnumerable<(string Class, IReadOnlyList<QuickCommand> Commands)> Classes(IReadOnlyList<QuickCommand> commands)
     {
-        var grouped = commands.GroupBy(command => command.CommandClass, StringComparer.Ordinal)
+        var grouped = commands.GroupBy(command => command.PageClass, StringComparer.Ordinal)
             .ToDictionary(group => group.Key, group => (IReadOnlyList<QuickCommand>)group.ToList(), StringComparer.Ordinal);
         foreach (var commandClass in QuickCommands.ClassOrder)
         {

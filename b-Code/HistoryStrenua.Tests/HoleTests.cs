@@ -894,11 +894,37 @@ internal static partial class Tests
         True(plan.Dimensions.Where(d => d.Axis == PositionAxis.Vertical).All(d => d.TextAt.X < 0), "竖直尺寸照旧在左侧");
         // 不给禁区：照旧在上方。
         True(HolePositionPlanner.Plan(holes, 0, 0.05, 1.0).Dimensions.Where(d => d.Axis == PositionAxis.Horizontal).All(d => d.TextAt.Y > 0.05), "默认在上方");
-        // 两边命中数相同时，不做上下负载均衡，按尺寸界线总长选择更短的一侧。
+        // 两边命中数相同时，按尺寸界线总长选择更短的一侧。
         var both = new PositionSpace(0.1, 0, [new(0, 0.052, 0.2, 0.08), new(0, -0.03, 0.2, -0.002)]);
         True(HolePositionPlanner.Plan(holes, 0, 0.05, 1.0, space: both).Dimensions.Where(d => d.Axis == PositionAxis.Horizontal).All(d => d.TextAt.Y < 0), "命中数相同就选引线较短的下侧");
         var free = new PositionSpace(0.1, 0, []);
-        True(HolePositionPlanner.Plan(holes, 0, 0.05, 1.0, space: free).Dimensions.Where(d => d.Axis == PositionAxis.Horizontal).All(d => d.TextAt.Y < 0), "两侧都空时仍按引线较短选择，不做数量均衡");
+        True(HolePositionPlanner.Plan(holes, 0, 0.05, 1.0, space: free).Dimensions.Where(d => d.Axis == PositionAxis.Horizontal).All(d => d.TextAt.Y < 0), "两侧都空时按引线较短选择");
+    }
+
+    static void TestPositionBothSides()
+    {
+        // 1.23.0（用户定）：两侧都能放，每种孔挑引线短的一侧。靠上的一种（M6，Y 0.045）放上方、靠左；
+        // 靠下的一种（M8，Y 0.005，偏右）水平的放下方、竖直的放右侧。板 X 0–0.1、Y 0–0.05。
+        HoleEdge[] holes =
+        [
+            new(0, 0.03, 0.045, 0.003, "/M6"), new(1, 0.06, 0.045, 0.003, "/M6"),
+            new(2, 0.04, 0.005, 0.004, "/M8"), new(3, 0.08, 0.005, 0.004, "/M8"),
+        ];
+        var plan = HolePositionPlanner.Plan(holes, 0, 0.05, 1.0, space: new PositionSpace(0.1, 0, []));
+        bool Upper(PositionDimension d) => d.ToEdgeIndex is 0 or 1;
+        var horizontal = plan.Dimensions.Where(d => d.Axis == PositionAxis.Horizontal).ToList();
+        var vertical = plan.Dimensions.Where(d => d.Axis == PositionAxis.Vertical).ToList();
+        True(horizontal.Where(Upper).All(d => d.TextAt.Y > 0.05) && horizontal.Count(Upper) == 2, "M6 水平尺寸在上方");
+        True(horizontal.Where(d => !Upper(d)).All(d => d.TextAt.Y < 0) && horizontal.Count(d => !Upper(d)) == 2, "M8 水平尺寸在下方");
+        Near(-HolePositionPlanner.FirstTier, horizontal.First(d => !Upper(d)).TextAt.Y);
+        True(vertical.Single(Upper).TextAt.X < 0, "M6 竖直尺寸在左侧");
+        Near(0.1 + HolePositionPlanner.FirstTier, vertical.Single(d => !Upper(d)).TextAt.X);
+        // 另一侧挑最下 / 最右的那个孔连。
+        Equal(3, vertical.Single(d => !Upper(d)).ToEdgeIndex);
+
+        // 尺寸链模式：整组挑一侧。孔都靠下 → 水平组到下方。
+        var chain = HolePositionPlanner.Plan(holes.Skip(2).ToList(), 0, 0.05, 1.0, chainMode: true, space: new PositionSpace(0.1, 0, []));
+        Near(-HolePositionPlanner.OrdinateOffset, chain.OrdinateGroups.Single(g => g.Axis == PositionAxis.Horizontal).At.Y);
     }
 
     static void TestDistinctHoles()

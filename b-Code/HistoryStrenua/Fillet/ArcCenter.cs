@@ -55,9 +55,9 @@ internal static class ArcCenter
         var (axesAdded, axesFailed) = symmetry.Count > 0 ? SymmetryAxes.Insert(api, scan, symmetry) : (0, 0);
         if (axesFailed > 0)
             symmetry = [];
-        var (firstHorizontal, firstVertical) = Outline.FirstTiers(api, scan, left, top);
+        var sides = Outline.Sides(api, scan, left, top);
         var plan = ArcCenterPlanner.Plan(scan.Arcs, scan.Lines, holes, left, top, scale,
-            DimensionScan.Read(api, scan).Select(item => item.Geometry).ToList(), firstHorizontal, firstVertical, symmetry, DrawnLines(api, scan));
+            DimensionScan.Read(api, scan).Select(item => item.Geometry).ToList(), sides.FirstTop, sides.FirstLeft, symmetry, DrawnLines(api, scan), sides);
         var skipped = (plan.Tangent > 0 ? $"，{plan.Tangent} 个两端相切不用标" : string.Empty)
             + (plan.OnHole > 0 ? $"，{plan.OnHole} 个与孔同心（孔位尺寸已定）" : string.Empty)
             + (plan.Present > 0 ? $"，{plan.Present} 个方向已有尺寸或落在基准 / 对称轴上跳过" : string.Empty)

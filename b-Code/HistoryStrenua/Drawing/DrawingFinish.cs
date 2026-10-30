@@ -9,7 +9,8 @@ internal static class DrawingFinish
         "drawing-finish", StrenuaIdentity.Domain + ".drawing.finish", "整理标注",
         "当前页标注完成后，按整页轮廓、注解和图框避让孔标注与线性尺寸，再按真实标注占位排版；未解冲突明确报告，不保存。",
         "不用点视图：标注后按一下，孔标注移到空白处，线性尺寸先沿线滑、必要时在视图外换层；不改数值、公差和附着。按全部注解真实占位排版，再复核避让。遵守避障开关；坐标尺寸不移动。仍有冲突则列出标注名称，请检查后保存。",
-        context => Run(context, HoleScan.ActiveDrawing(context)));
+        context => Run(context, HoleScan.ActiveDrawing(context)),
+        Row: 2, Page: "onekey");
 
     internal static QuickOutcome Run(QuickCommandContext context, object drawing)
     {

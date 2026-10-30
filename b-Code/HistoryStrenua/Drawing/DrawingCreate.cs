@@ -23,7 +23,8 @@ internal static class DrawingCreate
         Title: "新建工程图",
         Summary: "给当前零件（或装配体里选中的零件）按工程图模板建图：按整套视图自动选图幅与比例、放主视图，不保存。",
         Usage: "在 SolidWorks 里打开要出图的零件（或在装配体里选中一个零件，先选后按、先按后选都行，60 秒内）再按：按「零件」工程图模板建一张新图，主视图取孔、窗口和圆弧最多的那一面；图幅（A4 横 / A3 / A2）与比例按零件大小、孔的疏密，以及整套视图（主视图、该有的投影视图、轴测图、技术要求）排不排得下自动选，标题栏由模板的属性链接自动带出，新图名字与零件一致（保存时默认文件名）。只放主视图：接着按「投影视图」「轴测图」「技术要求」「排版」补齐摆好，或直接用「一键出图」全做并标注。新图不保存。",
-        Run: context => Create(context).Outcome);
+        Run: context => Create(context).Outcome,
+        Row: 1, Page: "view");
 
     /// <summary>建图的结论，另带新图（<c>IModelDoc2</c>）、主视图（<c>IView</c>）与零件几何给「一键出图」接着用；失败时为 null。</summary>
     internal sealed record Created(QuickOutcome Outcome, object? Drawing, object? Main, PartGeometry? Part);

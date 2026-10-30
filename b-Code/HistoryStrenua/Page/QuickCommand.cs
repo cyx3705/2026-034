@@ -33,6 +33,10 @@ namespace HistoryStrenua;
 /// <param name="Bind">
 /// 带参数的指令：解析参数，返回在 STA 线程上执行的那一段；参数不对抛 <see cref="QuickArgumentException"/>。为 null 时执行 <see cref="Run"/>。
 /// </param>
+/// <param name="Page">
+/// 页面上归哪一类（1.23.0，用户定：基础类的视图指令挪进视图类、其余并进一键类，页数少）；null 时就是 <see cref="CommandClass"/>。
+/// 只动页面，指令名不变，MCP 调用照旧。
+/// </param>
 internal sealed record QuickCommand(
     string Key,
     string CommandName,
@@ -44,7 +48,8 @@ internal sealed record QuickCommand(
     IReadOnlyList<QuickParameter>? Parameters = null,
     string? Example = null,
     bool Readonly = false,
-    Func<CommandContext, Func<QuickCommandContext, QuickOutcome>>? Bind = null)
+    Func<CommandContext, Func<QuickCommandContext, QuickOutcome>>? Bind = null,
+    string? Page = null)
 {
     /// <summary>带参数的指令的 <see cref="Run"/>：只经 <see cref="Bind"/> 执行，走到这里说明调用方没给参数。</summary>
     public static QuickOutcome Unbound(QuickCommandContext context) => QuickOutcome.Fail("这条指令要带参数。");
@@ -58,8 +63,11 @@ internal sealed record QuickCommand(
     /// <summary>指令名的第二段，作为命令类。</summary>
     public string CommandClass => CommandName.Split('.')[1];
 
+    /// <summary>页面上的类（<see cref="Page"/>，没登记就是 <see cref="CommandClass"/>）。</summary>
+    public string PageClass => Page ?? CommandClass;
+
     /// <summary>页面「类」选项框里显示的类名，也是那一类控制面板的 case。</summary>
-    public string ClassTitle => QuickCommands.ClassTitle(CommandClass);
+    public string ClassTitle => QuickCommands.ClassTitle(PageClass);
 }
 
 /// <summary>一次执行的结论。<see cref="Success"/> 为 false 时总线回执失败。</summary>
@@ -186,8 +194,10 @@ internal static class QuickCommands
     /// 1.16.0（用户定）：「出图」改名「基础」、「倒圆倒角」改名「倒圆」、「技术要求」改名「要求」（命令类名不变，MCP 调用照旧）；
     /// 新类「一键」只有「一键出图」（把各类的一键都做一遍），排最前。
     /// 1.20.0（用户定：新指令待遇和以前一样）：带参数的「视图」「标注」两类排在倒圆后面。
+    /// 1.23.0（用户定，页数少）：「基础」类拆掉——新建工程图、投影视图、轴测图、排版进「视图」，其余（基础出图、整理标注、对称轴、外轮廓）并进「一键」；
+    /// 按 <see cref="QuickCommand.PageClass"/> 分，指令名（<c>strenua.drawing.*</c>）不变。
     /// </summary>
-    public static IReadOnlyList<string> ClassOrder { get; } = ["onekey", "hole", "drawing", "fillet", "view", "dim", "tech", "check"];
+    public static IReadOnlyList<string> ClassOrder { get; } = ["onekey", "hole", "fillet", "view", "dim", "tech", "check"];
 
     /// <summary>命令类 → 页面上的类名。新类不登记也能用，只是显示成英文类名。</summary>
     private static readonly IReadOnlyDictionary<string, string> ClassTitles =

@@ -70,6 +70,7 @@ internal static partial class Tests
         ("check: step feedback is only what changed, within budget (1.21.0)", TestStepDelta),
         ("drawing: named view orientation is verified", TestMainViewRetry),
         ("hole position: avoids title block and revision block", TestPositionAvoidsKeepOuts),
+        ("hole position: both sides, shorter leaders", TestPositionBothSides),
         ("distinct holes stay distinct", TestDistinctHoles),
         ("targets read top-down, left-right", TestTargetOrder),
         ("placement sits up-left of the hole", TestPlacement),

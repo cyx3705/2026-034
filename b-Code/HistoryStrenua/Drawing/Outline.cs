@@ -27,7 +27,8 @@ internal static class Outline
         Title: "外轮廓",
         Summary: "点一个工程图视图，以零件左侧、上侧直边为基准标出外轮廓每个台阶的位置（含总长总宽），照「尺寸链」开关出线性或坐标尺寸。",
         Usage: "在工程图里点一个视图（先点后按、先按后点都行，60 秒内）。外轮廓上每条竖直边、水平边各算一站（开口槽、台阶都算，封闭型腔与孔不算，斜边圆弧不标；钣金折弯切线与离外轮廓不到一个折弯外半径的短边不算），以零件最左、最上的直边为基准：「尺寸链」关时删掉旧外轮廓尺寸后每站一个尺寸，排在已有尺寸外面；「尺寸链」开时把还没有的站加进孔的那组坐标尺寸（没有就新建一组，所以要在孔位尺寸之后按）。这一页别的视图已经标过的（如高度）不再重复标。「避障」开着时，新加尺寸的数字压在别的尺寸、孔标注、中心符号线上就沿尺寸线滑开。",
-        Run: context => Run(context, null));
+        Run: context => Run(context, null),
+        Row: 2, Page: "onekey");
 
     /// <param name="context">快捷指令上下文。</param>
     /// <param name="view">直接处理这个视图（全图外轮廓用）；null 时取选中的或等用户点选。</param>
@@ -276,6 +277,31 @@ internal static class Outline
         }
 
         return (OutlinePlanner.FirstTier(above), OutlinePlanner.FirstTier(beside));
+    }
+
+    /// <summary>
+    /// 位置类尺寸两侧都能放时（1.23.0）的四边：左、上是基准，右、下是零件轮廓最外沿；每边第一层在那一边现有尺寸文字最外的再往外一层
+    /// （孔标注不算，同 <see cref="FirstTiers"/>）。
+    /// </summary>
+    internal static DimensionSides Sides(SolidWorksApi api, ScannedView scan, double left, double top)
+    {
+        var outline = scan.Lines.Concat(scan.CurveSegments).ToList();
+        var right = outline.Count > 0 ? outline.Max(line => Math.Max(line.X1, line.X2)) : left;
+        var bottom = outline.Count > 0 ? outline.Min(line => Math.Min(line.Y1, line.Y2)) : top;
+        var (above, beside, below, after) = (new List<double>(), new List<double>(), new List<double>(), new List<double>());
+        foreach (var item in DimensionScan.Read(api, scan).Where(item => !item.Geometry.HoleCallout))
+        {
+            var position = api.CallDoubles(item.Annotation, "IAnnotation", "GetPosition");
+            if (position.Length < 2)
+                continue;
+            above.Add(position[1] - top);
+            beside.Add(left - position[0]);
+            below.Add(bottom - position[1]);
+            after.Add(position[0] - right);
+        }
+
+        return new DimensionSides(left, top, right, bottom,
+            OutlinePlanner.FirstTier(above), OutlinePlanner.FirstTier(beside), OutlinePlanner.FirstTier(below), OutlinePlanner.FirstTier(after));
     }
 }
 

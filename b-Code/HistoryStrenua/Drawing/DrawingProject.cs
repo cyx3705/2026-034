@@ -18,7 +18,8 @@ internal static class DrawingProject
         Title: "投影视图",
         Summary: "当前工程图：从主视图（或选中的视图）投影出看侧面孔、窗口或厚度的视图，已有的方向不再加，贴着主视图放。",
         Usage: "在工程图里按（选了视图就从它投影，没选就从主视图）：侧面沿图纸横向有孔或窗口就加左 / 右视图、沿竖向有就加上 / 下视图，摆哪边看孔口朝哪边多（照图纸的第一 / 第三角投影）；都没有就只加一个看厚度的（只有圆弧面时加在圆弧面多的方向）。那个方向已经有视图看着的不再加。新视图贴着主视图放、给尺寸留出地方，「避障」开着时压到别的视图、轴测图、注解就往外让，别的视图不动；整页重排按「排版」。",
-        Run: Run);
+        Run: Run,
+        Row: 1, Page: "view");
 
     private static QuickOutcome Run(QuickCommandContext context)
     {

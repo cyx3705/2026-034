@@ -17,7 +17,8 @@ internal static class DrawingArrange
         Title: "排版",
         Summary: "当前图纸页的主视图、投影视图、轴测图、技术要求按实际大小重新排开不重叠、给尺寸留地方；排不下就把图纸比例降一档。",
         Usage: "不用点视图：认出当前图纸页的主视图、摆在它四边的投影视图、轴测图和图框里的技术要求，按实际大小重新排——主视图连同投影视图从图框左上角排起，视图左边、上边按孔的种数留出尺寸的地方；轴测图放右边的空地（放不下缩一两档比例）；技术要求只放标题栏正上方或左侧（避障开时压到视图就把视图挪开）。躲开标题栏、修改栏、图号框与图框里的其他注释。整页排不下就把图纸比例降一档再排。剖视、局部等认不出位置的视图原地不动、当障碍躲开；已标的尺寸跟着视图走。",
-        Run: context => Run(context, DrawingSheet.Read(context, HoleScan.ActiveDrawing(context), "排版")));
+        Run: context => Run(context, DrawingSheet.Read(context, HoleScan.ActiveDrawing(context), "排版")),
+        Row: 1, Page: "view");
 
     internal static QuickOutcome Run(QuickCommandContext context, DrawingSheet sheet)
     {

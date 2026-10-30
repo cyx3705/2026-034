@@ -66,8 +66,56 @@ internal static class ClearancePlanner
 
     /// <summary><paramref name="texts"/> 压到了几样障碍（线条、文字各算一样）。</summary>
     public static int Hits(IReadOnlyList<TextBox> texts, Obstacles obstacles)
-        => obstacles.Lines.Count(line => texts.Any(text => Hits(text, line)))
-            + obstacles.Texts.Count(other => texts.Any(text => Hits(text, other)));
+    {
+        var near = Near(obstacles, texts, 0);
+        return near.Lines.Count(line => texts.Any(text => Hits(text, line)))
+            + near.Texts.Count(other => texts.Any(text => Hits(text, other)));
+    }
+
+    /// <summary>
+    /// 只留外接框挨着 <paramref name="texts"/>（四周再放宽 <paramref name="reach"/>）的障碍。整页几千条线，一段文字只可能碰到身边几条，
+    /// 先按外接框筛掉，精确判定的次数从「文字 × 全部障碍」降到「文字 × 附近障碍」；滑动、换角位这种要试几十个位置的只筛一次。
+    /// </summary>
+    internal static Obstacles Near(Obstacles obstacles, IReadOnlyList<TextBox> texts, double reach)
+    {
+        if (texts.Count == 0)
+            return Obstacles.Empty;
+        var (left, right, bottom, top) = (double.MaxValue, double.MinValue, double.MaxValue, double.MinValue);
+        foreach (var text in texts)
+        {
+            var (l, r, b, t) = Bounds(text);
+            (left, right, bottom, top) = (Math.Min(left, l), Math.Max(right, r), Math.Min(bottom, b), Math.Max(top, t));
+        }
+
+        (left, right, bottom, top) = (left - reach - Margin, right + reach + Margin, bottom - reach - Margin, top + reach + Margin);
+        bool Overlaps(double l, double r, double b, double t) => l <= right && r >= left && b <= top && t >= bottom;
+        var lines = new List<SheetSegment>();
+        foreach (var line in obstacles.Lines)
+        {
+            if (Overlaps(Math.Min(line.X1, line.X2), Math.Max(line.X1, line.X2), Math.Min(line.Y1, line.Y2), Math.Max(line.Y1, line.Y2)))
+                lines.Add(line);
+        }
+
+        var others = new List<TextBox>();
+        foreach (var other in obstacles.Texts)
+        {
+            var (l, r, b, t) = Bounds(other);
+            if (Overlaps(l, r, b, t))
+                others.Add(other);
+        }
+
+        return new Obstacles(lines, others);
+    }
+
+    /// <summary>文字框的外接框（可能带角度）。</summary>
+    private static (double Left, double Right, double Bottom, double Top) Bounds(TextBox box)
+    {
+        var (ux, uy) = (Math.Cos(box.Angle), Math.Sin(box.Angle));
+        var (x1, y1) = (box.Width * ux, box.Width * uy);
+        var (x2, y2) = (-box.Height * uy, box.Height * ux);
+        return (box.X + Math.Min(0, x1) + Math.Min(0, x2), box.X + Math.Max(0, x1) + Math.Max(0, x2),
+            box.Y + Math.Min(0, y1) + Math.Min(0, y2), box.Y + Math.Max(0, y1) + Math.Max(0, y2));
+    }
 
     /// <summary>线段是否穿过（放宽后的）文字框。</summary>
     public static bool Hits(TextBox box, SheetSegment line)
@@ -80,6 +128,11 @@ internal static class ClearancePlanner
     /// <summary>两个文字框是否相交（<paramref name="box"/> 放宽，<paramref name="other"/> 按原样）。</summary>
     public static bool Hits(TextBox box, TextBox other)
     {
+        // 外接框都不挨就不用算四条边。
+        var (al, ar, ab, at) = Bounds(box);
+        var (bl, br, bb, bt) = Bounds(other);
+        if (al - Margin > br || ar + Margin < bl || ab - Margin > bt || at + Margin < bb)
+            return false;
         var corners = other.Corners().ToArray();
         for (var i = 0; i < corners.Length; i++)
         {
@@ -102,6 +155,7 @@ internal static class ClearancePlanner
     {
         if (Hits(texts, obstacles) == 0)
             return 0;
+        obstacles = Near(obstacles, texts, SlideLimit);
         for (var step = 1; step * SlideStep <= SlideLimit + 1e-12; step++)
         {
             foreach (var sign in new[] { 1, -1 })

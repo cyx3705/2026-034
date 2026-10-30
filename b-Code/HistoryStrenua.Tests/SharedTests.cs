@@ -5,6 +5,33 @@ using HistoryVulcan.Core.Commands;
 /// <summary>离线测试：共用的避障、尺寸几何、视图朝向（Shared/）。</summary>
 internal static partial class Tests
 {
+    static void TestSpeedLocalMath()
+    {
+        // 真机 Drawing View4（轴测，比例 1:3）读回的变换与 MultiplyTransform 的结果。
+        double[] t = [0.7071, -0.4082, 0.5774, -0.7071, -0.4082, 0.5774, 0, -0.8165, -0.5773, 0.311, 0.1818, 0.0712, 0.3333, 0, 0, 0];
+        var point = HoleScan.ViewGeometry.ToSheet([t], true, 0.11, -0.07, 0.23);
+        Near(0.3333 * (0.7071 * 0.11 + -0.7071 * -0.07) + 0.311, point[0]);
+        Near(0.3333 * (-0.4082 * 0.11 + -0.4082 * -0.07 + -0.8165 * 0.23) + 0.1818, point[1]);
+        var vector = HoleScan.ViewGeometry.ToSheet([t], false, 0.11, -0.07, 0.23);
+        Near(0.3333 * (0.7071 * 0.11 + -0.7071 * -0.07), vector[0]);
+        // 两个变换依次套用。
+        double[] unit = [1, 0, 0, 0, 1, 0, 0, 0, 1, 0.01, 0.02, 0.03, 1, 0, 0, 0];
+        Near(HoleScan.ViewGeometry.ToSheet([t], true, 0.12, -0.05, 0.26)[0], HoleScan.ViewGeometry.ToSheet([unit, t], true, 0.11, -0.07, 0.23)[0]);
+
+        // 外接框筛选不改结论：随机摆放，与逐条精确判定一致（含带角度的文字）。
+        var random = new Random(7);
+        double R(double span) => random.NextDouble() * span;
+        var lines = Enumerable.Range(0, 300).Select(_ => new SheetSegment(R(0.4), R(0.3), R(0.4), R(0.3))).ToList();
+        var boxes = Enumerable.Range(0, 100).Select(_ => new TextBox(R(0.4), R(0.3), R(0.02), 0.0035, R(Math.PI * 2))).ToList();
+        var all = new Obstacles(lines, boxes);
+        for (var i = 0; i < 200; i++)
+        {
+            IReadOnlyList<TextBox> texts = [new TextBox(R(0.4), R(0.3), R(0.02), 0.0035, i % 3 == 0 ? Math.PI / 2 : 0)];
+            var exact = lines.Count(line => ClearancePlanner.Hits(texts[0], line)) + boxes.Count(box => ClearancePlanner.Hits(texts[0], box));
+            Equal(exact, ClearancePlanner.Hits(texts, all));
+        }
+    }
+
     static void TestClearanceHits()
     {
         // 过渡板 View2 真机显示数据（图纸 mm → m）。竖直尺寸「24」：基线点 (44.31,91.74)、角 π/2、宽 6.13、高 3.5。

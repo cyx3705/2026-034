@@ -9,6 +9,7 @@ internal static partial class Tests
     internal static readonly (string Name, Action Run)[] All =
     {
         ("command registration", TestCommandRegistration),
+        ("speed: local transform matches SolidWorks, obstacle filter keeps results", TestSpeedLocalMath),
         ("parameters: view and dim commands registered, examples parse (1.20.0)", TestParameterRegistration),
         ("parameters: input boxes on the page, actions and list rows (1.20.0)", TestParameterPage),
         ("parameters: move, tolerance, text and flag arguments (1.20.0)", TestParameterArguments),

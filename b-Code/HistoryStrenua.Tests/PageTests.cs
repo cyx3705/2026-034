@@ -49,6 +49,7 @@ internal static partial class Tests
             "strenua.quick.list",
             "strenua.quick.run",
             "strenua.quick.last",
+            "strenua.quick.perf",
             "strenua.quick.cancel",
             "strenua.ui.describe",
             "strenua.ui.actions",

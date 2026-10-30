@@ -45,6 +45,20 @@ internal sealed class SolidWorksApi : IDisposable
     private readonly Dictionary<string, Type> _interfaces = new(StringComparer.Ordinal);
     private readonly Dictionary<(string Interface, string Method), MethodInfo> _methods = new();
     private readonly HashSet<object> _owned = new(ReferenceEqualityComparer.Instance);
+    private readonly Dictionary<(string Interface, string Method), (long Count, long Ticks)> _profile = new();
+
+    /// <summary>这次会话调了多少次 SolidWorks（性能剖析，见 <c>strenua.quick.perf</c>）。</summary>
+    public long CallCount => _profile.Values.Sum(item => item.Count);
+
+    /// <summary>这次会话花在 SolidWorks 调用上的秒数。</summary>
+    public double CallSeconds => _profile.Values.Sum(item => item.Ticks) / (double)System.Diagnostics.Stopwatch.Frequency;
+
+    /// <summary>最耗时的 <paramref name="top"/> 个 SolidWorks 方法，一行一个：总秒数、次数、方法名。</summary>
+    public string ProfileTable(int top = 40)
+        => string.Join(Environment.NewLine, _profile
+            .OrderByDescending(item => item.Value.Ticks)
+            .Take(top)
+            .Select(item => $"{item.Value.Ticks / (double)System.Diagnostics.Stopwatch.Frequency,8:0.000}s {item.Value.Count,8} {item.Key.Interface}.{item.Key.Method}"));
 
     private SolidWorksApi(Assembly interop, CancellationToken cancellation)
     {
@@ -77,7 +91,12 @@ internal sealed class SolidWorksApi : IDisposable
             cancellation.ThrowIfCancellationRequested();
             try
             {
-                return Own(info.Invoke(target, arguments));
+                var started = System.Diagnostics.Stopwatch.GetTimestamp();
+                var value = info.Invoke(target, arguments);
+                var key = (interfaceName, method);
+                _profile.TryGetValue(key, out var seen);
+                _profile[key] = (seen.Count + 1, seen.Ticks + System.Diagnostics.Stopwatch.GetTimestamp() - started);
+                return Own(value);
             }
             catch (Exception ex) when (QuickError.TagCall(ex, interfaceName, method))
             {

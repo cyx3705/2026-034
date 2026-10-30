@@ -88,6 +88,28 @@ public sealed class HistoryStrenuaModule : IModuleContextAware
 
         registry.Register(new CommandDescriptor
         {
+            Name = StrenuaIdentity.Domain + ".quick.perf",
+            Domain = StrenuaIdentity.Domain,
+            CommandClass = "quick",
+            Summary = "取回一条快捷指令上次执行的耗时明细：总用时、SolidWorks 调用次数、进度时间线、最耗时的方法",
+            Example = StrenuaIdentity.Domain + ".quick.perf key=" + QuickCommands.All[0].Key,
+            Readonly = true,
+            Parameters =
+            [
+                new ParameterSpec
+                {
+                    Name = "key",
+                    Description = "快捷指令的 key（strenua.quick.list 的 id 列），如 hole-flow",
+                    Required = true,
+                    Position = 0,
+                    AllowedValues = QuickCommands.All.Select(command => command.Key).ToArray(),
+                },
+            ],
+            Handler = CommandDescriptor.Sync(context => runner.Perf(context.RequireString("key").Trim())),
+        });
+
+        registry.Register(new CommandDescriptor
+        {
             Name = StrenuaIdentity.Domain + ".quick.run",
             Domain = StrenuaIdentity.Domain,
             CommandClass = "quick",

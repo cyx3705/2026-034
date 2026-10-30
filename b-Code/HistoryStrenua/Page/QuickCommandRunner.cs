@@ -72,6 +72,8 @@ internal sealed class QuickCommandRunner(StrenuaOptions options, ICommandBus? bu
 
         QuickOutcome outcome;
         string? lastProgress = null;
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        var timeline = new List<string>();
         try
         {
             outcome = await SolidWorksSession.RunAsync(
@@ -81,11 +83,14 @@ internal sealed class QuickCommandRunner(StrenuaOptions options, ICommandBus? bu
                     message =>
                     {
                         lastProgress = message;
+                        lock (timeline)
+                            timeline.Add($"{clock.Elapsed.TotalSeconds,7:0.0}s {message}");
                         context.Progress?.Report(message);
                     },
                     state => SetState(command.Key, state),
                     cancellation.Token,
-                    bus)),
+                    bus))
+                    is var done && SaveProfile(command.Key, clock, timeline, session) ? done : done,
                 cancellation.Token).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
@@ -118,6 +123,26 @@ internal sealed class QuickCommandRunner(StrenuaOptions options, ICommandBus? bu
 
         Finish(command.Key, outcome.Success ? "完成" : "失败", outcome.Message, outcome.Data);
         return outcome.Success ? CommandResult.Ok(outcome.Message, outcome.Data) : CommandResult.Fail(outcome.Message);
+    }
+
+    private readonly Dictionary<string, string> _profiles = new(StringComparer.Ordinal);
+
+    /// <summary>记下一次执行的耗时：总用时、花在 SolidWorks 调用上的时间、进度时间线、最耗时的方法。</summary>
+    private bool SaveProfile(string key, System.Diagnostics.Stopwatch clock, List<string> timeline, SolidWorksSession session)
+    {
+        var text = $"总用时 {clock.Elapsed.TotalSeconds:0.0}s；SolidWorks 调用 {session.Api.CallCount} 次、{session.Api.CallSeconds:0.0}s"
+            + Environment.NewLine + "时间线：" + Environment.NewLine + string.Join(Environment.NewLine, timeline)
+            + Environment.NewLine + "最耗时的方法（秒 / 次数）：" + Environment.NewLine + session.Api.ProfileTable();
+        lock (_gate)
+            _profiles[key] = text;
+        return true;
+    }
+
+    /// <summary>取回一条指令上次执行的耗时明细。</summary>
+    public CommandResult Perf(string key)
+    {
+        lock (_gate)
+            return _profiles.TryGetValue(key, out var text) ? CommandResult.Ok(text) : CommandResult.Fail($"key={key} 这次启动后还没有耗时记录。");
     }
 
     /// <summary>取消正在跑的那条。没有在跑的也回成功——点「取消」不该让宿主抢控制台。</summary>

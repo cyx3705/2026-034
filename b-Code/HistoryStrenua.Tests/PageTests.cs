@@ -54,6 +54,12 @@ internal static partial class Tests
             "strenua.option.clearance",
             "strenua.option.chain",
             "strenua.option.techai",
+            "strenua.view.list",
+            "strenua.view.move",
+            "strenua.dim.list",
+            "strenua.dim.delete",
+            "strenua.dim.move",
+            "strenua.dim.edit",
         ];
         foreach (var name in expected)
         {

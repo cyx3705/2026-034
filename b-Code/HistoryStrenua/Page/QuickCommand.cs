@@ -46,9 +46,14 @@ internal sealed record QuickCommand(
 }
 
 /// <summary>一次执行的结论。<see cref="Success"/> 为 false 时总线回执失败。</summary>
-internal sealed record QuickOutcome(bool Success, string Message)
+/// <param name="Success">成没成。</param>
+/// <param name="Message">回执文字（进控制台）。</param>
+/// <param name="Data">成功回执带的数据（1.20.0，细粒度读回指令的行）；快捷指令都是 null。</param>
+internal sealed record QuickOutcome(bool Success, string Message, object? Data = null)
 {
     public static QuickOutcome Ok(string message) => new(true, message);
+
+    public static QuickOutcome Ok(string message, object data) => new(true, message, data);
 
     public static QuickOutcome Fail(string message) => new(false, message);
 }

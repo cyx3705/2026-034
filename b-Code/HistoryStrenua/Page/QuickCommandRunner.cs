@@ -91,7 +91,7 @@ internal sealed class QuickCommandRunner(StrenuaOptions options, ICommandBus? bu
         }
 
         Finish(command.Key, outcome.Success ? "完成" : "失败", outcome.Message);
-        return outcome.Success ? CommandResult.Ok(outcome.Message) : CommandResult.Fail(outcome.Message);
+        return outcome.Success ? CommandResult.Ok(outcome.Message, outcome.Data) : CommandResult.Fail(outcome.Message);
     }
 
     /// <summary>取消正在跑的那条。没有在跑的也回成功——点「取消」不该让宿主抢控制台。</summary>

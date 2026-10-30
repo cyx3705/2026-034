@@ -9,6 +9,9 @@ internal static partial class Tests
     internal static readonly (string Name, Action Run)[] All =
     {
         ("command registration", TestCommandRegistration),
+        ("fine: view and annotation commands registered, examples parse (1.20.0)", TestFineRegistration),
+        ("fine: move, tolerance and name arguments (1.20.0)", TestFineArguments),
+        ("fine: bad arguments fail before touching SolidWorks (1.20.0)", TestFineBadArguments),
         ("REQ-DQ-02/03: whole-sheet placement and measured annotation bounds", TestDrawingQuality),
         ("REQ-DQ-04: counted chamfers constrain endpoints", TestCountedChamfers),
         ("page owner follows domain", TestPageOwner),

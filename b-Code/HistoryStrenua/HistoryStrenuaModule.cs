@@ -4,7 +4,7 @@ using HistoryVulcan.Core.Modules;
 namespace HistoryStrenua;
 
 /// <summary>
-/// 模块装配入口：登记页面协议三条指令（描述、动作、技术要求模板表格取数）、每条快捷指令一条总线指令，外加列表、按 key 执行、取消、
+/// 模块装配入口：登记页面协议三条指令（描述、动作、技术要求模板表格取数）、每条快捷指令一条总线指令、每条细粒度指令（视图 / 注解）一条，外加列表、按 key 执行、取消、
 /// 按名字插技术要求模板与三个页面开关。
 /// </summary>
 /// <remarks>
@@ -40,6 +40,23 @@ public sealed class HistoryStrenuaModule : IModuleContextAware
                 Example = command.CommandName,
                 Level = CommandLevel.Run,
                 Handler = context => runner.RunAsync(command, context),
+            });
+        }
+
+        // 1.20.0：细粒度指令（视图、单个注解），只走总线 / MCP，不上页面。
+        foreach (var command in FineCommands.All)
+        {
+            registry.Register(new CommandDescriptor
+            {
+                Name = command.CommandName,
+                Domain = StrenuaIdentity.Domain,
+                CommandClass = command.CommandClass,
+                Summary = command.Summary,
+                Example = command.Example,
+                Parameters = command.Parameters.ToArray(),
+                Level = CommandLevel.Run,
+                Readonly = command.Readonly,
+                Handler = context => command.RunAsync(runner, context),
             });
         }
 

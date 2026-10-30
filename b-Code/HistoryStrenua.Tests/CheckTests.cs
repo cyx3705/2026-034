@@ -194,6 +194,9 @@ internal static partial class Tests
             [DimensionAnchor.Line(new SheetSegment(0.06, 0.1, 0.06, 0.2), true), DimensionAnchor.Center(new SheetPoint(0.14, 0.15)),
              DimensionAnchor.Line(new SheetSegment(0, 0, 0.01, 0.01), true)]);
         Equal("x=60 ↔ (140,150) ↔ 斜线", DrawingSvg.Measures(measured));
+        // 落在视图的直边、孔上的写上它在 SVG 里的编号。
+        Equal("E1 x=60 ↔ H0 (140,150) ↔ 斜线", DrawingSvg.Measures(measured,
+            [new SheetSegment(0, 0, 0.1, 0), new SheetSegment(0.06, 0.2, 0.06, 0.1)], [new HoleEdge(0, 0.14, 0.15, 0.003)]));
         // 真机：孔标注显示数据里的符号是代码。
         Equal("4 x Ø 11 完全贯穿 ⌴ Ø 18 ↧ 11 <X-Y>", DimList.Readable("4 x <MOD-DIAM> 11 完全贯穿 <HOLE-SPOT> <MOD-DIAM> 18 <HOLE-DEPTH> 11 <X-Y>"));
     }

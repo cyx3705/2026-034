@@ -133,7 +133,7 @@ internal static class DrawingSvg
                 curves = scan.CurveSegments;
                 holes = scan.Candidates;
                 foreach (var dimension in DimensionScan.Read(api, scan))
-                    measures[api.CallString(dimension.Annotation, "IAnnotation", "GetName")] = Measures(dimension.Geometry);
+                    measures[api.CallString(dimension.Annotation, "IAnnotation", "GetName")] = Measures(dimension.Geometry, scan.Lines, scan.Candidates);
                 if (scan.BendLines > 0)
                     note = $"钣金折弯线 {scan.BendLines} 条没有画（不当边、不当基准）";
             }
@@ -191,16 +191,38 @@ internal static class DrawingSvg
     private static double Meters(string mm) => double.Parse(mm, CultureInfo.InvariantCulture) * QuickArgs.Mm;
 
     /// <summary>
-    /// 尺寸量的两头，如「x=120.5 ↔ x=145.5」：竖直边给 x、水平边给 y、圆心给 (x,y)、斜线写「斜线」；读不出的那头不写。
+    /// 尺寸量的两头，如「E3 x=60.94 ↔ H5 (94.54,229.76)」：竖直边给 x、水平边给 y、圆心给 (x,y)、斜线写「斜线」；读不出的那头不写。
+    /// 落在这个视图的某条直边、某个孔上的，前面写它在 SVG 里的编号（真机第一版只有坐标，孔标注指的是哪个孔要自己对坐标）。
     /// </summary>
-    internal static string Measures(ViewDimension dimension)
-        => string.Join(" ↔ ", dimension.Anchors.Select(anchor => (anchor.X, anchor.Y) switch
+    internal static string Measures(ViewDimension dimension, IReadOnlyList<SheetSegment>? lines = null, IReadOnlyList<HoleEdge>? holes = null)
+    {
+        return string.Join(" ↔ ", dimension.Anchors.Select(anchor => Id(anchor) + (anchor.X, anchor.Y) switch
         {
             ({ } x, { } y) => $"({DrawingSvgWriter.Mm(x)},{DrawingSvgWriter.Mm(y)})",
             ({ } x, null) => "x=" + DrawingSvgWriter.Mm(x),
             (null, { } y) => "y=" + DrawingSvgWriter.Mm(y),
             _ => "斜线",
         }));
+
+        string Id(DimensionAnchor anchor)
+        {
+            if (anchor.Segment is { } segment && lines is not null)
+            {
+                for (var i = 0; i < lines.Count; i++)
+                    if (DimensionGeometry.SameSegment(lines[i], segment))
+                        return $"E{i} ";
+            }
+
+            if (anchor.Hole && anchor.X is { } x && anchor.Y is { } y && holes is not null)
+            {
+                foreach (var hole in holes)
+                    if (DimensionGeometry.Same(hole.X, x) && DimensionGeometry.Same(hole.Y, y))
+                        return $"H{hole.Index} ";
+            }
+
+            return string.Empty;
+        }
+    }
 
     /// <summary>存一份到模块数据目录的 snapshots（和截图同一处，只留最近 30 份 SVG）。</summary>
     private static string Save(QuickCommandContext context, string title, string svg)

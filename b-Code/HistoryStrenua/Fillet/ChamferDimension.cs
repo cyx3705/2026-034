@@ -40,8 +40,7 @@ internal static class ChamferDimension
             return QuickOutcome.Nothing($"视图「{viewName}」里没有侧着看成斜线的倒角，没有加 C 尺寸。");
 
         var (here, elsewhere) = Existing(context, scan);
-        // 1.11.0「避障」开着时连视图里已有注解的线与文字一起躲；1.15.0 起再躲同一页别的视图（外框当一块不许压的地方）和它们的注解——
-        // 倒角尺寸放在视图外，往外让几档就可能伸进邻近视图。
+        // 1.11.0「避障」开着时连视图里已有注解的线与文字一起躲；别的视图不躲（1.32.2），最后由排版让开。
         var avoid = context.Options.Clearance;
         var annotations = avoid ? SheetObstacles(api, scan) : Obstacles.Empty;
         var obstacles = scan.Lines.Concat(scan.CurveSegments).Concat(DrawingSheet.FrameLines(api, document)).Concat(annotations.Lines).ToList();

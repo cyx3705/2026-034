@@ -62,14 +62,15 @@ internal static partial class DimensionCheckPlanner
         var edges = new List<DimensionEdge>();
         var given = new OutlineCoverage();
         ConnectGiven(given, views, tangents: false);
-        var radii = new List<RedundantMember>();
+        var radii = new List<(RedundantMember Member, SheetPoint? Center)>();
         foreach (var (view, index) in views)
         {
             ConnectChamfers(given, view, [], chamfer);
             foreach (var dimension in view.Dimensions)
             {
                 if (dimension.Type == RadialDimension && !double.IsNaN(dimension.Value))
-                    radii.Add(new RedundantMember(index, dimension.Index, dimension.Value, dimension.ToleranceType != 0));
+                    radii.Add((new RedundantMember(index, dimension.Index, dimension.Value, dimension.ToleranceType != 0),
+                        dimension.Anchors.FirstOrDefault(anchor => anchor.Hole) is { X: { } x, Y: { } y } ? new SheetPoint(x, y) : null));
                 if (!(dimension.Linear || dimension.Ordinate))
                     continue;
                 if (ChamferPrefix.IsMatch(dimension.Prefix))
@@ -86,11 +87,17 @@ internal static partial class DimensionCheckPlanner
         }
 
         // 相切：标了这个 R 就是一条边（同半径共用一个 R，同「未标尺寸」的认法），没标的算已定。
-        foreach (var (view, _) in views)
+        foreach (var (view, viewIndex) in views)
         {
             foreach (var arc in view.Arcs)
             {
-                var radius = radii.FirstOrDefault(item => Math.Abs(item.Value - arc.ModelRadius) <= DimensionGeometry.ValueTolerance);
+                // 优先标在这段弧上的那个 R，其次同视图的，算式才指得对。
+                var radius = radii
+                    .Where(item => Math.Abs(item.Member.Value - arc.ModelRadius) <= DimensionGeometry.ValueTolerance)
+                    .OrderByDescending(item => item.Member.View == viewIndex && item.Center is { } center && HoleCalloutPlanner.SameCenter(center, arc.Center))
+                    .ThenByDescending(item => item.Member.View == viewIndex)
+                    .Select(item => item.Member)
+                    .FirstOrDefault();
                 foreach (var (center, line, axis) in TangentPlanes(view, arc))
                 {
                     if (radius is not null)

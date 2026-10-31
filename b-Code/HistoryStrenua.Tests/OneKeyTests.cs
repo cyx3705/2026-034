@@ -232,6 +232,11 @@ internal static partial class Tests
         Equal("D1 = D0(18) − D2(5)", RedundantCheck.Formula(tangent[0].Suggested[0], N));
         Equal(1, ArcCenterPlanner.Tangents(arc[0], jaw).Count(t => Math.Abs(t.Y) > 0.9));
 
+        // 两处 R5 等高等大、各标各的：全是 R 的环不报。
+        var twinA = new CheckView("主", "PART|默认", frame, jaw, [], [arc[0]], [new(0, 5, false, 0.005, [C(0.013, 0.0205)])], []);
+        var twinB = new CheckView("右", "PART|默认", frame, [jaw[1]], [], [arc[0]], [new(0, 5, false, 0.005, [C(0.013, 0.0205)])], []);
+        Equal(0, DimensionCheckPlanner.Redundant([twinA, twinB]).Count);
+
         // 没标 R 时相切算已定，圆心到切线的尺寸自己就多余。
         var noRadius = jawView with { Dimensions = [new(0, 2, false, 0.005, [C(0.013, 0.0205), DimensionAnchor.Line(jaw[2], true)])] };
         True(RedundantCheck.Formula(DimensionCheckPlanner.Redundant([noRadius])[0].Suggested[0], N).Contains("相切"), "自环写明原因");

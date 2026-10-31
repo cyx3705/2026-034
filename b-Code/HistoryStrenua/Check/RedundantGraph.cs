@@ -41,6 +41,9 @@ internal static partial class DimensionCheckPlanner
         foreach (var group in inLoop.GroupBy(i => Find(ends[i].U)))
         {
             var members = group.ToList();
+            // 全是 R、C：几处圆角恰好等高等大（真机夹爪2 主视图、右视图的两个 R5），各管各的大小，不是重标。
+            if (members.All(i => edges[i].Size))
+                continue;
             var nodes = members.SelectMany(i => new[] { ends[i].U, ends[i].V }).Distinct().Count();
             result.Add(new RedundantLoop(edges[members[0]].Horizontal, members.Select(i => edges[i].Member).ToList(),
                 members.Count - nodes + 1, Suggest(members, edges, ends)));

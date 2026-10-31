@@ -110,30 +110,58 @@ internal static class DrawingFinish
         for (var pass = 0; pass < 3; pass++)
         {
             var changed = false;
+            bool Seat(int index)
+            {
+                var shape = shapes[index];
+                if (!shape.Movable || shape.Texts.Count != 1
+                    || Clearance.SeatDimension(api, shape.Annotation, shape.Lines, shape.Texts,
+                        ClearancePlanner.ForSeat(ObstaclesFor(index), shape.Lines, shape.Texts[0].Angle,
+                            shapes.Where((other, j) => j != index && other.Movable).Select(other => (other.Lines, other.Texts)))) is not { } seat)
+                    return false;
+                shapes[index] = shape with { Lines = seat.Lines, Texts = seat.Texts };
+                if (seat.Moved)
+                {
+                    moved++;
+                    changed = true;
+                }
+
+                return true;
+            }
+
+            // 1.32.6（用户定）：先让放得下的字都回到界线之间，再给放不下的字找地方，免得它挤别人。
+            for (var i = 0; i < shapes.Count; i++)
+                Seat(i);
+            var placed = new HashSet<int>();
             for (var i = 0; i < shapes.Count; i++)
             {
                 context.Cancellation.ThrowIfCancellationRequested();
+                var shape = shapes[i];
+                if (!shape.Movable || !ClearancePlanner.Squeezed(shape.Texts, shape.Lines)
+                    || ClearancePlanner.PlaceSqueezed(shape.Texts[0], shape.Lines, shape.View, frame.Value, ObstaclesFor(i)) is not { } offset)
+                    continue;
+                placed.Add(i);
+                if (offset.X == 0 && offset.Y == 0)
+                    continue;
+                var position = api.CallDoubles(shape.Annotation, "IAnnotation", "GetPosition");
+                if (position.Length < 3 || !api.CallBool(shape.Annotation, "IAnnotation", "SetPosition2", position[0] + offset.X, position[1] + offset.Y, position[2]))
+                    continue;
+                var (lines, texts) = Clearance.DisplayGeometry(api, shape.Annotation);
+                shapes[i] = shape with { Lines = lines, Texts = texts };
+                moved++;
+                changed = true;
+            }
+
+            for (var i = 0; i < shapes.Count; i++)
+            {
+                context.Cancellation.ThrowIfCancellationRequested();
+                if (placed.Contains(i)) continue;
                 var shape = shapes[i];
                 if (shape.Texts.Count == 0) continue;
                 // 孔标注、半径尺寸平时不挪；出了图框的例外（用户定：标注不许超出图框）。
                 var outside = !AnnotationPlacementPlanner.Within(shape.Texts, frame.Value);
                 if (!shape.Movable && !outside) continue;
                 var obstacles = ObstaclesFor(i);
-                if (shape.Movable && shape.Texts.Count == 1
-                    && Clearance.SeatDimension(api, shape.Annotation, shape.Lines, shape.Texts,
-                        ClearancePlanner.ForSeat(obstacles, shape.Lines, shape.Texts[0].Angle,
-                            shapes.Where((other, j) => j != i && other.Movable).Select(other => (other.Lines, other.Texts)))) is { } seat)
-                {
-                    shapes[i] = shape with { Lines = seat.Lines, Texts = seat.Texts };
-                    if (seat.Moved)
-                    {
-                        moved++;
-                        changed = true;
-                    }
-
-                    continue;
-                }
-
+                if (Seat(i)) continue;
                 var hits = Hits(shape, obstacles);
                 if (hits == 0) continue;
                 var position = api.CallDoubles(shape.Annotation, "IAnnotation", "GetPosition");
@@ -218,7 +246,8 @@ internal static class DrawingFinish
                 outsideNames.Add("视图「" + DrawingSheet.Name(api, view) + "」");
         }
 
-        return (moved, shapes.Where((s, i) => s.Movable && s.Texts.Count > 0 && Hits(s, ObstaclesFor(i)) > 0 && ClearancePlanner.Seat(s.Texts, s.Lines, ObstaclesFor(i)) is not 0.0).Select(s => s.Name).ToList(), outsideNames);
+        return (moved, shapes.Where((s, i) => s.Movable && s.Texts.Count > 0 && Hits(s, ObstaclesFor(i)) > 0 && ClearancePlanner.Seat(s.Texts, s.Lines, ObstaclesFor(i)) is not 0.0
+            && !(ClearancePlanner.Squeezed(s.Texts, s.Lines) && ClearancePlanner.PlaceSqueezed(s.Texts[0], s.Lines, s.View, frame.Value, ObstaclesFor(i)) is { X: 0, Y: 0 })).Select(s => s.Name).ToList(), outsideNames);
     }
 
     /// <summary>这个视图里同一行首尾相接的尺寸记进 <paramref name="peers"/>（shapes 下标 → 同链另外几段）。</summary>

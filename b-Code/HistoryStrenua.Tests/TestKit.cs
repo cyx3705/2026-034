@@ -53,6 +53,7 @@ internal static partial class Tests
         ("clearance: dimension text stays between its extension lines", TestClearanceSeat),
         ("dimension sides: a tie goes to the side with fewer tiers", TestDimensionSidesTie),
         ("clearance: a squeezed neighbour does not block a text that fits", TestClearanceSeatSqueezedPeer),
+        ("clearance: squeezed text stays beside or leaves the chain", TestClearanceSqueezed),
         ("clearance: callout moves to a free corner", TestClearanceCallout),
         ("full flow: steps and scope", TestFlowCommand),
         ("dimension geometry: axis from anchors and value", TestDimensionAxes),

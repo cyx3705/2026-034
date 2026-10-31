@@ -147,6 +147,45 @@ internal static partial class Tests
         Equal(1, ClearancePlanner.ForSeat(new Obstacles([], [seated]), own40, Math.PI / 2, [(own4, [seated])]).Texts.Count);
     }
 
+    static void TestClearanceSqueezed()
+    {
+        static double M(double mm) => mm / 1000;
+        var view = new SheetRect(M(56.46), M(109.51), M(135.54), M(269.99));
+        var frame = new SheetRect(M(10), M(10), M(410), M(287));
+
+        // 真机底层1 的 30：框 6.13、间距 6，算放得下，放回正中；差太多的不算。
+        SheetSegment[] own30 = [new(M(64.4), M(90), M(64.4), M(112)), new(M(70.4), M(90), M(70.4), M(112)), new(M(64.4), M(94), M(70.4), M(94))];
+        var text30 = new TextBox(M(47.83), M(94), M(6.13), M(3.5));
+        True(!ClearancePlanner.Squeezed([text30], own30), "差 0.13 mm 不算放不下");
+        var back = ClearancePlanner.Seat([text30], own30, Obstacles.Empty);
+        True(back is not null && Math.Abs(text30.X + back.Value + text30.Width / 2 - M(67.4)) < 1e-9, "放回正中");
+        Equal<double?>(0.0, ClearancePlanner.Seat([text30 with { X = M(64.335) }], own30, new Obstacles(own30[..2], [])));
+
+        // 10：左边有地方，贴着左边放，已经贴着就不动。
+        SheetSegment[] own10 = [new(M(62.4), M(90), M(62.4), M(112)), new(M(64.4), M(90), M(64.4), M(112)), new(M(62.4), M(94), M(64.4), M(94))];
+        var far10 = new TextBox(M(30), M(94), M(6.13), M(3.5));
+        True(ClearancePlanner.Squeezed([far10], own10), "10 放不下");
+        var left = ClearancePlanner.PlaceSqueezed(far10, own10, view, frame, Obstacles.Empty);
+        True(left is { } l && Math.Abs(far10.X + l.X + far10.Width - M(60.4)) < 1e-9 && l.Y == 0, "贴左边");
+        var beside = far10 with { X = M(54.27) };
+        Equal(new SheetPoint(0, 0), ClearancePlanner.PlaceSqueezed(beside, own10, view, frame, Obstacles.Empty));
+
+        // 4：两边都被 40、36 占着，离开这一行，对着自己的间距，贴视图外框。
+        SheetSegment[] own4 = [new(M(40), M(134.05), M(70), M(134.05)), new(M(40), M(134.85), M(70), M(134.85)), new(M(47.4), M(134.05), M(47.4), M(134.85))];
+        var text4 = new TextBox(M(47.4), M(110), M(4.6), M(3.5), Math.PI / 2);
+        TextBox[] neighbours = [new(M(47.4), M(135.78), M(6.13), M(3.5), Math.PI / 2), new(M(47.4), M(127.38), M(6.13), M(3.5), Math.PI / 2)];
+        var off = ClearancePlanner.PlaceSqueezed(text4, own4, view, frame, new Obstacles([], neighbours));
+        True(off is not null, "应找到地方");
+        var placed = text4.Shift(off!.Value.X, off.Value.Y);
+        Near(M(56.46), placed.X);
+        Near(M(134.45), placed.Y + placed.Width / 2);
+
+        // 贴视图那格有条线：往外走到放得下为止。
+        var blocked = ClearancePlanner.PlaceSqueezed(text4, own4, view, frame, new Obstacles([new(M(54), M(120), M(54), M(150))], neighbours));
+        var outer = text4.Shift(blocked!.Value.X, blocked.Value.Y);
+        True(outer.X <= M(54) && outer.X > M(53), $"应刚好让开那条线，实际 {outer.X * 1000:0.##}");
+    }
+
     static void TestDimensionSidesTie()
     {
         // 1.32.3（用户定）：先比禁区，再比引线长度；一样长放层数少的一侧，层数也一样放上方 / 左侧。

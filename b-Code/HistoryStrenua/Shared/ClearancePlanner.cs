@@ -171,7 +171,8 @@ internal static class ClearancePlanner
 
     /// <summary>
     /// 字能不能留在自己两条尺寸界线之间（1.32.1，用户指出：底层1 的 33、37 放得下却被挪到界线外）：
-    /// 字宽不超过界线间距就算放得下，紧贴界线不算压，留白只对别的东西；同一行别的尺寸伸过来的箭头短线也不算压。
+    /// 字宽不超过界线间距就算放得下（文字框比字形宽，再宽出 <see cref="FitSlack"/> 也算，1.32.6 真机底层1 的 30：框 6.13、间距 6），
+    /// 紧贴界线不算压，留白只对别的东西；同一行别的尺寸伸过来的箭头短线也不算压。
     /// 字已在界线之间就留在原处，在外面就放回正中。返回沿字方向要挪多远；放不下或那里有别的东西返回 null。
     /// </summary>
     /// <param name="texts">尺寸的文字，只认一段的。</param>
@@ -188,22 +189,26 @@ internal static class ClearancePlanner
         if (stations.Count < 2)
             return null;
         var (low, high) = (stations.Min(), stations.Max());
-        if (high - low < text.Width || text.Width <= 2 * Margin)
+        var gap = high - low;
+        if (gap + FitSlack < text.Width || text.Width <= 2 * Margin)
             return null;
         var start = text.X * ux + text.Y * uy;
         var offset = start >= low && start + text.Width <= high ? 0 : (low + high - text.Width) / 2 - start;
+        if (Math.Abs(offset) < SeatTolerance)
+            offset = 0;
 
         // 同一行 = 与自己的尺寸线共线；只跳过这种线，别的平行线（视图的边、别的层的尺寸线）照样算压。
         double Across(SheetSegment line) => -line.X1 * uy + line.Y1 * ux;
         var rows = own.Except(crossing).Select(Across).ToList();
         bool SameRow(SheetSegment line) => !CrossingLines([line], text.Angle).Any() && rows.Any(row => Math.Abs(Across(line) - row) < 1e-4);
 
-        // Hits 会四周放宽留白：沿字方向先收回去，上下的留白不变。
+        // Hits 会四周放宽留白：沿字方向先收回去，上下的留白不变；框比间距宽的连宽出的那截一起收。
+        var inset = Math.Max(Margin, (text.Width - gap) / 2 + Margin + 1e-6);
         var inner = text with
         {
-            X = text.X + (offset + Margin) * ux,
-            Y = text.Y + (offset + Margin) * uy,
-            Width = text.Width - 2 * Margin,
+            X = text.X + (offset + inset) * ux,
+            Y = text.Y + (offset + inset) * uy,
+            Width = text.Width - 2 * inset,
         };
         var lines = obstacles.Lines.Where(line => !SameRow(line)).ToList();
         return Hits([inner], new Obstacles(lines, obstacles.Texts)) == 0 ? offset : null;
@@ -230,12 +235,105 @@ internal static class ClearancePlanner
                 continue;
             var peerCrossing = CrossingLines(lines, angle).ToList();
             var stations = peerCrossing.Select(line => (line.X1 + line.X2) / 2 * ux + (line.Y1 + line.Y2) / 2 * uy).ToList();
-            if (stations.Count >= 2 && stations.Max() - stations.Min() < texts[0].Width
+            if (Squeezed(texts, lines)
                 && lines.Except(peerCrossing).Any(line => rows.Any(row => Math.Abs(Across(line) - row) < 1e-4)))
                 squeezed.Add(texts[0]);
         }
 
         return squeezed.Count == 0 ? obstacles : new Obstacles(obstacles.Lines, obstacles.Texts.Where(text => !squeezed.Contains(text)).ToList());
+    }
+
+    /// <summary>文字框比界线间距宽出这么多还算放得下（图纸 0.5 mm）。</summary>
+    public const double FitSlack = 5e-4;
+
+    /// <summary>字离正中不到这么远就不用挪（图纸 0.05 mm，读回的误差）。</summary>
+    private const double SeatTolerance = 5e-5;
+
+    /// <summary>放不下的字贴在界线外时离界线多远（图纸 2 mm，留给箭头）。</summary>
+    public const double BesideGap = 0.002;
+
+    /// <summary>离开尺寸链找地方时每步走多远（图纸 0.5 mm）。</summary>
+    public const double SearchStep = 5e-4;
+
+    /// <summary>这个尺寸的字放不进自己两条界线之间（只认一段字、有两条界线的）。</summary>
+    public static bool Squeezed(IReadOnlyList<TextBox> texts, IReadOnlyList<SheetSegment> own)
+    {
+        if (texts.Count != 1)
+            return false;
+        var (ux, uy) = (Math.Cos(texts[0].Angle), Math.Sin(texts[0].Angle));
+        var stations = CrossingLines(own, texts[0].Angle).Select(line => (line.X1 + line.X2) / 2 * ux + (line.Y1 + line.Y2) / 2 * uy).ToList();
+        return stations.Count >= 2 && stations.Max() - stations.Min() + FitSlack < texts[0].Width;
+    }
+
+    /// <summary>
+    /// 放不下的字放哪（1.32.6，用户定）：界线旁边有地方就贴着放，还在这一行；旁边都有东西（真机底层1 的 4 夹在两个 40 之间）就破例离开尺寸链，
+    /// 字沿尺寸线对着自己的间距，从贴着视图外框往外一步步找，放得下就行（不留白）。返回要挪多少，已经在对的地方是 (0, 0)；哪都放不下返回 null。
+    /// </summary>
+    /// <param name="text">尺寸的字。</param>
+    /// <param name="own">尺寸自己的线。</param>
+    /// <param name="view">视图外框。</param>
+    /// <param name="frame">图框。</param>
+    /// <param name="obstacles">要躲的东西，不含这个尺寸自己的线。</param>
+    public static SheetPoint? PlaceSqueezed(TextBox text, IReadOnlyList<SheetSegment> own, SheetRect view, SheetRect frame, Obstacles obstacles)
+    {
+        var (ux, uy) = (Math.Cos(text.Angle), Math.Sin(text.Angle));
+        var (vx, vy) = (-uy, ux);
+        var crossing = CrossingLines(own, text.Angle).ToList();
+        if (crossing.Count < 2)
+            return null;
+        var stations = crossing.Select(line => (line.X1 + line.X2) / 2 * ux + (line.Y1 + line.Y2) / 2 * uy).ToList();
+        var (low, high) = (stations.Min(), stations.Max());
+        var start = text.X * ux + text.Y * uy;
+        var across = text.X * vx + text.Y * vy;
+
+        double Row(SheetSegment line) => line.X1 * vx + line.Y1 * vy;
+        var rows = own.Except(crossing).Select(Row).ToList();
+        var others = new Obstacles(
+            obstacles.Lines.Where(line => CrossingLines([line], text.Angle).Any() || !rows.Any(row => Math.Abs(Row(line) - row) < 1e-4)).ToList(),
+            obstacles.Texts);
+
+        SheetPoint Along(double to) => new((to - start) * ux, (to - start) * uy);
+        bool Free(double to)
+        {
+            var moved = text.Shift((to - start) * ux, (to - start) * uy);
+            return AnnotationPlacementPlanner.Within([moved], frame) && Hits([moved], others) == 0;
+        }
+
+        // 已经贴在旁边、没压东西：不动。
+        var (left, right) = (low - text.Width - BesideGap, high + BesideGap);
+        var beside = (start + text.Width <= low && start >= left - BesideGap) || (start >= high && start <= right + BesideGap);
+        if (beside && Free(start))
+            return new SheetPoint(0, 0);
+        foreach (var to in start < (low + high - text.Width) / 2 ? new[] { left, right } : [right, left])
+        {
+            if (Free(to))
+                return Along(to);
+        }
+
+        var corners = new[] { (view.Left, view.Bottom), (view.Left, view.Top), (view.Right, view.Bottom), (view.Right, view.Top) }
+            .Select(p => p.Item1 * vx + p.Item2 * vy)
+            .ToList();
+        var (nearest, farther) = (corners.Max(), corners.Min());
+        var outward = across + text.Height / 2 >= (nearest + farther) / 2;
+        var along = (low + high - text.Width) / 2 - start;
+        for (var step = 0; ; step++)
+        {
+            var to = outward ? nearest + step * SearchStep : farther - text.Height - step * SearchStep;
+            var (dx, dy) = (along * ux + (to - across) * vx, along * uy + (to - across) * vy);
+            var moved = text.Shift(dx, dy);
+            if (!AnnotationPlacementPlanner.Within([moved], frame))
+                return null;
+            // 放得下就行：四周的留白收回去。
+            var inner = moved with
+            {
+                X = moved.X + Margin * (ux + vx),
+                Y = moved.Y + Margin * (uy + vy),
+                Width = Math.Max(moved.Width - 2 * Margin, 1e-6),
+                Height = Math.Max(moved.Height - 2 * Margin, 1e-6),
+            };
+            if (Hits([inner], obstacles) == 0)
+                return Math.Abs(dx) + Math.Abs(dy) < SeatTolerance ? new SheetPoint(0, 0) : new SheetPoint(dx, dy);
+        }
     }
 
     /// <summary>孔标注可去的角位，按偏好排：近的一档四个角，再远一档……</summary>

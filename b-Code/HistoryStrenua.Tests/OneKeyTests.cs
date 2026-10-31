@@ -200,6 +200,12 @@ internal static partial class Tests
         Equal(0, wrapped[0].Peer!.Index);
         Equal(0, DimensionCheckPlanner.ChainGroups(View([], first, second), At(0.07, 0.08)).Count);
 
+        // 1.32.6：窄得放不下字的一段破例离开这一行（基准 10 → 这段 1 → 再接 30），链不算断。
+        var (h4, h5) = (C(0.011, 0.02), C(0.041, 0.02));
+        ViewDimension narrow = new(1, 2, false, 0.001, [h1, h4]);
+        ViewDimension after = new(2, 2, false, 0.03, [h4, h5]);
+        Equal(0, DimensionCheckPlanner.Chains(View([], first, narrow, after), At(0.07, 0.09, 0.07)).Count);
+
         // 量一条边自身：真机夹爪2 的 21.62，边 y 从 0.04 到 0.02，基准在上边 0.05，改从基准标是 30。
         SheetSegment inner = new(0.08, 0.04, 0.08, 0.02);
         var detached = DimensionCheckPlanner.Chains(View([], new ViewDimension(0, 2, false, 0.02, [DimensionAnchor.Line(inner, true)])), At(0.07));

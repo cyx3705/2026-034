@@ -42,6 +42,9 @@ internal static partial class DimensionCheckPlanner
     /// <summary>对称轴至少贯穿零件这么多才算基准（短中心线只是把圆心串起来）。</summary>
     private const double ThroughShare = 0.8;
 
+    /// <summary>间距比这还窄（图纸 5 mm，一位数字都放不下）的尺寸可以破例离开这一行（1.32.6，用户定），链不算断。</summary>
+    private const double SqueezedSpan = 5e-3;
+
     /// <param name="view">视图。</param>
     /// <param name="positions">尺寸文字位置（<see cref="ViewDimension.Index"/> → 图纸坐标）；读不到的不查。</param>
     public static List<ChainIssue> Chains(CheckView view, IReadOnlyDictionary<int, SheetPoint> positions)
@@ -60,7 +63,7 @@ internal static partial class DimensionCheckPlanner
             var rooted = here.Where(item => Rooted(item, datum, axes)).ToHashSet();
             for (var grew = true; grew;)
             {
-                var next = here.Where(item => !rooted.Contains(item) && rooted.Any(other => SameLine(item, other) && Abuts(item, other))).ToList();
+                var next = here.Where(item => !rooted.Contains(item) && rooted.Any(other => (SameLine(item, other) || Short(item) || Short(other)) && Abuts(item, other))).ToList();
                 grew = next.Count > 0;
                 rooted.UnionWith(next);
             }
@@ -134,6 +137,8 @@ internal static partial class DimensionCheckPlanner
     private static bool Rooted(ChainItem item, double datum, IReadOnlyList<double> axes)
         => DimensionGeometry.Same(item.From, datum) || DimensionGeometry.Same(item.To, datum)
            || axes.Any(axis => DimensionGeometry.Same(item.From, axis) || DimensionGeometry.Same(item.To, axis) || DimensionGeometry.Same((item.From + item.To) / 2, axis));
+
+    private static bool Short(ChainItem item) => item.To - item.From < SqueezedSpan;
 
     private static bool SameLine(ChainItem a, ChainItem b) => Math.Abs(a.Line - b.Line) <= ChainLineTolerance;
 

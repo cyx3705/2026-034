@@ -13,6 +13,9 @@ internal readonly record struct DimensionAnchor(double? X, double? Y, bool Hole 
     /// <summary>圆心。</summary>
     public static DimensionAnchor Center(SheetPoint center) => new(center.X, center.Y, Hole: true);
 
+    /// <summary>顶点（1.31.0：dim.add 量到直边端点）：两个坐标都给，不是孔。</summary>
+    public static DimensionAnchor Point(SheetPoint point) => new(point.X, point.Y);
+
     /// <summary>直线：竖直的给 X、水平的给 Y，斜的两个都不给。</summary>
     public static DimensionAnchor Line(SheetSegment line, bool modelLine)
     {

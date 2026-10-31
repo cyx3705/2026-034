@@ -618,6 +618,23 @@ internal static class HoleScan
             }
         }
 
+        /// <summary>顶点在图纸上的位置（1.31.0）；不是顶点返回 null。</summary>
+        public SheetPoint? TryReadVertex(object entity)
+        {
+            try
+            {
+                var point = api.CallDoubles(entity, "IVertex", "GetPoint");
+                if (point.Length < 3)
+                    return null;
+                var sheet = ToSheet(Transforms(entity), true, point[0], point[1], point[2]);
+                return new SheetPoint(sheet[0], sheet[1]);
+            }
+            catch (Exception ex) when (ex is System.Runtime.InteropServices.COMException or InvalidCastException or System.Reflection.TargetException)
+            {
+                return null;
+            }
+        }
+
         /// <summary>直边在图纸上的两个端点；不是直边（或没有端点）返回 null。</summary>
         public SheetSegment? TryReadLine(object edge)
         {

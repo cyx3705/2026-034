@@ -62,7 +62,7 @@ internal static class DimensionScan
             tolerance);
     }
 
-    /// <summary>一个附着对象：圆边 → 圆心；模型直边、视图草图直线 → 直线；别的（或已失效）不出。</summary>
+    /// <summary>一个附着对象：圆边 → 圆心；模型直边、视图草图直线 → 直线；顶点 → 点；别的（或已失效）不出。</summary>
     private static DimensionAnchor? Anchor(SolidWorksApi api, ScannedView scan, object entity)
     {
         if (scan.Geometry.TryReadCircleCenter(entity) is { } center)
@@ -77,7 +77,9 @@ internal static class DimensionScan
             // 不是模型边（视图草图线之类）：往下试。
         }
 
-        return HolePosition.SketchLineOnSheet(api, scan, entity) is { } sketch ? DimensionAnchor.Line(sketch, modelLine: false) : null;
+        if (HolePosition.SketchLineOnSheet(api, scan, entity) is { } sketch)
+            return DimensionAnchor.Line(sketch, modelLine: false);
+        return scan.Geometry.TryReadVertex(entity) is { } vertex ? DimensionAnchor.Point(vertex) : null;
     }
 
     /// <summary>

@@ -13,7 +13,7 @@ internal static class OneKeyFix
              "1. 整页：strenua.check.snapshot 看截图，strenua.check.svg view= 看单个视图。主视图选窄边、视图挤或大片空白，用 strenua.view.move 调；比例、图幅不合适就告诉用户，不要当没看见。",
              .. Specific(kind),
              "· 孔标注与尺寸：strenua.check.overlap 查压字、引线过长与交叉（尺寸界线穿孔属误报），字放到视图外或引线穿尺寸的用 strenua.dim.move 挪回视图旁；尺寸出图框的挪回框内。",
-             "· 漏标与错标：strenua.check.dimension 报的 [E]/[H] 对照图判断，真漏的用 strenua.dim.add / strenua.dim.hole / strenua.dim.center 补，多余的 strenua.dim.delete；再跑 strenua.check.dangling、strenua.check.decimal。",
+             "· 漏标与错标：strenua.check.dimension 报的 [E]/[H] 对照图判断，真漏的用 strenua.dim.add / strenua.dim.hole / strenua.dim.center 补（报的线不一定要标长度：dim.add 从基准或已标的线量到这条线或它的端点 E7.2，再跑 strenua.check.chain），多余的 strenua.dim.delete；再跑 strenua.check.dangling、strenua.check.decimal。",
              "· 重标：strenua.check.redundant 报能算出来的尺寸，权衡后用 strenua.dim.delete 删，删完再查一遍。",
              "· 技术要求：一键可能选错模板、猜错材料。不合零件就 strenua.tech.apply name= 换一份；零件没写材料时不要编。",
              "· 标题栏：零件没有属性时是空的，把缺什么告诉用户，不要编。",

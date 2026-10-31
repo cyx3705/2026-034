@@ -122,6 +122,14 @@ internal static partial class Tests
         Equal(new GeometryRef(false, 3), GeometryRef.Parse("E3", "from"));
         Equal(new GeometryRef(true, 26), GeometryRef.Parse(" h26 ", "from"));
         Throws(() => GeometryRef.Parse("D1", "from"), "只认 E / H");
+        Equal(new GeometryRef(false, 7, 2), GeometryRef.Parse("e7.2", "to"));
+        Equal("E7.2", new GeometryRef(false, 7, 2).ToString());
+        Throws(() => GeometryRef.Parse("E7.3", "to"), "端点只有 1、2");
+        Throws(() => GeometryRef.Parse("H5.1", "to"), "孔没有端点");
+        True(DimAdd.SameEdge(new GeometryRef(false, 7, 1), new GeometryRef(false, 7, 2)), "同一条边的两端");
+        True(DimAdd.SameEdge(new GeometryRef(false, 7), new GeometryRef(false, 7, 2)), "边和它自己的端点");
+        True(!DimAdd.SameEdge(new GeometryRef(false, 5), new GeometryRef(false, 7, 2)), "线到别的线的端点");
+        True(!DimAdd.SameEdge(new GeometryRef(true, 7), new GeometryRef(false, 7)), "孔和直边编号碰巧相同");
         Throws(() => GeometryRef.Parse("H", "from"), "要带序号");
         // 直边要和量的方向垂直才有坐标：竖直边量水平有 X，量竖直没有。
         var vertical = new SheetSegment(0.06, 0.08, 0.06, 0.2);

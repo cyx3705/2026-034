@@ -276,7 +276,7 @@ internal static partial class Tests
         Equal<int?>(null, fromDatum.FromEdgeIndex);
         Equal(0, fromDatum.ToEdgeIndex);
         Equal(string.Empty, fromDatum.Prefix);
-        Near(top + HolePositionPlanner.FirstTier + HolePositionPlanner.TierStep, fromDatum.TextAt.Y);
+        Near(top + HolePositionPlanner.FirstTier, fromDatum.TextAt.Y);
 
         var vertical = plan.Dimensions[2];
         Equal(PositionAxis.Vertical, vertical.Axis);

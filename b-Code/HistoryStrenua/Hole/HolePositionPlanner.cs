@@ -90,7 +90,7 @@ internal sealed record PositionSpace(double Right, double Bottom, IReadOnlyList<
 /// </para>
 /// <para>
 /// 尺寸一种孔占一层，水平的在视图上方、竖直的在视图左侧；跨度短的层在里面，免得尺寸界线互相穿过。
-/// 阵列标法那一种占两层：阵列尺寸在里、从基准到第一个孔的那个在外（用户给的样图就是这样）。
+/// 阵列标法也占一层（1.30.0，用户定：不从基准开始的尺寸必须在尺寸链上）：从基准到第一个孔的那个和阵列尺寸接成一行；1.2.0 起分两层是按旧样图，已作废。
 /// </para>
 /// <para>
 /// 腰型孔（1.3.0）只取上方那一端圆弧的圆心当孔位（一样高取左边那端，<see cref="HoleCalloutPlanner.Representatives"/>），
@@ -190,16 +190,15 @@ internal static class HolePositionPlanner
                 if (chain.Pattern)
                 {
                     var last = stops[^1];
-                    var used = 0;
                     if (Claim(first.Offset, last.Offset))
                     {
                         var prefix = PatternPrefix(stops.Count - 1, (last.Offset - first.Offset) / (stops.Count - 1) / scale);
-                        items.Add(new Planned(first, last, used++, prefix));
+                        items.Add(new Planned(first, last, 0, prefix));
                         patterns++;
                     }
 
                     if (needDatum)
-                        items.Add(new Planned(null, first, used, string.Empty));
+                        items.Add(new Planned(null, first, 0, string.Empty));
                 }
                 else
                 {

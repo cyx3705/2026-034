@@ -209,6 +209,35 @@ internal static class ClearancePlanner
         return Hits([inner], new Obstacles(lines, obstacles.Texts)) == 0 ? offset : null;
     }
 
+    /// <summary>
+    /// 算字能不能留在界线之间时要躲的（1.32.5，真机底层1：放不下的「4」挡在隔壁 8 mm 的间距里，放得下的 40 被挤到远处）：
+    /// 同一行上放不下的字本来就要挪走，不算挡路，挪走轮到它自己。别的字、别的线照旧。
+    /// </summary>
+    /// <param name="obstacles">原来要躲的。</param>
+    /// <param name="own">这个尺寸自己的线。</param>
+    /// <param name="angle">这个尺寸的文字方向。</param>
+    /// <param name="peers">别的尺寸的线与字。</param>
+    public static Obstacles ForSeat(Obstacles obstacles, IReadOnlyList<SheetSegment> own, double angle, IEnumerable<(IReadOnlyList<SheetSegment> Lines, IReadOnlyList<TextBox> Texts)> peers)
+    {
+        var (ux, uy) = (Math.Cos(angle), Math.Sin(angle));
+        double Across(SheetSegment line) => -line.X1 * uy + line.Y1 * ux;
+        var crossing = CrossingLines(own, angle).ToList();
+        var rows = own.Except(crossing).Select(Across).ToList();
+        var squeezed = new HashSet<TextBox>();
+        foreach (var (lines, texts) in peers)
+        {
+            if (texts.Count != 1 || Math.Abs(texts[0].Angle - angle) > 1e-3)
+                continue;
+            var peerCrossing = CrossingLines(lines, angle).ToList();
+            var stations = peerCrossing.Select(line => (line.X1 + line.X2) / 2 * ux + (line.Y1 + line.Y2) / 2 * uy).ToList();
+            if (stations.Count >= 2 && stations.Max() - stations.Min() < texts[0].Width
+                && lines.Except(peerCrossing).Any(line => rows.Any(row => Math.Abs(Across(line) - row) < 1e-4)))
+                squeezed.Add(texts[0]);
+        }
+
+        return squeezed.Count == 0 ? obstacles : new Obstacles(obstacles.Lines, obstacles.Texts.Where(text => !squeezed.Contains(text)).ToList());
+    }
+
     /// <summary>孔标注可去的角位，按偏好排：近的一档四个角，再远一档……</summary>
     public static IEnumerable<CalloutSpot> CalloutSpots(HoleEdge hole)
     {

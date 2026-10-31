@@ -69,6 +69,14 @@ internal static class DrawingCreate
         context.Report($"新建工程图：用模板「{Path.GetFileNameWithoutExtension(templatePath)}」{templateNote}。");
         var drawing = api.Call(application, "ISldWorks", "NewDocument", templatePath, 0, 0.0, 0.0)
             ?? throw new QuickCommandException($"SolidWorks 没能用模板新建工程图：{templatePath}");
+        // 1.32.5：模板开着「自动插入孔的中心符号线」时，每个新视图的孔都会晚一步冒出单个符号线（真机：建完读 0 个、下一条指令读到 17 个），
+        // 孔类指令中途常常删不到，和线性组叠在一起，点选符号线也会选错。本图关掉，符号线只由「中心符号线」指令标。圆角的不动。
+        if (api.Call(drawing, "IModelDoc2", "get_Extension") is { } extension)
+        {
+            foreach (var toggle in new[] { AutoCenterMarksForHoles, AutoCenterMarksForSlots })
+                api.Call(extension, "IModelDocExtension", "SetUserPreferenceToggle", toggle, 0, false);
+        }
+
         var named = Rename(api, drawing, Path.GetFileNameWithoutExtension(partPath));
         Activate(api, application, drawing);
         var sheet = api.Call(drawing, "IDrawingDoc", "GetCurrentSheet")
@@ -251,6 +259,10 @@ internal static class DrawingCreate
         api.Call(drawing, "IModelDoc2", "SetTitle2", name);
         return api.CallString(drawing, "IModelDoc2", "GetTitle").StartsWith(name, StringComparison.OrdinalIgnoreCase);
     }
+
+    // swUserPreferenceToggle_e
+    private const int AutoCenterMarksForHoles = 308;
+    private const int AutoCenterMarksForSlots = 402;
 
     /// <summary>把新图切成活动窗口（NewDocument 之后活动窗口有时还停在零件上，后面按活动文档干活的步骤会做错图）。</summary>
     private static void Activate(SolidWorksApi api, object application, object document)

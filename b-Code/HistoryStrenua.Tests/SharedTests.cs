@@ -127,6 +127,26 @@ internal static partial class Tests
         True(up is not null && Math.Abs(vertical.Y + up.Value + vertical.Width / 2 - M(103.5)) < 1e-9, "竖直尺寸放回正中");
     }
 
+    static void TestClearanceSeatSqueezedPeer()
+    {
+        // 1.32.5，真机底层1：竖排 40 的间距 8 mm 放得下，隔壁只有 0.8 mm 的「4」放不下，字挡在 40 的间距里。
+        static double M(double mm) => mm / 1000;
+        SheetSegment[] own40 = [new(M(29), M(134.85), M(64), M(134.85)), new(M(29), M(142.85), M(64), M(142.85)), new(M(30), M(134.85), M(30), M(142.85))];
+        var text40 = new TextBox(M(30), M(135.8), M(6.13), M(3.5), Math.PI / 2);
+        SheetSegment[] own4 = [new(M(29), M(134.05), M(64), M(134.05)), new(M(29), M(134.85), M(64), M(134.85)), new(M(30), M(134.05), M(30), M(134.85))];
+        var text4 = new TextBox(M(30), M(132.15), M(4.6), M(3.5), Math.PI / 2);
+        var blocked = new Obstacles([], [text4]);
+        True(ClearancePlanner.Seat([text40], own40, blocked) is null, "前提：不放行时 40 留不下");
+        var opened = ClearancePlanner.ForSeat(blocked, own40, Math.PI / 2, [(own4, [text4])]);
+        Equal<double?>(0.0, ClearancePlanner.Seat([text40], own40, opened));
+
+        // 别的行上放不下的字、同一行放得下的字都不放行。
+        SheetSegment[] otherRow = [new(M(20), M(134.05), M(64), M(134.05)), new(M(20), M(134.85), M(64), M(134.85)), new(M(22), M(134.05), M(22), M(134.85))];
+        Equal(1, ClearancePlanner.ForSeat(blocked, own40, Math.PI / 2, [(otherRow, [text4])]).Texts.Count);
+        var seated = text4 with { Width = M(0.5) };
+        Equal(1, ClearancePlanner.ForSeat(new Obstacles([], [seated]), own40, Math.PI / 2, [(own4, [seated])]).Texts.Count);
+    }
+
     static void TestDimensionSidesTie()
     {
         // 1.32.3（用户定）：先比禁区，再比引线长度；一样长放层数少的一侧，层数也一样放上方 / 左侧。

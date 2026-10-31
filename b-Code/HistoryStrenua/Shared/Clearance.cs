@@ -143,7 +143,10 @@ internal static class Clearance
             var obstacles = ObstaclesFor(shapes, i);
             if (sheet is not null)
                 obstacles = new Obstacles(obstacles.Lines.Concat(sheet.Lines).ToList(), obstacles.Texts.Concat(sheet.Texts).ToList());
-            if (shapes[i].Role == Role.Dimension && SeatDimension(api, shapes[i].Annotation, shapes[i].Lines, shapes[i].Texts, obstacles) is { } seat)
+            if (shapes[i].Role == Role.Dimension && shapes[i].Texts.Count == 1
+                && SeatDimension(api, shapes[i].Annotation, shapes[i].Lines, shapes[i].Texts,
+                    ClearancePlanner.ForSeat(obstacles, shapes[i].Lines, shapes[i].Texts[0].Angle,
+                        shapes.Where((shape, j) => j != i && shape.Role == Role.Dimension).Select(shape => (shape.Lines, shape.Texts)))) is { } seat)
             {
                 shapes[i] = shapes[i] with { Lines = seat.Lines, Texts = seat.Texts };
                 if (seat.Moved)

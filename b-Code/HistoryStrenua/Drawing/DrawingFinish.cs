@@ -119,7 +119,10 @@ internal static class DrawingFinish
                 var outside = !AnnotationPlacementPlanner.Within(shape.Texts, frame.Value);
                 if (!shape.Movable && !outside) continue;
                 var obstacles = ObstaclesFor(i);
-                if (shape.Movable && Clearance.SeatDimension(api, shape.Annotation, shape.Lines, shape.Texts, obstacles) is { } seat)
+                if (shape.Movable && shape.Texts.Count == 1
+                    && Clearance.SeatDimension(api, shape.Annotation, shape.Lines, shape.Texts,
+                        ClearancePlanner.ForSeat(obstacles, shape.Lines, shape.Texts[0].Angle,
+                            shapes.Where((other, j) => j != i && other.Movable).Select(other => (other.Lines, other.Texts)))) is { } seat)
                 {
                     shapes[i] = shape with { Lines = seat.Lines, Texts = seat.Texts };
                     if (seat.Moved)

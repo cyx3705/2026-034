@@ -40,7 +40,7 @@ internal static class DimAdd
         var x = QuickArgs.Millimeters(arguments.GetString("x"), "x") ?? throw new QuickArgumentException("缺参数 x=（文字位置，图纸 mm）");
         var y = QuickArgs.Millimeters(arguments.GetString("y"), "y") ?? throw new QuickArgumentException("缺参数 y=（文字位置，图纸 mm）");
         if (SameEdge(from, to))
-            throw new QuickArgumentException($"from={from} 和 to={to} 在同一条边上：不量线自身长度。要定它的端点，就从基准或已标的线量到那个端点（如 from=E5 to={(to.Hole ? "E7.2" : "E" + to.Index + ".2")}）。");
+            throw new QuickArgumentException($"from={from} 和 to={to} 在同一条边上：不量线自身长度。要定它的端点，就从基准或已标的线量到那个端点（如 from=基准边 to={(to.Curve ? "C" : "E")}{to.Index}.2）。");
         var prefix = QuickArgs.Optional(arguments, "prefix");
         return context => Run(context, view, from, to, horizontal, new SheetPoint(x * QuickArgs.Mm, y * QuickArgs.Mm), prefix);
     }

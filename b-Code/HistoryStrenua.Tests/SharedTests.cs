@@ -127,6 +127,17 @@ internal static partial class Tests
         True(up is not null && Math.Abs(vertical.Y + up.Value + vertical.Width / 2 - M(103.5)) < 1e-9, "竖直尺寸放回正中");
     }
 
+    static void TestDimensionSidesTie()
+    {
+        // 1.32.3（用户定）：先比禁区，再比引线长度；一样长放层数少的一侧，层数也一样放上方 / 左侧。
+        True(!DimensionSides.PreferFar(1, 9, 5, 0, 9, 9) is false, "禁区少的一侧优先");
+        True(DimensionSides.PreferFar(0, 0.02, 0, 0, 0.01, 5), "引线短优先于层数少");
+        True(!DimensionSides.PreferFar(0, 0.01, 5, 0, 0.02, 0), "引线短优先于层数少（近侧）");
+        True(DimensionSides.PreferFar(0, 0.018, 3, 0, 0.018, 2), "一样长放层数少的另一侧");
+        True(!DimensionSides.PreferFar(0, 0.018, 2, 0, 0.018, 3), "一样长放层数少的这一侧");
+        True(!DimensionSides.PreferFar(0, 0.018, 2, 0, 0.018, 2), "层数也一样放上方 / 左侧");
+    }
+
     static void TestClearanceCallout()
     {
         // 真机：孔标注「2 x Ø5.50 完全贯穿」在左时下划线 32.5–65.44，右端（折点）= 文字右缘 64.19 + 1.25；

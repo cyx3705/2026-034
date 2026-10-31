@@ -3,7 +3,7 @@ namespace HistoryStrenua;
 /// <summary>
 /// 位置类尺寸（孔位、方形槽、销孔间、圆心位置）放视图哪一侧（1.23.0，用户定）：水平尺寸可以放上方也可以放下方，竖直尺寸可以放左侧也可以放右侧，
 /// 不再整组挤在一侧。逐组比：先比压到图纸禁区几处（避障开着时），一样多就量尺寸界线（引线）总长，选短的那一侧；
-/// 一侧层数多了，再往这侧放的界线自然就长，两侧因此均衡。完全一样长时放上方 / 左侧（老位置）。
+/// 一侧层数多了，再往这侧放的界线自然就长，两侧因此均衡。一样长时放已排层数少的一侧（1.32.3，用户定），层数也一样放上方 / 左侧。
 /// </summary>
 /// <param name="Left">左侧基准 X（图纸，米）。</param>
 /// <param name="Top">上侧基准 Y。</param>
@@ -43,8 +43,12 @@ internal sealed record DimensionSides(
     public const double LengthTolerance = 1e-5;
 
     /// <summary>
-    /// 放另一侧（下方 / 右侧）更好吗：压禁区少的一侧优先，一样多时引线总长短的一侧优先，一样长留在上方 / 左侧。
+    /// 放另一侧（下方 / 右侧）更好吗：压禁区少的一侧优先，一样多时引线总长短的一侧优先，一样长时已排层数少的一侧优先，层数也一样留在上方 / 左侧。
     /// </summary>
-    public static bool PreferFar(int nearHits, double nearLength, int farHits, double farLength)
-        => farHits != nearHits ? farHits < nearHits : farLength < nearLength - LengthTolerance;
+    public static bool PreferFar(int nearHits, double nearLength, int nearTiers, int farHits, double farLength, int farTiers)
+    {
+        if (farHits != nearHits)
+            return farHits < nearHits;
+        return Math.Abs(farLength - nearLength) > LengthTolerance ? farLength < nearLength : farTiers < nearTiers;
+    }
 }

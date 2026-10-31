@@ -122,7 +122,7 @@ internal static class SquareSlotPlanner
             SheetPoint End(double at) => horizontal ? new SheetPoint(0, at) : new SheetPoint(at, 0);
             var near = DimensionSides.Leader(axis, sides.Line(axis, false, tiers[0]), End(nearEnd));
             var farLength = DimensionSides.Leader(axis, sides.Line(axis, true, tiers[1]), End(farEnd));
-            return DimensionSides.PreferFar(0, near, 0, farLength);
+            return DimensionSides.PreferFar(0, near, tiers[0], 0, farLength, tiers[1]);
         }
     }
 

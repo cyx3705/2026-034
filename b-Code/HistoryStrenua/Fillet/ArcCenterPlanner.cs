@@ -216,8 +216,8 @@ internal static class ArcCenterPlanner
                 var near = axis == PositionAxis.Horizontal ? same.MaxBy(item => item.Center.Y)! : same.MinBy(item => item.Center.X)!;
                 var farRef = axis == PositionAxis.Horizontal ? same.MinBy(item => item.Center.Y)! : same.MaxBy(item => item.Center.X)!;
                 var far = sides is not null && DimensionSides.PreferFar(
-                    0, DimensionSides.Leader(axis, placing.Line(axis, false, tiers[0]), near.Center),
-                    0, DimensionSides.Leader(axis, placing.Line(axis, true, tiers[1]), farRef.Center));
+                    0, DimensionSides.Leader(axis, placing.Line(axis, false, tiers[0]), near.Center), tiers[0],
+                    0, DimensionSides.Leader(axis, placing.Line(axis, true, tiers[1]), farRef.Center), tiers[1]);
                 var reference = far ? farRef : near;
                 var center = reference.Center;
                 var line = placing.Line(axis, far, tiers[far ? 1 : 0]++);

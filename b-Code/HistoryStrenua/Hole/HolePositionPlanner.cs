@@ -251,8 +251,8 @@ internal static class HolePositionPlanner
             {
                 var farLine = horizontal ? space.Bottom - OrdinateOffset : space.Right + OrdinateOffset;
                 far = DimensionSides.PreferFar(
-                    0, stops.Sum(stop => DimensionSides.Leader(axis, nearLine, Center(stop.Hole))),
-                    0, stops.Sum(stop => DimensionSides.Leader(axis, farLine, Center(stop.Far))));
+                    0, stops.Sum(stop => DimensionSides.Leader(axis, nearLine, Center(stop.Hole))), 0,
+                    0, stops.Sum(stop => DimensionSides.Leader(axis, farLine, Center(stop.Far))), 0);
                 if (far)
                     nearLine = farLine;
             }
@@ -491,7 +491,7 @@ internal static class HolePositionPlanner
     /// <summary>
     /// 一种孔的这几个尺寸（<paramref name="items"/>，层号从 0 起）放不放到另一侧（下方 / 右侧），1.23.0 起逐种孔挑：
     /// 两侧各接在已排的层外面（<paramref name="tiers"/>：上方 / 左侧、下方 / 右侧各排了几层），先比压禁区与出图框几处，
-    /// 一样多比尺寸界线（孔心引到尺寸线）总长，短的一侧；一样长留在上方 / 左侧。
+    /// 一样多比尺寸界线（孔心引到尺寸线）总长，短的一侧；一样长放已排层数少的一侧，层数也一样留在上方 / 左侧。
     /// </summary>
     internal static bool ChooseFar(PositionAxis axis, IReadOnlyList<Planned> items, IReadOnlyList<int> tiers, Datum datum, PositionSpace space)
     {
@@ -510,7 +510,7 @@ internal static class HolePositionPlanner
                    + (item.From is { } from ? DimensionSides.Leader(axis, line, Center(from.On(far))) : 0);
         });
 
-        return DimensionSides.PreferFar(Hits(false), Length(false), Hits(true), Length(true));
+        return DimensionSides.PreferFar(Hits(false), Length(false), tiers[0], Hits(true), Length(true), tiers[1]);
     }
 
     private static SheetPoint Center(HoleEdge hole) => new(hole.X, hole.Y);

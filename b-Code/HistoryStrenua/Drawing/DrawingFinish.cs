@@ -149,7 +149,9 @@ internal static class DrawingFinish
                 var (centerX, centerY) = ((shape.View.Left + shape.View.Right) / 2, (shape.View.Bottom + shape.View.Top) / 2);
                 var sign = (shape.Texts[0].X - centerX) * vx + (shape.Texts[0].Y - centerY) * vy >= 0 ? 1 : -1;
                 double Out(TextBox text) => sign * (text.X * vx + text.Y * vy);
+                // 放不下的字可能已经离开自己那一行，不算一层。
                 var outermost = shapes.Where((other, j) => other.ViewName == shape.ViewName && other.Movable && !group.Contains(j) && other.Texts.Count == 1
+                        && !ClearancePlanner.Squeezed(other.Texts, other.Lines)
                         && Math.Abs(other.Texts[0].Angle - shape.Texts[0].Angle) < 1e-3)
                     .All(other => Out(other.Texts[0]) <= group.Max(g => Out(shapes[g].Texts[0])) + 1e-4);
                 if (!outermost)
@@ -179,6 +181,12 @@ internal static class DrawingFinish
             }
 
             // 1.32.6（用户定）：先让放得下的字都回到界线之间，再给放不下的字找地方，免得它挤别人。
+            for (var i = 0; i < shapes.Count; i++)
+            {
+                if (!Seat(i))
+                    MoveRow(i);
+            }
+
             for (var i = 0; i < shapes.Count; i++)
                 Seat(i);
             var placed = new HashSet<int>();

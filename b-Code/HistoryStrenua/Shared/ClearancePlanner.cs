@@ -252,6 +252,9 @@ internal static class ClearancePlanner
     /// <summary>放不下的字贴在界线外时离界线多远（图纸 2 mm，留给箭头）。</summary>
     public const double BesideGap = 0.002;
 
+    /// <summary>别人的尺寸线离自己这一行不到这么远（图纸 1 mm）算同一行。</summary>
+    private const double NearRow = 1e-3;
+
     /// <summary>箭头短线最长算多长（图纸 6 mm）；再长就是别人的尺寸线。</summary>
     private const double StubLength = 0.006;
 
@@ -332,7 +335,12 @@ internal static class ClearancePlanner
         bool Free(double to)
         {
             var moved = text.Shift((to - start) * ux, (to - start) * uy);
-            return AnnotationPlacementPlanner.Within([moved], frame) && Hits([moved], others) == 0;
+            // 紧贴着别人的长尺寸线也算踩（行距差一点点，框没碰上，看着还是站在那条线上）。
+            var onLong = obstacles.Lines.Any(line => !CrossingLines([line], text.Angle).Any() && !Stub(line)
+                && rows.Any(row => Math.Abs(Row(line) - row) < NearRow)
+                && Math.Max(line.X1 * ux + line.Y1 * uy, line.X2 * ux + line.Y2 * uy) > to
+                && Math.Min(line.X1 * ux + line.Y1 * uy, line.X2 * ux + line.Y2 * uy) < to + text.Width);
+            return !onLong && AnnotationPlacementPlanner.Within([moved], frame) && Hits([moved], others) == 0;
         }
 
         // 已经贴在旁边、没压东西：不动。

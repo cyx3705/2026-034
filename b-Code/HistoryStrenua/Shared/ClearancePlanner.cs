@@ -252,8 +252,42 @@ internal static class ClearancePlanner
     /// <summary>放不下的字贴在界线外时离界线多远（图纸 2 mm，留给箭头）。</summary>
     public const double BesideGap = 0.002;
 
+    /// <summary>箭头短线最长算多长（图纸 6 mm）；再长就是别人的尺寸线。</summary>
+    private const double StubLength = 0.006;
+
+    /// <summary>
+    /// 这一组尺寸（同一条链）整条平移 (<paramref name="dx"/>, <paramref name="dy"/>) 后，放得下的字都能留在界线之间吗（1.32.6）。放不下的字不算，它们之后自己找地方。
+    /// </summary>
+    public static bool RowFits(IReadOnlyList<(IReadOnlyList<SheetSegment> Lines, IReadOnlyList<TextBox> Texts)> group, double dx, double dy, Obstacles obstacles, SheetRect frame)
+    {
+        foreach (var (lines, texts) in group)
+        {
+            if (texts.Count != 1 || Squeezed(texts, lines))
+                continue;
+            var moved = lines.Select(line => new SheetSegment(line.X1 + dx, line.Y1 + dy, line.X2 + dx, line.Y2 + dy)).ToList();
+            var shifted = Shift(texts, dx, dy);
+            if (!AnnotationPlacementPlanner.Within(shifted, frame) || Seat(shifted, moved, obstacles) is null)
+                return false;
+        }
+
+        return true;
+    }
+
     /// <summary>离开尺寸链找地方时每步走多远（图纸 0.5 mm）。</summary>
     public const double SearchStep = 5e-4;
+
+    /// <summary>字沿尺寸线还对着自己的间距（和两条界线之间有重叠）。</summary>
+    public static bool OverGap(IReadOnlyList<TextBox> texts, IReadOnlyList<SheetSegment> own)
+    {
+        if (texts.Count != 1)
+            return false;
+        var (ux, uy) = (Math.Cos(texts[0].Angle), Math.Sin(texts[0].Angle));
+        var stations = CrossingLines(own, texts[0].Angle).Select(line => (line.X1 + line.X2) / 2 * ux + (line.Y1 + line.Y2) / 2 * uy).ToList();
+        if (stations.Count < 2)
+            return false;
+        var start = texts[0].X * ux + texts[0].Y * uy;
+        return start < stations.Max() && start + texts[0].Width > stations.Min();
+    }
 
     /// <summary>这个尺寸的字放不进自己两条界线之间（只认一段字、有两条界线的）。</summary>
     public static bool Squeezed(IReadOnlyList<TextBox> texts, IReadOnlyList<SheetSegment> own)
@@ -274,7 +308,8 @@ internal static class ClearancePlanner
     /// <param name="view">视图外框。</param>
     /// <param name="frame">图框。</param>
     /// <param name="obstacles">要躲的东西，不含这个尺寸自己的线。</param>
-    public static SheetPoint? PlaceSqueezed(TextBox text, IReadOnlyList<SheetSegment> own, SheetRect view, SheetRect frame, Obstacles obstacles)
+    /// <param name="onChain">还在尺寸链这一行（或本来就不在链上）：false 表示已经离开，不再回到旁边。</param>
+    public static SheetPoint? PlaceSqueezed(TextBox text, IReadOnlyList<SheetSegment> own, SheetRect view, SheetRect frame, Obstacles obstacles, bool onChain = true)
     {
         var (ux, uy) = (Math.Cos(text.Angle), Math.Sin(text.Angle));
         var (vx, vy) = (-uy, ux);
@@ -288,9 +323,10 @@ internal static class ClearancePlanner
 
         double Row(SheetSegment line) => line.X1 * vx + line.Y1 * vy;
         var rows = own.Except(crossing).Select(Row).ToList();
-        var others = new Obstacles(
-            obstacles.Lines.Where(line => CrossingLines([line], text.Angle).Any() || !rows.Any(row => Math.Abs(Row(line) - row) < 1e-4)).ToList(),
-            obstacles.Texts);
+        // 同一行只放过别人的箭头短线；别人的长尺寸线不能踩（真机底层1 的 31.5 贴到 618.5 的线上）。
+        bool Stub(SheetSegment line) => !CrossingLines([line], text.Angle).Any() && rows.Any(row => Math.Abs(Row(line) - row) < 1e-4)
+            && Math.Sqrt(Math.Pow(line.X2 - line.X1, 2) + Math.Pow(line.Y2 - line.Y1, 2)) <= StubLength;
+        var others = new Obstacles(obstacles.Lines.Where(line => !Stub(line)).ToList(), obstacles.Texts);
 
         SheetPoint Along(double to) => new((to - start) * ux, (to - start) * uy);
         bool Free(double to)
@@ -302,13 +338,19 @@ internal static class ClearancePlanner
         // 已经贴在旁边、没压东西：不动。
         var (left, right) = (low - text.Width - BesideGap, high + BesideGap);
         var beside = (start + text.Width <= low && start >= left - BesideGap) || (start >= high && start <= right + BesideGap);
-        if (beside && Free(start))
+        if (onChain && beside && Free(start))
             return new SheetPoint(0, 0);
-        foreach (var to in start < (low + high - text.Width) / 2 ? new[] { left, right } : [right, left])
+        foreach (var to in !onChain ? [] : start < (low + high - text.Width) / 2 ? new[] { left, right } : [right, left])
         {
             if (Free(to))
                 return Along(to);
         }
+
+        // 和自己的尺寸界线共线的线（隔壁尺寸量到同一个孔）不算挡路：字本来就对着这两条线。
+        var clear = new Obstacles(
+            obstacles.Lines.Where(line => !CrossingLines([line], text.Angle).Any()
+                || !stations.Any(station => Math.Abs((line.X1 + line.X2) / 2 * ux + (line.Y1 + line.Y2) / 2 * uy - station) < 2e-4)).ToList(),
+            obstacles.Texts);
 
         var corners = new[] { (view.Left, view.Bottom), (view.Left, view.Top), (view.Right, view.Bottom), (view.Right, view.Top) }
             .Select(p => p.Item1 * vx + p.Item2 * vy)
@@ -331,7 +373,7 @@ internal static class ClearancePlanner
                 Width = Math.Max(moved.Width - 2 * Margin, 1e-6),
                 Height = Math.Max(moved.Height - 2 * Margin, 1e-6),
             };
-            if (Hits([inner], obstacles) == 0)
+            if (Hits([inner], clear) == 0)
                 return Math.Abs(dx) + Math.Abs(dy) < SeatTolerance ? new SheetPoint(0, 0) : new SheetPoint(dx, dy);
         }
     }

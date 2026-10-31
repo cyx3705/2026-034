@@ -106,6 +106,9 @@ internal static class DrawingFinish
 
         int Hits(Shape s, Obstacles obstacles) => ClearancePlanner.Hits(s.Texts, obstacles)
             + (AnnotationPlacementPlanner.Within(s.Texts, frame.Value) ? 0 : 100);
+        // 已离开尺寸链的放不下的字（只算这一遍；下一遍读回时它和链已不同行，也不在 chainPeers 里）。字还对着自己的间距、又没有同行的链，也算离开了。
+        var left = new HashSet<int>();
+        bool OnChain(int index) => !left.Contains(index) && (chainPeers.ContainsKey(index) || !ClearancePlanner.OverGap(shapes[index].Texts, shapes[index].Lines));
         // 后加的尺寸界线也会压到先前文字，所以整页跑有上限的三轮。每次读回确认变好才保留，避免反复漂移。
         for (var pass = 0; pass < 3; pass++)
         {
@@ -128,6 +131,42 @@ internal static class DrawingFinish
                 return true;
             }
 
+            // 放得下的字被上一层尺寸界线的尾巴挡住（真机底层1 的两个 40）：不把字挪走，整条链往外退一层，一层 4 mm，最多 6 层。
+            bool MoveRow(int index)
+            {
+                var shape = shapes[index];
+                if (!shape.Movable || shape.Texts.Count != 1 || ClearancePlanner.Squeezed(shape.Texts, shape.Lines)
+                    || ClearancePlanner.Seat(shape.Texts, shape.Lines, Obstacles.Empty) is null)
+                    return false;
+                var group = (chainPeers.GetValueOrDefault(index) ?? []).Append(index).ToList();
+                var free = ObstaclesWithout(group);
+                var members = group.Select(g => (shapes[g].Lines, shapes[g].Texts)).ToList();
+                var (vx, vy) = (-Math.Sin(shape.Texts[0].Angle), Math.Cos(shape.Texts[0].Angle));
+                var (centerX, centerY) = ((shape.View.Left + shape.View.Right) / 2, (shape.View.Bottom + shape.View.Top) / 2);
+                var sign = (shape.Texts[0].X - centerX) * vx + (shape.Texts[0].Y - centerY) * vy >= 0 ? 1 : -1;
+                for (var tier = 1; tier <= 6; tier++)
+                {
+                    var (dx, dy) = (sign * tier * 0.004 * vx, sign * tier * 0.004 * vy);
+                    if (!ClearancePlanner.RowFits(members, dx, dy, free, frame.Value))
+                        continue;
+                    foreach (var member in group)
+                    {
+                        var at = api.CallDoubles(shapes[member].Annotation, "IAnnotation", "GetPosition");
+                        if (at.Length < 3)
+                            continue;
+                        api.CallBool(shapes[member].Annotation, "IAnnotation", "SetPosition2", at[0] + dx, at[1] + dy, at[2]);
+                        var (lines, texts) = Clearance.DisplayGeometry(api, shapes[member].Annotation);
+                        shapes[member] = shapes[member] with { Lines = lines, Texts = texts };
+                    }
+
+                    moved++;
+                    changed = true;
+                    return true;
+                }
+
+                return false;
+            }
+
             // 1.32.6（用户定）：先让放得下的字都回到界线之间，再给放不下的字找地方，免得它挤别人。
             for (var i = 0; i < shapes.Count; i++)
                 Seat(i);
@@ -137,7 +176,7 @@ internal static class DrawingFinish
                 context.Cancellation.ThrowIfCancellationRequested();
                 var shape = shapes[i];
                 if (!shape.Movable || !ClearancePlanner.Squeezed(shape.Texts, shape.Lines)
-                    || ClearancePlanner.PlaceSqueezed(shape.Texts[0], shape.Lines, shape.View, frame.Value, ObstaclesFor(i)) is not { } offset)
+                    || ClearancePlanner.PlaceSqueezed(shape.Texts[0], shape.Lines, shape.View, frame.Value, ObstaclesFor(i), OnChain(i)) is not { } offset)
                     continue;
                 placed.Add(i);
                 if (offset.X == 0 && offset.Y == 0)
@@ -149,6 +188,15 @@ internal static class DrawingFinish
                 shapes[i] = shape with { Lines = lines, Texts = texts };
                 moved++;
                 changed = true;
+                // 离开了这一行（沿垂直尺寸线的方向挪了）：不再和那条链一起走。
+                var (sin, cos) = (Math.Sin(shape.Texts[0].Angle), Math.Cos(shape.Texts[0].Angle));
+                if (Math.Abs(-offset.X * sin + offset.Y * cos) > 1e-6)
+                {
+                    foreach (var peer in chainPeers.GetValueOrDefault(i) ?? [])
+                        chainPeers[peer].Remove(i);
+                    chainPeers.Remove(i);
+                    left.Add(i);
+                }
             }
 
             for (var i = 0; i < shapes.Count; i++)
@@ -161,7 +209,7 @@ internal static class DrawingFinish
                 var outside = !AnnotationPlacementPlanner.Within(shape.Texts, frame.Value);
                 if (!shape.Movable && !outside) continue;
                 var obstacles = ObstaclesFor(i);
-                if (Seat(i)) continue;
+                if (Seat(i) || MoveRow(i)) continue;
                 var hits = Hits(shape, obstacles);
                 if (hits == 0) continue;
                 var position = api.CallDoubles(shape.Annotation, "IAnnotation", "GetPosition");
@@ -247,7 +295,7 @@ internal static class DrawingFinish
         }
 
         return (moved, shapes.Where((s, i) => s.Movable && s.Texts.Count > 0 && Hits(s, ObstaclesFor(i)) > 0 && ClearancePlanner.Seat(s.Texts, s.Lines, ObstaclesFor(i)) is not 0.0
-            && !(ClearancePlanner.Squeezed(s.Texts, s.Lines) && ClearancePlanner.PlaceSqueezed(s.Texts[0], s.Lines, s.View, frame.Value, ObstaclesFor(i)) is { X: 0, Y: 0 })).Select(s => s.Name).ToList(), outsideNames);
+            && !(ClearancePlanner.Squeezed(s.Texts, s.Lines) && ClearancePlanner.PlaceSqueezed(s.Texts[0], s.Lines, s.View, frame.Value, ObstaclesFor(i), OnChain(i)) is { X: 0, Y: 0 })).Select(s => s.Name).ToList(), outsideNames);
     }
 
     /// <summary>这个视图里同一行首尾相接的尺寸记进 <paramref name="peers"/>（shapes 下标 → 同链另外几段）。</summary>

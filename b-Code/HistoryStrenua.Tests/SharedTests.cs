@@ -180,6 +180,23 @@ internal static partial class Tests
         Near(M(56.46), placed.X);
         Near(M(134.45), placed.Y + placed.Width / 2);
 
+        // 离开过的字不回旁边；旁边有别人的长尺寸线不能贴，短的箭头线可以。
+        var besideFree = new TextBox(M(30), M(94), M(6.13), M(3.5));
+        var noReturn = ClearancePlanner.PlaceSqueezed(besideFree, own10, view, frame, Obstacles.Empty, onChain: false);
+        True(noReturn is { } n && Math.Abs(besideFree.X + n.X + besideFree.Width / 2 - M(63.4)) < 1e-9, "离开过的对着自己的间距找");
+        SheetSegment longLine = new(M(30), M(94), M(60), M(94));
+        var skipLong = ClearancePlanner.PlaceSqueezed(besideFree, own10, view, frame, new Obstacles([longLine], []));
+        True(skipLong is { } s && besideFree.X + s.X >= M(66), "左边踩长尺寸线，改放右边");
+        SheetSegment stubLine = new(M(55), M(94), M(60), M(94));
+        var overStub = ClearancePlanner.PlaceSqueezed(besideFree, own10, view, frame, new Obstacles([stubLine], []));
+        True(overStub is { } o && Math.Abs(besideFree.X + o.X + besideFree.Width - M(60.4)) < 1e-9, "短线不挡");
+
+        // 整条链外移：字本身被一条尾巴挡，退一层就让开。
+        var tail = new SheetSegment(M(67), M(95), M(67), M(110));
+        var row = new (IReadOnlyList<SheetSegment> Lines, IReadOnlyList<TextBox> Texts)[] { (own30, [text30 with { X = M(64.335) }]) };
+        True(!ClearancePlanner.RowFits(row, 0, 0, new Obstacles([tail], []), frame), "原地被挡");
+        True(ClearancePlanner.RowFits(row, 0, M(-4), new Obstacles([tail], []), frame), "退一层放得下");
+
         // 贴视图那格有条线：往外走到放得下为止。
         var blocked = ClearancePlanner.PlaceSqueezed(text4, own4, view, frame, new Obstacles([new(M(54), M(120), M(54), M(150))], neighbours));
         var outer = text4.Shift(blocked!.Value.X, blocked.Value.Y);

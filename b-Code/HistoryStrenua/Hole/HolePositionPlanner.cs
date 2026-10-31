@@ -204,7 +204,8 @@ internal static class HolePositionPlanner
             {
                 var stops = chain.Stops;
                 var first = stops[0];
-                var needDatum = !mirrored && Claim(0, first.Offset);
+                // 被取代的粗阵列也不占基准这一段：留给细阵列，两段才在同一行、同一条链上（真机侧板 45 在上方、10 x 100 在下方）。
+                var needDatum = !mirrored && !Superseded(chain) && Claim(0, first.Offset);
                 var items = new List<Planned>();
                 if (chain.Pattern)
                 {

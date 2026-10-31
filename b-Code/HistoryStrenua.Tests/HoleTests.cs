@@ -274,6 +274,8 @@ internal static partial class Tests
             Equal(1, patterns.Count);
             Equal("10 x 100 =", patterns[0].Prefix);
             Near(1.0, patterns[0].Expected);
+            var datumSpan = HolePositionPlanner.Plan(edges, left, top, scale).Dimensions.Single(d => d.Axis == PositionAxis.Horizontal && d.FromEdgeIndex is null);
+            Near(patterns[0].TextAt.Y, datumSpan.TextAt.Y);
         }
 
         // 粗阵列的孔不在细阵列的站上：两个都要标，否则粗阵列没有位置。

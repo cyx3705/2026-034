@@ -8,7 +8,7 @@ internal static class DrawingFinish
     public static QuickCommand Command { get; } = new(
         "drawing-finish", StrenuaIdentity.Domain + ".drawing.finish", "整理标注",
         "当前页标注完成后，按整页轮廓、注解和图框避让线性尺寸，再按真实标注占位排版；孔标注不挪，未解冲突明确报告，不保存。",
-        "不用点视图：标注后按一下，线性尺寸先沿线滑、必要时在视图外换层；不改数值、公差和附着。按全部注解真实占位排版，再复核避让。遵守避障开关；坐标尺寸、孔标注不移动（孔标注压字、引线交叉留给人或 AI 用「挪标注」修，「注解重叠」会列出来）。仍有冲突则列出标注名称，请检查后保存。",
+        "不用点视图：标注后按一下，线性尺寸先沿线滑、必要时在视图外换层（同一条尺寸链整条一起换，不拆开）；不改数值、公差和附着。按全部注解真实占位排版，再复核避让。遵守避障开关；坐标尺寸、孔标注不移动（孔标注压字、引线交叉留给人或 AI 用「挪标注」修，「注解重叠」会列出来）。仍有冲突则列出标注名称，请检查后保存。",
         context => Run(context, HoleScan.ActiveDrawing(context)),
         Row: 2, Page: "onekey");
 
@@ -41,14 +41,18 @@ internal static class DrawingFinish
     {
         var api = context.Api;
         var shapes = new List<Shape>();
+        // 同一条尺寸链的另外几段（shapes 下标）：1.30.0 用户定，换行要整条一起走，否则链就断了。
+        var chainPeers = new Dictionary<int, List<int>>();
         var geometry = new List<SheetSegment>(DrawingSheet.FrameLines(api, drawing));
         foreach (var view in HoleScan.SheetViews(api, drawing))
         {
             var name = DrawingSheet.Name(api, view);
             var rect = DrawingSheet.Outline(api, view);
+            ScannedView? scanned = null;
             if (api.Call(view, "IView", "get_ReferencedDocument") is not null && !HoleScan.Frame(context, view).Axonometric)
             {
                 var scan = HoleScan.Scan(context, "整理标注", withLines: true, view: view, quiet: true);
+                scanned = scan;
                 geometry.AddRange(scan.Lines);
                 geometry.AddRange(scan.CurveSegments);
                 foreach (var hole in scan.Candidates) geometry.AddRange(ClearancePlanner.Octagon(new SheetPoint(hole.X, hole.Y), hole.Radius));
@@ -82,13 +86,17 @@ internal static class DrawingFinish
                 }
                 shapes.Add(new Shape(annotation, name + "/" + api.CallString(annotation, "IAnnotation", "GetName"), rect, movable, callout, lines, texts));
             }
+
+            if (scanned is not null)
+                ReadChains(api, scanned, name, shapes, chainPeers);
         }
         var keepouts = DrawingSheet.KeepOutRects(api, drawing).Select(r => new TextBox(r.Left, r.Bottom, r.Width, r.Height)).ToList();
         var frame = DrawingSheet.FrameRect(api, drawing);
         if (frame is null) throw new QuickCommandException("整理标注：读不到图框，未移动标注。");
         var moved = 0;
-        Obstacles ObstaclesFor(int i) => new(geometry.Concat(shapes.Where((_, j) => i != j).SelectMany(s => s.Lines)).ToList(),
-            keepouts.Concat(shapes.Where((_, j) => i != j).SelectMany(s => s.Texts)).ToList());
+        Obstacles ObstaclesFor(int i) => ObstaclesWithout([i]);
+        Obstacles ObstaclesWithout(IReadOnlyCollection<int> skip) => new(geometry.Concat(shapes.Where((_, j) => !skip.Contains(j)).SelectMany(s => s.Lines)).ToList(),
+            keepouts.Concat(shapes.Where((_, j) => !skip.Contains(j)).SelectMany(s => s.Texts)).ToList());
         int Hits(Shape s, Obstacles obstacles) => ClearancePlanner.Hits(s.Texts, obstacles)
             + (AnnotationPlacementPlanner.Within(s.Texts, frame.Value) ? 0 : 100);
         // 后加的尺寸界线也会压到先前文字，所以整页跑有上限的三轮。每次读回确认变好才保留，避免反复漂移。
@@ -108,18 +116,45 @@ internal static class DrawingFinish
                 if (hits == 0) continue;
                 var position = api.CallDoubles(shape.Annotation, "IAnnotation", "GetPosition");
                 if (position.Length < 3) continue;
+                var peers = chainPeers.GetValueOrDefault(i) ?? [];
+                var horizontal = Math.Abs(Math.Cos(shape.Texts[0].Angle)) > 0.9;
+                // 只有离开这一行才带上同链的另外几段，它们只平移垂直于尺寸线的那一截；沿线滑不影响链。
+                SheetPoint Across(SheetPoint offset) => horizontal ? new SheetPoint(0, offset.Y) : new SheetPoint(offset.X, 0);
+                bool Leaves(SheetPoint offset) => peers.Count > 0 && Math.Abs(horizontal ? offset.Y : offset.X) > 1e-9;
+                var chainObstacles = peers.Count > 0 ? ObstaclesWithout(peers.Append(i).ToList()) : obstacles;
                 var clean = AnnotationPlacementPlanner.Offsets(shape.Texts, shape.View, shape.Callout).Where(offset =>
                 {
                     var moved = ClearancePlanner.Shift(shape.Texts, offset.X, offset.Y);
-                    return AnnotationPlacementPlanner.Within(moved, frame.Value) && ClearancePlanner.Hits(moved, obstacles) == 0;
+                    if (!Leaves(offset))
+                        return AnnotationPlacementPlanner.Within(moved, frame.Value) && ClearancePlanner.Hits(moved, obstacles) == 0;
+                    var across = Across(offset);
+                    return AnnotationPlacementPlanner.Within(moved, frame.Value) && ClearancePlanner.Hits(moved, chainObstacles) == 0
+                        && peers.All(peer =>
+                        {
+                            var shifted = ClearancePlanner.Shift(shapes[peer].Texts, across.X, across.Y);
+                            return AnnotationPlacementPlanner.Within(shifted, frame.Value) && ClearancePlanner.Hits(shifted, chainObstacles) == 0;
+                        });
                 });
                 // 找不到全空的地方：出框的宁可压字也要回到框内。
                 foreach (var offset in clean.Concat(AnnotationPlacementPlanner.Inward(shape.Texts, frame.Value)))
                 {
                     var accepted = false;
+                    var carried = new List<(int Index, double[] Position)>();
                     try
                     {
                         if (!api.CallBool(shape.Annotation, "IAnnotation", "SetPosition2", position[0] + offset.X, position[1] + offset.Y, position[2])) continue;
+                        if (Leaves(offset))
+                        {
+                            var across = Across(offset);
+                            foreach (var peer in peers)
+                            {
+                                var at = api.CallDoubles(shapes[peer].Annotation, "IAnnotation", "GetPosition");
+                                if (at.Length < 3) continue;
+                                carried.Add((peer, at));
+                                api.CallBool(shapes[peer].Annotation, "IAnnotation", "SetPosition2", at[0] + across.X, at[1] + across.Y, at[2]);
+                            }
+                        }
+
                         var (lines, texts) = Clearance.DisplayGeometry(api, shape.Annotation);
                         var after = shape with { Lines = lines, Texts = texts };
                         // SW 移动孔标注时会换引线端、重排公差文字；预测平移不等于实际显示，必须读回。
@@ -128,6 +163,11 @@ internal static class DrawingFinish
                         if (texts.Count > 0 && Hits(after, obstacles) < hits && crossing <= beforeCrossing)
                         {
                             shapes[i] = after; moved++; changed = true; accepted = true;
+                            foreach (var (peer, _) in carried)
+                            {
+                                var (peerLines, peerTexts) = Clearance.DisplayGeometry(api, shapes[peer].Annotation);
+                                shapes[peer] = shapes[peer] with { Lines = peerLines, Texts = peerTexts };
+                            }
                         }
                     }
                     finally
@@ -135,6 +175,11 @@ internal static class DrawingFinish
                         // 中途取消、COM 失败或试探没改善都要恢复原位置；失败不能继续用过期几何。
                         if (!accepted && !Convert.ToBoolean(api.CallForCleanup(shape.Annotation, "IAnnotation", "SetPosition2", position[0], position[1], position[2])))
                             throw new QuickCommandException("整理标注：无法还原「" + shape.Name + "」的试探位置，请检查此标注。");
+                        if (!accepted)
+                        {
+                            foreach (var (peer, at) in carried)
+                                api.CallForCleanup(shapes[peer].Annotation, "IAnnotation", "SetPosition2", at[0], at[1], at[2]);
+                        }
                     }
                     if (accepted) break;
                 }
@@ -152,6 +197,22 @@ internal static class DrawingFinish
         }
 
         return (moved, shapes.Where((s, i) => s.Movable && s.Texts.Count > 0 && Hits(s, ObstaclesFor(i)) > 0).Select(s => s.Name).ToList(), outsideNames);
+    }
+
+    /// <summary>这个视图里同一行首尾相接的尺寸记进 <paramref name="peers"/>（shapes 下标 → 同链另外几段）。</summary>
+    private static void ReadChains(SolidWorksApi api, ScannedView scan, string viewName, List<Shape> shapes, Dictionary<int, List<int>> peers)
+    {
+        var dimensions = DimensionScan.Read(api, scan);
+        var check = new CheckView(viewName, string.Empty, scan.Geometry.Frame, scan.Lines, scan.Candidates, scan.Arcs, dimensions.Select(item => item.Geometry).ToList(), []);
+        foreach (var group in DimensionCheckPlanner.ChainGroups(check, ChainCheck.Positions(api, dimensions)))
+        {
+            var members = group
+                .Select(index => shapes.FindIndex(shape => shape.Name == viewName + "/" + api.CallString(dimensions[index].Annotation, "IAnnotation", "GetName")))
+                .Where(index => index >= 0)
+                .ToList();
+            foreach (var member in members)
+                peers[member] = members.Where(other => other != member).ToList();
+        }
     }
 
     internal static int? ExactPrecision(double millimeters)

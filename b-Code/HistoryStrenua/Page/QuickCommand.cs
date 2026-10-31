@@ -190,6 +190,7 @@ internal static class QuickCommands
         ChamferDimension.Command,
         DimensionCheck.Command,
         RedundantCheck.Command,
+        ChainCheck.Command,
         DecimalCheck.Command,
         DanglingCheck.Command,
         OverlapCheck.Command,

@@ -140,24 +140,30 @@ internal static partial class DimensionCheckPlanner
         var array = ArrayPrefix.IsMatch(dimension.Prefix);
         foreach (var axis in Axes)
         {
-            (double From, double To)? span = null;
-            if (dimension.Linear && dimension.Anchors is [{ Segment: { } line }])
-            {
-                var (a, b) = axis == PositionAxis.Horizontal ? (line.X1, line.X2) : (line.Y1, line.Y2);
-                if (DimensionGeometry.Same(Math.Abs(a - b) / view.Frame.Scale, dimension.Value))
-                    span = (Math.Min(a, b), Math.Max(a, b));
-            }
-            else if (dimension.Anchors.Count >= 2 && Measured(dimension, axis, view.Frame.Scale))
-            {
-                span = DimensionGeometry.Span(dimension, axis);
-            }
-
-            // 坐标尺寸的 0 点两头是同一条边，长度 0，不是一条边。
-            if (span is { } found && !DimensionGeometry.Same(found.From, found.To))
+            if (MeasuredSpan(view, dimension, axis) is { } found)
                 return new DimensionEdge(member, view.Frame.Plane(axis, found.From), view.Frame.Plane(axis, found.To), axis == PositionAxis.Horizontal, array);
         }
 
         return null;
+    }
+
+    /// <summary>尺寸沿 <paramref name="axis"/> 量的那一段（图纸）：只连一条边的是它自身跨度；不是沿这个方向量的返回 null。</summary>
+    private static (double From, double To)? MeasuredSpan(CheckView view, ViewDimension dimension, PositionAxis axis)
+    {
+        (double From, double To)? span = null;
+        if (dimension.Linear && dimension.Anchors is [{ Segment: { } line }])
+        {
+            var (a, b) = axis == PositionAxis.Horizontal ? (line.X1, line.X2) : (line.Y1, line.Y2);
+            if (DimensionGeometry.Same(Math.Abs(a - b) / view.Frame.Scale, dimension.Value))
+                span = (Math.Min(a, b), Math.Max(a, b));
+        }
+        else if (dimension.Anchors.Count >= 2 && Measured(dimension, axis, view.Frame.Scale))
+        {
+            span = DimensionGeometry.Span(dimension, axis);
+        }
+
+        // 坐标尺寸的 0 点两头是同一条边，长度 0，不是一条边。
+        return span is { } found && !DimensionGeometry.Same(found.From, found.To) ? found : null;
     }
 
     /// <summary>阵列「N x 间距 =」：跨度里按等距落着的孔跟起点并在一起（不看别的东西：碰巧在跨度里的边不算定了）。</summary>

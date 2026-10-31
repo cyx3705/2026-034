@@ -174,6 +174,60 @@ internal static partial class Tests
         True(OneKeyFix.Text(PartKind.Machined).Contains("导入件"), "加工件查导入件孔识别");
     }
 
+    static void TestChain()
+    {
+        // 比例 1 正对 +Z。100 × 50 的板，左边 x=0、上边 y=0.05，孔 (10, 20)、(40, 20)。
+        var frame = new ViewFrame(new ModelDirection(1, 0, 0), new ModelDirection(0, 1, 0), new ModelDirection(0, 0, 1), new SheetPoint(0, 0), 1);
+        SheetSegment[] lines = [new(0, 0, 0, 0.05), new(0, 0.05, 0.1, 0.05), new(0.1, 0.05, 0.1, 0), new(0.1, 0, 0, 0)];
+        var (left, top) = (DimensionAnchor.Line(lines[0], true), DimensionAnchor.Line(lines[1], true));
+        var (h1, h2) = (C(0.01, 0.02), C(0.04, 0.02));
+        ViewDimension first = new(0, 2, false, 0.01, [left, h1]);
+        ViewDimension second = new(1, 2, false, 0.03, [h1, h2]);
+        CheckView View(SheetSegment[] centers, params ViewDimension[] d) => new("前", "PART|默认", frame, lines, [], [], d, centers);
+        Dictionary<int, SheetPoint> At(params double[] rows) => rows.Select((y, i) => (y, i)).ToDictionary(item => item.i, item => new SheetPoint(0.02, item.y));
+
+        // 从基准起 + 同一行接上：都在链上。
+        Equal(0, DimensionCheckPlanner.Chains(View([], first, second), At(0.07, 0.07)).Count);
+        var groups = DimensionCheckPlanner.ChainGroups(View([], first, second), At(0.07, 0.07));
+        Equal(1, groups.Count);
+        Equal(2, groups[0].Count);
+
+        // 同一条链被换了行：报第二段，指回第一段那一行；组也拆开了。
+        var wrapped = DimensionCheckPlanner.Chains(View([], first, second), At(0.07, 0.08));
+        Equal(1, wrapped.Count);
+        Equal(ChainFault.Wrapped, wrapped[0].Fault);
+        Equal(1, wrapped[0].Item.Index);
+        Equal(0, wrapped[0].Peer!.Index);
+        Equal(0, DimensionCheckPlanner.ChainGroups(View([], first, second), At(0.07, 0.08)).Count);
+
+        // 量一条边自身：真机夹爪2 的 21.62，边 y 从 0.04 到 0.02，基准在上边 0.05，改从基准标是 30。
+        SheetSegment inner = new(0.08, 0.04, 0.08, 0.02);
+        var detached = DimensionCheckPlanner.Chains(View([], new ViewDimension(0, 2, false, 0.02, [DimensionAnchor.Line(inner, true)])), At(0.07));
+        Equal(1, detached.Count);
+        Equal(ChainFault.Detached, detached[0].Fault);
+        True(Math.Abs(detached[0].FromDatum - 0.03) < 1e-9, "从基准的值");
+
+        // 两段接成链但接不到基准。
+        var h3 = C(0.07, 0.02);
+        var loose = DimensionCheckPlanner.Chains(View([], second with { Index = 0 }, new ViewDimension(1, 2, false, 0.03, [h2, h3])), At(0.07, 0.07));
+        Equal(2, loose.Count);
+        True(loose.All(issue => issue.Fault == ChainFault.Unrooted), "整条链没接基准");
+
+        // 贯穿的对称轴算基准，串圆心的短中心线不算。
+        ViewDimension span = new(0, 2, false, 0.03, [C(0.035, 0.02), C(0.065, 0.02)]);
+        Equal(0, DimensionCheckPlanner.Chains(View([new(0.05, -0.001, 0.05, 0.051)], span), At(0.07)).Count);
+        Equal(1, DimensionCheckPlanner.Chains(View([new(0.05, 0.015, 0.05, 0.025)], span), At(0.07)).Count);
+
+        // 倒角、带公差的不查；基准两侧碰头的不成组。
+        Equal(0, DimensionCheckPlanner.Chains(View([], new ViewDimension(0, 2, false, 0.03, [h1, h2], "2 x C")), At(0.07)).Count);
+        Equal(0, DimensionCheckPlanner.Chains(View([], new ViewDimension(0, 2, false, 0.03, [h1, h2], ToleranceType: 4)), At(0.07)).Count);
+        SheetSegment outside = new(0, 0.07, 0.02, 0.07);
+        ViewDimension above = new(0, 2, false, 0.02, [top, DimensionAnchor.Line(outside, true)]);
+        ViewDimension below = new(1, 2, false, 0.03, [top, DimensionAnchor.Line(new SheetSegment(0, 0.02, 0.02, 0.02), true)]);
+        Dictionary<int, SheetPoint> sameColumn = new() { [0] = new SheetPoint(-0.01, 0.06), [1] = new SheetPoint(-0.01, 0.035) };
+        Equal(0, DimensionCheckPlanner.ChainGroups(View([], above, below), sameColumn).Count);
+    }
+
     static void TestRedundant()
     {
         // 比例 1 正对 +Z。100 × 50 的板，孔 (30, 20)。

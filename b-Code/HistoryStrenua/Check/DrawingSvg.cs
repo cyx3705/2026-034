@@ -196,7 +196,7 @@ internal static class DrawingSvg
                 holes = scanned.Candidates;
                 numbered = scanned.CurveShapes;
                 foreach (var dimension in DimensionScan.Read(api, scanned))
-                    measures[api.CallString(dimension.Annotation, "IAnnotation", "GetName")] = Measures(dimension.Geometry, scanned.Lines, scanned.Candidates, numbered);
+                    measures[api.CallString(dimension.Annotation, "IAnnotation", "GetName")] = Measures(dimension.Geometry, scanned.Lines, scanned.Candidates, numbered, scanned.Geometry.Scale);
                 if (scanned.BendLines > 0)
                     note = $"钣金折弯线 {scanned.BendLines} 条没有画（不当边、不当基准）";
             }
@@ -259,7 +259,7 @@ internal static class DrawingSvg
     /// 尺寸量的两头，如「E3 x=60.94 ↔ H5 (94.54,229.76)」：竖直边给 x、水平边给 y、圆心给 (x,y)、斜线写「斜线」；读不出的那头不写。
     /// 落在这个视图的某条直边、某个孔、某段圆弧圆心、某个端点上的，前面写它在 SVG 里的编号（真机第一版只有坐标，孔标注指的是哪个孔要自己对坐标）。
     /// </summary>
-    internal static string Measures(ViewDimension dimension, IReadOnlyList<SheetSegment>? lines = null, IReadOnlyList<HoleEdge>? holes = null, IReadOnlyList<SheetCurve>? curves = null)
+    internal static string Measures(ViewDimension dimension, IReadOnlyList<SheetSegment>? lines = null, IReadOnlyList<HoleEdge>? holes = null, IReadOnlyList<SheetCurve>? curves = null, double scale = 0)
     {
         return string.Join(" ↔ ", dimension.Anchors.Select(anchor => Id(anchor) + (anchor.X, anchor.Y) switch
         {
@@ -290,9 +290,13 @@ internal static class DrawingSvg
                 bool At(SheetPoint? point) => point is { } p && DimensionGeometry.Same(p.X, px) && DimensionGeometry.Same(p.Y, py);
                 if (anchor.Hole)
                 {
-                    for (var i = 0; curves is not null && i < curves.Count; i++)
-                        if (At(curves[i].Center))
-                            return $"C{i} ";
+                    // 同圆心可以有几段弧（夹爪2 的 R101、R116）：半径尺寸按半径认，认不出取第一段。
+                    var concentric = Enumerable.Range(0, curves?.Count ?? 0).Where(i => At(curves![i].Center)).ToList();
+                    if (concentric.Count > 0)
+                    {
+                        var sized = concentric.Where(i => scale > 0 && DimensionGeometry.Same(curves![i].Radius, dimension.Value * scale)).ToList();
+                        return $"C{(sized.Count > 0 ? sized[0] : concentric[0])} ";
+                    }
                 }
                 else
                 {

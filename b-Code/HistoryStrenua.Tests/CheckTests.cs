@@ -173,6 +173,9 @@ internal static partial class Tests
         SheetCurve[] measuredCurves = [new([new SheetSegment(0.02, 0.03, 0.05, 0.06)], new SheetPoint(0.04, 0.04), 0.01)];
         Equal("C0 (40,40) ↔ C0.2 (50,60)", DrawingSvg.Measures(new ViewDimension(0, 2, false, 0.01, [DimensionAnchor.Center(new SheetPoint(0.04, 0.04)), DimensionAnchor.Point(new SheetPoint(0.05, 0.06))]), [], [], measuredCurves));
 
+        SheetCurve[] concentric = [new([], new SheetPoint(0.03, 0.2), 0.05), new([], new SheetPoint(0.03, 0.2), 0.058)];
+        Equal("C1 (30,200)", DrawingSvg.Measures(new ViewDimension(0, 5, false, 0.116, [DimensionAnchor.Center(new SheetPoint(0.03, 0.2))]), [], [], concentric, 0.5));
+
         var hole = document.Descendants(ns + "circle").Single();
         Equal("H0", hole.Attribute("id")!.Value);
         Equal("3", hole.Attribute("r")!.Value);

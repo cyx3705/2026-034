@@ -265,7 +265,10 @@ internal static partial class Tests
         static HoleEdge H(int i, double x, double y, double d, string kind) => new(i, left + x / 1000 * scale, top - y / 1000 * scale, d / 2000 * scale, kind);
         var coarse = Enumerable.Range(0, 6).Select(i => H(i, 45 + 200 * i, 40, 5, "/M5")).ToList();
         var fine = Enumerable.Range(0, 11).Select(i => H(6 + i, 45 + 100 * i, 138, 6.6, "/CBore")).ToList();
-        foreach (var edges in new[] { coarse.Concat(fine).ToList(), fine.Concat(coarse).ToList() })
+        // 真机两种孔的跨度差着浮点误差（粗的略短或略长），不能靠排序。
+        var shorter = coarse.Select(h => h.Index == 5 ? h with { X = h.X - 1e-9 } : h).ToList();
+        var longer = coarse.Select(h => h.Index == 5 ? h with { X = h.X + 1e-9 } : h).ToList();
+        foreach (var edges in new[] { coarse.Concat(fine).ToList(), fine.Concat(coarse).ToList(), shorter.Concat(fine).ToList(), longer.Concat(fine).ToList() })
         {
             var patterns = HolePositionPlanner.Plan(edges, left, top, scale).Dimensions.Where(d => d.Axis == PositionAxis.Horizontal && d.Prefix.Length > 0).ToList();
             Equal(1, patterns.Count);

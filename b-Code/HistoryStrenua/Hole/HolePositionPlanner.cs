@@ -174,8 +174,6 @@ internal static class HolePositionPlanner
                 .Where(chain => chain.Stops.Count > 0)
                 .OrderBy(chain => chain.Reach)
                 .ThenBy(chain => chain.Stops[0].Offset)
-                // 1.32.4：跨度相同时站多的（间距细的）先标，否则粗阵列占了这一段，细间距就丢了（真机侧板 11 个孔只标出 5 x 200）。
-                .ThenByDescending(chain => chain.Stops.Count)
                 .ToList();
 
             // 已经标过的「中心线 → 中心线」段（基准记为 0）。尺寸按中心线标、不按孔标：
@@ -191,8 +189,14 @@ internal static class HolePositionPlanner
                 return true;
             }
 
-            // 已标过的阵列的各站：后面的阵列跨度相同且每站都落在这上面才算标过。
-            var located = new List<double>();
+            // 1.32.4：粗阵列每站都落在另一个站更多的阵列上，就只标细的（真机侧板 11 个孔只标出 5 x 200，细间距丢了）。
+            // 不靠排序：两种孔的跨度差着浮点误差，谁先谁后说不准。
+            static bool OnStops(IReadOnlyList<Stop> stops, IReadOnlyList<Stop> others)
+                => stops.All(stop => others.Any(other => Math.Abs(other.Offset - stop.Offset) <= HoleCalloutPlanner.CenterTolerance));
+            bool Superseded(KindChain chain) => chain.Pattern
+                && chains.Any(other => other.Pattern && other.Stops.Count > chain.Stops.Count && OnStops(chain.Stops, other.Stops));
+            // 已标过的阵列：跨度相同但站不重合的（孔不在那些站上）还得标。
+            var patterned = new List<KindChain>();
             var mirrored = symmetric?.Contains(axis) == true;
             // 1.23.0：每种孔（一条链）各自挑放哪一侧，两侧各自由里到外排层。
             var tiers = new int[2];
@@ -205,15 +209,15 @@ internal static class HolePositionPlanner
                 if (chain.Pattern)
                 {
                     var last = stops[^1];
-                    var onLocated = stops.All(stop => located.Any(offset => Math.Abs(offset - stop.Offset) <= HoleCalloutPlanner.CenterTolerance));
-                    if (Claim(first.Offset, last.Offset) || !onLocated)
+                    var located = patterned.Any(other => OnStops(stops, other.Stops));
+                    if (!Superseded(chain) && (Claim(first.Offset, last.Offset) || !located))
                     {
                         var prefix = PatternPrefix(stops.Count - 1, (last.Offset - first.Offset) / (stops.Count - 1) / scale);
                         items.Add(new Planned(first, last, 0, prefix));
                         patterns++;
                     }
 
-                    located.AddRange(stops.Select(stop => stop.Offset));
+                    patterned.Add(chain);
                     if (needDatum)
                         items.Add(new Planned(null, first, 0, string.Empty));
                 }

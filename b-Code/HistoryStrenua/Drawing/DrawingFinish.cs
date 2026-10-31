@@ -16,7 +16,8 @@ internal static class DrawingFinish
     {
         if (!context.Options.Clearance) return QuickOutcome.Ok("整理标注：避障关闭，未移动标注。");
         context.SetState("整理标注");
-        var first = Clear(context, drawing);
+        // 1.32.2（用户定）：排版前视图还贴得近，第一遍只看本视图；视图让开后第二遍才看整页。
+        var first = Clear(context, drawing, ownViewOnly: true);
         // 用户定：超出图框优先调位置。先保持比例排、把出框的标注拉回来；视图本身或标注实在回不来才降比例重来。
         var arranged = DrawingArrange.Run(context, DrawingSheet.Read(context, drawing, "整理标注"), keepIso: true, keepScale: true);
         var last = Clear(context, drawing);
@@ -34,16 +35,17 @@ internal static class DrawingFinish
         return last.Stuck.Count == 0 && last.Outside.Count == 0 && arranged.Success ? QuickOutcome.Ok(message) : QuickOutcome.Fail(message);
     }
 
-    private sealed record Shape(object Annotation, string Name, SheetRect View, bool Movable, bool Callout,
+    private sealed record Shape(object Annotation, string Name, string ViewName, SheetRect View, bool Movable, bool Callout,
         IReadOnlyList<SheetSegment> Lines, IReadOnlyList<TextBox> Texts);
 
-    private static (int Moved, List<string> Stuck, List<string> Outside) Clear(QuickCommandContext context, object drawing)
+    private static (int Moved, List<string> Stuck, List<string> Outside) Clear(QuickCommandContext context, object drawing, bool ownViewOnly = false)
     {
         var api = context.Api;
         var shapes = new List<Shape>();
         // 同一条尺寸链的另外几段（shapes 下标）：1.30.0 用户定，换行要整条一起走，否则链就断了。
         var chainPeers = new Dictionary<int, List<int>>();
-        var geometry = new List<SheetSegment>(DrawingSheet.FrameLines(api, drawing));
+        var frameLines = DrawingSheet.FrameLines(api, drawing).ToList();
+        var geometry = new Dictionary<string, List<SheetSegment>>();
         foreach (var view in HoleScan.SheetViews(api, drawing))
         {
             var name = DrawingSheet.Name(api, view);
@@ -53,9 +55,8 @@ internal static class DrawingFinish
             {
                 var scan = HoleScan.Scan(context, "整理标注", withLines: true, view: view, quiet: true);
                 scanned = scan;
-                geometry.AddRange(scan.Lines);
-                geometry.AddRange(scan.CurveSegments);
-                foreach (var hole in scan.Candidates) geometry.AddRange(ClearancePlanner.Octagon(new SheetPoint(hole.X, hole.Y), hole.Radius));
+                var own = geometry[name] = [.. scan.Lines, .. scan.CurveSegments];
+                foreach (var hole in scan.Candidates) own.AddRange(ClearancePlanner.Octagon(new SheetPoint(hole.X, hole.Y), hole.Radius));
             }
             foreach (var annotation in api.CallArray(view, "IView", "GetAnnotations"))
             {
@@ -84,7 +85,7 @@ internal static class DrawingFinish
                         (lines, texts) = Clearance.DisplayGeometry(api, annotation);
                     }
                 }
-                shapes.Add(new Shape(annotation, name + "/" + api.CallString(annotation, "IAnnotation", "GetName"), rect, movable, callout, lines, texts));
+                shapes.Add(new Shape(annotation, name + "/" + api.CallString(annotation, "IAnnotation", "GetName"), name, rect, movable, callout, lines, texts));
             }
 
             if (scanned is not null)
@@ -95,8 +96,14 @@ internal static class DrawingFinish
         if (frame is null) throw new QuickCommandException("整理标注：读不到图框，未移动标注。");
         var moved = 0;
         Obstacles ObstaclesFor(int i) => ObstaclesWithout([i]);
-        Obstacles ObstaclesWithout(IReadOnlyCollection<int> skip) => new(geometry.Concat(shapes.Where((_, j) => !skip.Contains(j)).SelectMany(s => s.Lines)).ToList(),
-            keepouts.Concat(shapes.Where((_, j) => !skip.Contains(j)).SelectMany(s => s.Texts)).ToList());
+        Obstacles ObstaclesWithout(IReadOnlyCollection<int> skip)
+        {
+            var owner = ownViewOnly ? shapes[skip.First()].ViewName : null;
+            var others = shapes.Where((s, j) => !skip.Contains(j) && (owner is null || s.ViewName == owner)).ToList();
+            var views = geometry.Where(view => owner is null || view.Key == owner).SelectMany(view => view.Value);
+            return new(frameLines.Concat(views).Concat(others.SelectMany(s => s.Lines)).ToList(), keepouts.Concat(others.SelectMany(s => s.Texts)).ToList());
+        }
+
         int Hits(Shape s, Obstacles obstacles) => ClearancePlanner.Hits(s.Texts, obstacles)
             + (AnnotationPlacementPlanner.Within(s.Texts, frame.Value) ? 0 : 100);
         // 后加的尺寸界线也会压到先前文字，所以整页跑有上限的三轮。每次读回确认变好才保留，避免反复漂移。

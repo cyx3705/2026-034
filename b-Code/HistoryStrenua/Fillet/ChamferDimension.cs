@@ -20,7 +20,7 @@ internal static class ChamferDimension
         CommandName: StrenuaIdentity.Domain + ".fillet.chamfer",
         Title: "倒角标注",
         Summary: "点一个工程图视图，给侧着看成斜线的倒角标线性尺寸写「C5」（C1 按技术要求不标，同尺寸 2 个以上合标 N x C5），已标的跳过。",
-        Usage: "在工程图里点一个视图（先点后按、先按后点都行，60 秒内）：视图里侧着看成斜线的倒角（倒角特征做的平面倒角）每种尺寸标一个线性尺寸，量它的一条直角边、文字写「C5」，同一尺寸有 2 个以上时写「N x C5」，标靠右的那个；尺寸放在倒角那一侧的视图外，先下边、右边（孔位与外轮廓尺寸在上边、左边），出图框就换一边；不等边的倒角两条直角边各标一个。C1 不标（技术要求「未注倒角C1」）。这个视图里已标过的尺寸、这一页别的视图已标过的同一个倒角都跳过。轴端的锥面倒角暂不认。「避障」开着时挑尺寸放哪边、离视图多远、文字沿尺寸线挪多少，要躲开这个视图与同一页别的视图里已有的标注和别的视图本身，关着时只看下、右、上、左的先后。",
+        Usage: "在工程图里点一个视图（先点后按、先按后点都行，60 秒内）：视图里侧着看成斜线的倒角（倒角特征做的平面倒角）每种尺寸标一个线性尺寸，量它的一条直角边、文字写「C5」，同一尺寸有 2 个以上时写「N x C5」，标靠右的那个；尺寸放在倒角那一侧的视图外，先下边、右边（孔位与外轮廓尺寸在上边、左边），出图框就换一边；不等边的倒角两条直角边各标一个。C1 不标（技术要求「未注倒角C1」）。这个视图里已标过的尺寸、这一页别的视图已标过的同一个倒角都跳过。轴端的锥面倒角暂不认。「避障」开着时挑尺寸放哪边、离视图多远、文字沿尺寸线挪多少，要躲开这个视图里已有的标注（别的视图不看，最后由排版让开），关着时只看下、右、上、左的先后。",
         Run: context => Run(context, null));
 
     // swDimensionType_e.swChamferDimension
@@ -111,7 +111,8 @@ internal static class ChamferDimension
     }
 
     /// <summary>
-    /// 避障要躲的（1.15.0）：这个视图的全部注解，同一页别的视图的全部注解，别的视图的外框，以及标题栏、修改栏与图纸上的注解（后两样当文字框，整块不许压）。读不了的跳过。
+    /// 避障要躲的（1.15.0）：这个视图的全部注解，以及标题栏、修改栏与图纸上的注解（当文字框，整块不许压）。读不了的跳过。
+    /// 别的视图不算（1.32.2，用户定）：标完由排版按真实占位把视图让开。
     /// </summary>
     private static Obstacles SheetObstacles(SolidWorksApi api, ScannedView scan)
     {
@@ -120,18 +121,6 @@ internal static class ChamferDimension
         var texts = new List<TextBox>(own.Texts);
         foreach (var rect in DrawingSheet.KeepOutRects(api, scan.Document))
             texts.Add(new TextBox(rect.Left, rect.Bottom, rect.Width, rect.Height));
-        foreach (var view in HoleScan.SheetViews(api, scan.Document))
-        {
-            if (DrawingSheet.Name(api, view) == scan.ViewName)
-                continue;
-            var outline = DrawingSheet.Outline(api, view);
-            if (outline.Width > 0 && outline.Height > 0)
-                texts.Add(new TextBox(outline.Left, outline.Bottom, outline.Width, outline.Height));
-            var other = Clearance.ViewObstacles(api, view);
-            lines.AddRange(other.Lines);
-            texts.AddRange(other.Texts);
-        }
-
         return new Obstacles(lines, texts);
     }
 

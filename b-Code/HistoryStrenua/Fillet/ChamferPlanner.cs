@@ -54,7 +54,7 @@ internal sealed record ChamferPlan(IReadOnlyList<ChamferTarget> Targets, int Cha
 /// <para>避障（1.15.0，用户指出倒角没做避障：上边、左边那一档正是孔位、外轮廓尺寸的位置，两条都压时只能挑压得少的）：
 /// 每条再往外一档一档试（<see cref="Offsets"/>），文字还可沿尺寸线左右滑（<see cref="Slides"/>）；压不压既看文字框碰没碰线和别的文字，
 /// 也看这个尺寸自己的尺寸线、尺寸界线穿没穿别的文字。挑 不出图框 → 压得最少 → 离视图近 → 下右上左 → 滑得少。
-/// 障碍由调用方给：这个视图的线、全部注解，以及同一页别的视图的外框与注解（尺寸放到视图外，可能伸进邻近视图）。</para>
+/// 障碍由调用方给：这个视图的线、全部注解，以及标题栏等图纸禁区；别的视图不算，最后由排版让开。</para>
 /// </remarks>
 internal static class ChamferPlanner
 {

@@ -27,7 +27,7 @@ internal static class HolePosition
         CommandName: StrenuaIdentity.Domain + ".hole.position",
         Title: "孔位尺寸",
         Summary: "点一个工程图视图，删掉孔的旧位置尺寸后以零件左侧、上侧直边为基准重标全部孔位尺寸。",
-        Usage: "在工程图里点一个视图（先点后按、先按后点都行，60 秒内），该视图里全部的孔删掉旧位置尺寸（含悬空的线性尺寸）后，以零件左侧、上侧直边为基准重标：同种孔接着前一个标，不同种从基准标；尺寸可放视图上方或下方（竖直的放左侧或右侧），每种孔挑尺寸界线短的一侧，「避障」开着时先躲标题栏、别的视图等；视图里的边和孔整个左右（或上下）对称、且有孔不在对称轴上时，先加对称轴（中心线），那个方向改以对称轴为基准、直接标对称轴两侧同种孔之间的距离（不同种照样不互标）；同种一个方向超过 4 个且等距时标「(N-1) x 间距 =总长」（页面「尺寸链」开关打开时改用 SolidWorks 尺寸链：每个方向一组坐标尺寸，0 点在零件左侧 / 上侧直边，文字排在零件外一列）；腰型孔标在上方那个圆上；同一页上别的视图（如顶视图对底视图）已标过位置的孔不再标；「避障」开关开着时，数字压在别的孔的尺寸、中心符号线等线条上就沿尺寸线滑开。",
+        Usage: "在工程图里点一个视图（先点后按、先按后点都行，60 秒内），该视图里全部的孔删掉旧位置尺寸（含悬空的线性尺寸）后，以零件左侧、上侧直边为基准重标：同种孔接着前一个标，不同种从基准标；尺寸可放视图上方或下方（竖直的放左侧或右侧），每种孔挑尺寸界线短的一侧，「避障」开着时先躲标题栏等（不看别的视图，它们最后由排版让开）；视图里的边和孔整个左右（或上下）对称、且有孔不在对称轴上时，先加对称轴（中心线），那个方向改以对称轴为基准、直接标对称轴两侧同种孔之间的距离（不同种照样不互标）；同种一个方向超过 4 个且等距时标「(N-1) x 间距 =总长」（页面「尺寸链」开关打开时改用 SolidWorks 尺寸链：每个方向一组坐标尺寸，0 点在零件左侧 / 上侧直边，文字排在零件外一列）；腰型孔标在上方那个圆上；同一页上别的视图（如顶视图对底视图）已标过位置的孔不再标；「避障」开关开着时，数字压在别的孔的尺寸、中心符号线等线条上就沿尺寸线滑开。",
         Run: context => Run(context, null));
 
     // swDimensionTextParts_e / swSelectType_e / swAddOrdinateDims_e
@@ -61,7 +61,7 @@ internal static class HolePosition
         var (candidates, elsewhere) = WithoutPositionedElsewhere(context, scan);
         // 1.14.1：整个视图关于某根轴对称就以对称轴为基准（尺寸链模式不管，照旧从直边量）；孔全归别的视图标时不加轴。
         var symmetry = chain || HoleCalloutPlanner.Recognize(candidates).Count == 0 ? [] : SymmetryPlanner.Axes(scan.Lines, scan.CurveSegments, holes);
-        // 1.23.0：两侧都能放，每种孔挑引线短的一侧；1.16.0 起避障开着时先躲图纸禁区（标题栏、修改栏、图号框、图纸注解、别的视图、出图框）。
+        // 1.23.0：两侧都能放，每种孔挑引线短的一侧；1.16.0 起避障开着时先躲图纸禁区（标题栏、修改栏、图号框、图纸注解、出图框；1.32.2 起不看别的视图）。
         var space = Space(api, scan, context.Options.Clearance && !chain);
         var plan = HolePositionPlanner.Plan(candidates, scan.Lines[l].X1, scan.Lines[t].Y1, scan.Geometry.Scale, chain,
             symmetry.Select(axis => axis.Axis).ToList(), space);
@@ -158,7 +158,8 @@ internal static class HolePosition
 
     /// <summary>
     /// 孔位尺寸放哪一边看的：零件轮廓最右、最下沿（另一侧的尺寸排在它外面，1.23.0）；<paramref name="keepOut"/>（避障开着，1.16.0）时再加要躲的——
-    /// 标题栏、修改栏、图号框与图纸注解（<see cref="DrawingSheet.KeepOutRects"/>）、同一页别的视图外框、图框（往里缩 3 mm）。
+    /// 标题栏、修改栏、图号框与图纸注解（<see cref="DrawingSheet.KeepOutRects"/>）、图框（往里缩 3 mm）。
+    /// 别的视图不算（1.32.2，用户定）：刚建图时视图贴得近，算上它尺寸就都挤到另一侧；标完由排版按真实占位把视图让开。
     /// </summary>
     private static PositionSpace Space(SolidWorksApi api, ScannedView scan, bool keepOut)
     {
@@ -167,17 +168,7 @@ internal static class HolePosition
         var bottom = outline.Count > 0 ? outline.Min(line => Math.Min(line.Y1, line.Y2)) : scan.Lines[0].Y1;
         if (!keepOut)
             return new PositionSpace(right, bottom, []);
-        var blocked = new List<SheetRect>(DrawingSheet.KeepOutRects(api, scan.Document));
-        foreach (var view in HoleScan.SheetViews(api, scan.Document))
-        {
-            if (DrawingSheet.Name(api, view) == scan.ViewName)
-                continue;
-            var rect = DrawingSheet.Outline(api, view);
-            if (rect.Width > 0 && rect.Height > 0)
-                blocked.Add(rect);
-        }
-
-        return new PositionSpace(right, bottom, blocked, DrawingSheet.FrameRect(api, scan.Document));
+        return new PositionSpace(right, bottom, DrawingSheet.KeepOutRects(api, scan.Document), DrawingSheet.FrameRect(api, scan.Document));
     }
 
     /// <summary>

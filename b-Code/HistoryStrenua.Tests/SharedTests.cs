@@ -130,7 +130,7 @@ internal static partial class Tests
     static void TestDimensionSidesTie()
     {
         // 1.32.3（用户定）：先比禁区，再比引线长度；一样长放层数少的一侧，层数也一样放上方 / 左侧。
-        True(!DimensionSides.PreferFar(1, 9, 5, 0, 9, 9) is false, "禁区少的一侧优先");
+        True(DimensionSides.PreferFar(1, 9, 5, 0, 9, 9), "禁区少的一侧优先");
         True(DimensionSides.PreferFar(0, 0.02, 0, 0, 0.01, 5), "引线短优先于层数少");
         True(!DimensionSides.PreferFar(0, 0.01, 5, 0, 0.02, 0), "引线短优先于层数少（近侧）");
         True(DimensionSides.PreferFar(0, 0.018, 3, 0, 0.018, 2), "一样长放层数少的另一侧");

@@ -18,8 +18,8 @@ internal static class DimensionCheck
         Key: "check-dimension",
         CommandName: StrenuaIdentity.Domain + ".check.dimension",
         Title: "未标尺寸",
-        Summary: "当前图纸页全部视图（轴测图除外）查边、孔、圆弧有没有没标的尺寸（位置按尺寸网连通判，孔径、R 另查），选中漏标的边并弹窗列出，不改图。",
-        Usage: "不用点视图：当前图纸页上全部视图（轴测图不查）一起检查，与标注按钮怎么标无关——同一零件的全部尺寸（各视图合起来）连成一张网，竖直边的左右位置、水平边的上下位置、孔心与 R1 以上圆弧圆心的两向位置，没连进这张网的就是漏标（与直边相切的圆弧、阵列「N x」跨度里的、对称轴上的、腰型孔另一端算已定）；孔要有孔标注或 Ø、圆弧要有 R（同尺寸有一个标了就算）；斜边要连着尺寸或两端都定了（C1 小倒角不查）。查完在 SolidWorks 里选中（高亮）漏标的边，并弹窗列出；不加、不删任何尺寸。",
+        Summary: "当前图纸页全部视图（轴测图除外）查边、孔、圆弧有没有没标的尺寸（位置按尺寸网连通判，孔径、R 另查），选中漏标的边并列出（手动点时弹窗），不改图。",
+        Usage: "不用点视图：当前图纸页上全部视图（轴测图不查）一起检查，与标注按钮怎么标无关——同一零件的全部尺寸（各视图合起来）连成一张网，竖直边的左右位置、水平边的上下位置、孔心与 R1 以上圆弧圆心的两向位置，没连进这张网的就是漏标（与直边相切的圆弧、阵列「N x」跨度里的、对称轴上的、腰型孔另一端算已定）；孔要有孔标注或 Ø、圆弧要有 R（同尺寸有一个标了就算）；斜边要连着尺寸或两端都定了（C1 小倒角不查）。查完在 SolidWorks 里选中（高亮）漏标的边，并列出，手动点时弹窗、AI 调用不弹；不加、不删任何尺寸。",
         Run: Run);
 
     // swAnnotationType_e
@@ -33,34 +33,11 @@ internal static class DimensionCheck
     {
         var api = context.Api;
         var document = HoleScan.ActiveDrawing(context);
-        var views = HoleScan.SheetViews(api, document);
-        if (views.Count == 0)
+        if (HoleScan.SheetViews(api, document).Count == 0)
             return QuickOutcome.Ok("当前图纸页上没有视图，没有可检查的。");
 
         context.SetState("检查");
-        var scans = new List<ScannedView>();
-        var checks = new List<CheckView>();
-        var axonometric = new List<string>();
-        for (var i = 0; i < views.Count; i++)
-        {
-            context.Cancellation.ThrowIfCancellationRequested();
-            var view = views[i];
-            if (api.Call(view, "IView", "get_ReferencedDocument") is null)
-                continue;
-            var viewName = api.CallString(view, "IView", "get_Name");
-            if (HoleScan.Frame(context, view).Axonometric)
-            {
-                axonometric.Add(viewName);
-                continue;
-            }
-
-            context.Report($"未标尺寸：读视图 {i + 1}/{views.Count}「{viewName}」。");
-            var scan = HoleScan.Scan(context, "未标尺寸", withLines: true, view: view, withArcs: true, quiet: true);
-            var dimensions = DimensionScan.Read(api, scan).Select(item => item.Geometry).ToList();
-            scans.Add(scan);
-            checks.Add(new CheckView(viewName, HoleScan.ModelKey(api, view), scan.Geometry.Frame,
-                scan.Lines, scan.Candidates, scan.Arcs, dimensions, CenterLines(api, view)));
-        }
+        var (scans, checks, _, axonometric) = ReadViews(context, "未标尺寸");
 
         var (chamfer, fillet) = DimensionCheckPlanner.Unnoted(TechText(api, document));
         var missing = DimensionCheckPlanner.Check(checks, chamfer, fillet);
@@ -105,6 +82,40 @@ internal static class DimensionCheck
         return QuickOutcome.Ok(head + Environment.NewLine + string.Join(Environment.NewLine, lines));
     }
 
+    /// <summary>读当前图纸页要查的视图（轴测图除外），「未标尺寸」「重标尺寸」共用；三张表下标对齐。</summary>
+    internal static (List<ScannedView> Scans, List<CheckView> Checks, List<List<ScannedDimension>> Dimensions, List<string> Axonometric) ReadViews(QuickCommandContext context, string title)
+    {
+        var api = context.Api;
+        var views = HoleScan.SheetViews(api, HoleScan.ActiveDrawing(context));
+        var scans = new List<ScannedView>();
+        var checks = new List<CheckView>();
+        var scanned = new List<List<ScannedDimension>>();
+        var axonometric = new List<string>();
+        for (var i = 0; i < views.Count; i++)
+        {
+            context.Cancellation.ThrowIfCancellationRequested();
+            var view = views[i];
+            if (api.Call(view, "IView", "get_ReferencedDocument") is null)
+                continue;
+            var viewName = api.CallString(view, "IView", "get_Name");
+            if (HoleScan.Frame(context, view).Axonometric)
+            {
+                axonometric.Add(viewName);
+                continue;
+            }
+
+            context.Report($"{title}：读视图 {i + 1}/{views.Count}「{viewName}」。");
+            var scan = HoleScan.Scan(context, title, withLines: true, view: view, withArcs: true, quiet: true);
+            var dimensions = DimensionScan.Read(api, scan);
+            scans.Add(scan);
+            scanned.Add(dimensions);
+            checks.Add(new CheckView(viewName, HoleScan.ModelKey(api, view), scan.Geometry.Frame,
+                scan.Lines, scan.Candidates, scan.Arcs, dimensions.Select(item => item.Geometry).ToList(), CenterLines(api, view)));
+        }
+
+        return (scans, checks, scanned, axonometric);
+    }
+
     /// <summary>漏标对象在图纸 SVG（<c>check.svg view=</c>）里的编号（1.24.0）：直边 E、孔 H；圆弧没有编号。</summary>
     private static string Ids(ScannedView scan, MissingDimension item)
     {
@@ -118,7 +129,7 @@ internal static class DimensionCheck
     }
 
     /// <summary>图纸页上注释的全文（找技术要求里的「未注倒角 / 圆角」用）；图框外模板备用的也算不上——只取图框里的。</summary>
-    private static string TechText(SolidWorksApi api, object document)
+    internal static string TechText(SolidWorksApi api, object document)
     {
         var space = DrawingSvg.Space(api, document).Space;
         var texts = new List<string>();
@@ -162,7 +173,7 @@ internal static class DimensionCheck
     }
 
     /// <summary>
-    /// 检查结果弹窗（1.16.0，用户要：查完弹出来）：Aurora 的 content 弹窗，标题 + 一句摘要 + 列表正文，不等人关窗。
+    /// 检查结果弹窗（1.16.0，用户要：查完弹出来；1.29.0 起只有手动点才弹，AI 调用看回执）：Aurora 的 content 弹窗，标题 + 一句摘要 + 列表正文，不等人关窗。
     /// 列表过长只列前 <see cref="DialogLimit"/> 条，全文在控制台。
     /// </summary>
     internal static void Popup(QuickCommandContext context, string title, string summary, IReadOnlyList<string> lines)

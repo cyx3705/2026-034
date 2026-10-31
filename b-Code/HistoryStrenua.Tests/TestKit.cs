@@ -62,6 +62,7 @@ internal static partial class Tests
         ("outline: chain-mode members fixed by other views", TestCoveredOrdinates),
         ("outline: frames keep only the main stations (1.17.0)", TestOutlineSparse),
         ("sheet metal: bend tangent lines run along the bend axis (1.17.0)", TestBendTangent),
+        ("check: redundant dimensions by graph cycles (1.29.0)", TestRedundant),
         ("notes: section on top of replies, write/replace/delete/persist (1.28.0)", TestWorkNotes),
         ("one-key: no level-0 command, fix points name real commands (1.28.0)", TestOneKeyFix),
         ("square slot: closed rectangles, not open notches (1.17.0)", TestSquareSlotFind),

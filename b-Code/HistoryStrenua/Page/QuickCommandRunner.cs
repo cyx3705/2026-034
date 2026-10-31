@@ -151,7 +151,8 @@ internal sealed class QuickCommandRunner(StrenuaOptions options, ICommandBus? bu
                     },
                     state => SetState(command.Key, state),
                     cancellation.Token,
-                    bus))
+                    bus,
+                    !StepFeedback.Wanted(context.Source)))
                     is var done && SaveProfile(command.Key, clock, timeline, session) ? done : done,
                 cancellation.Token).ConfigureAwait(false);
         }

@@ -102,7 +102,8 @@ internal sealed class QuickCommandContext(
     Action<string> report,
     Action<string> setState,
     CancellationToken cancellation,
-    ICommandBus? bus = null)
+    ICommandBus? bus = null,
+    bool popups = true)
 {
     public SolidWorksSession Session { get; } = session;
 
@@ -136,11 +137,11 @@ internal sealed class QuickCommandContext(
 
     /// <summary>
     /// 经命令总线发一条别的模块的指令、不等它回来（1.16.0，检查结果弹窗 <c>aurora.ui.dialog</c>：它要等人关窗才回）。
-    /// 失败只进控制台不影响本指令；没有总线（离线测试）时什么都不做。
+    /// 失败只进控制台不影响本指令；没有总线（离线测试）或 AI 调用时（1.29.0，用户定：只有手动点才弹窗）什么都不做。
     /// </summary>
     public void Post(string commandText)
     {
-        if (bus is null)
+        if (bus is null || !popups)
             return;
         _ = bus.InvokeAsync(commandText, TechAi.CommandSource, CancellationToken.None).ContinueWith(task =>
         {
@@ -188,6 +189,7 @@ internal static class QuickCommands
         FilletDimension.Command,
         ChamferDimension.Command,
         DimensionCheck.Command,
+        RedundantCheck.Command,
         DecimalCheck.Command,
         DanglingCheck.Command,
         OverlapCheck.Command,

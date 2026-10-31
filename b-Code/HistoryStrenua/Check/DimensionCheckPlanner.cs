@@ -49,7 +49,7 @@ internal sealed record MissingDimension(int View, string Text, CheckTarget Targe
 /// </list>
 /// <para>同一视图里坐标相同的几条边只报一次、一起选中。</para>
 /// </remarks>
-internal static class DimensionCheckPlanner
+internal static partial class DimensionCheckPlanner
 {
     /// <summary>R 到这个值（模型，米）以下按「未注圆角 R1」不查。</summary>
     public const double DefaultFillet = 0.00105;
@@ -112,10 +112,7 @@ internal static class DimensionCheckPlanner
             // 把端点连进尺寸网，其他视图看到的倒角内边也随之确定。不能仅因同值就推定整组已标。
             // 1.24.0：未注倒角（技术要求定的 C1 等）也定了两条直角边——真机：C1 倒角内边被报「缺竖直位置尺寸」。
             // 倒角顺着看时斜边投影成一条短直边（真机移动安装版5 下视图的 1 mm 短边），两头同样由未注倒角定。
-            foreach (var line in covered.Concat(view.Lines.Where(line => SmallChamfer(line, view.Frame.Scale, chamfer) || ShortEdge(line, view.Frame.Scale, chamfer))))
-                foreach (var axis in Axes)
-                    net.Connect(view.Frame.Plane(axis, axis == PositionAxis.Horizontal ? line.X1 : line.Y1),
-                        view.Frame.Plane(axis, axis == PositionAxis.Horizontal ? line.X2 : line.Y2));
+            ConnectChamfers(net, view, covered, chamfer);
         }
 
         // 1. 尺寸把两头的面连起来；大小尺寸记下半径。
@@ -178,20 +175,7 @@ internal static class DimensionCheckPlanner
         }
 
         // 2. 不用尺寸也定了的：相切、腰型孔两端、对称轴。
-        foreach (var (view, _) in views)
-        {
-            foreach (var arc in view.Arcs)
-                ConnectTangents(net, view, arc);
-            foreach (var slot in HoleCalloutPlanner.Recognize(view.Holes).Where(hole => hole.Slot >= 0).GroupBy(hole => hole.Slot))
-            {
-                var ends = slot.ToList();
-                for (var i = 1; i < ends.Count; i++)
-                {
-                    net.Connect(view.Frame.Plane(PositionAxis.Horizontal, ends[0].X), view.Frame.Plane(PositionAxis.Horizontal, ends[i].X));
-                    net.Connect(view.Frame.Plane(PositionAxis.Vertical, ends[0].Y), view.Frame.Plane(PositionAxis.Vertical, ends[i].Y));
-                }
-            }
-        }
+        ConnectGiven(net, views);
 
         foreach (var (view, _) in views)
             ConnectSymmetry(net, view);
@@ -339,6 +323,34 @@ internal static class DimensionCheckPlanner
         return result;
     }
 
+    /// <summary>C 尺寸、未注倒角定了的斜边或短边：两头连起来。</summary>
+    private static void ConnectChamfers(OutlineCoverage net, CheckView view, List<SheetSegment> covered, double chamfer)
+    {
+        foreach (var line in covered.Concat(view.Lines.Where(line => SmallChamfer(line, view.Frame.Scale, chamfer) || ShortEdge(line, view.Frame.Scale, chamfer))))
+            foreach (var axis in Axes)
+                net.Connect(view.Frame.Plane(axis, axis == PositionAxis.Horizontal ? line.X1 : line.Y1),
+                    view.Frame.Plane(axis, axis == PositionAxis.Horizontal ? line.X2 : line.Y2));
+    }
+
+    /// <summary>不用尺寸也定了的：圆弧相切、腰型孔两端。</summary>
+    private static void ConnectGiven(OutlineCoverage net, List<(CheckView View, int Index)> views)
+    {
+        foreach (var (view, _) in views)
+        {
+            foreach (var arc in view.Arcs)
+                ConnectTangents(net, view, arc);
+            foreach (var slot in HoleCalloutPlanner.Recognize(view.Holes).Where(hole => hole.Slot >= 0).GroupBy(hole => hole.Slot))
+            {
+                var ends = slot.ToList();
+                for (var i = 1; i < ends.Count; i++)
+                {
+                    net.Connect(view.Frame.Plane(PositionAxis.Horizontal, ends[0].X), view.Frame.Plane(PositionAxis.Horizontal, ends[i].X));
+                    net.Connect(view.Frame.Plane(PositionAxis.Vertical, ends[0].Y), view.Frame.Plane(PositionAxis.Vertical, ends[i].Y));
+                }
+            }
+        }
+    }
+
     private static readonly PositionAxis[] Axes = [PositionAxis.Horizontal, PositionAxis.Vertical];
 
     internal static List<SheetSegment> CoveredChamfers(CheckView view)
@@ -436,7 +448,10 @@ internal static class DimensionCheckPlanner
     /// 对称轴：轴两侧一对已连通的面（中点落在轴上）把轴定下来，轴上的东西跟着它。每一对都连上——外轮廓一对把轴连进主网，
     /// 两侧互标的孔那一对再经轴连进来（只连第一对时，两侧孔自成一块）。
     /// </summary>
-    private static void ConnectSymmetry(OutlineCoverage net, CheckView view)
+    /// <param name="net">判两侧那一对连没连通的网。</param>
+    /// <param name="view">视图。</param>
+    /// <param name="target">把轴并进哪张网；null 就是 <paramref name="net"/>。</param>
+    private static void ConnectSymmetry(OutlineCoverage net, CheckView view, OutlineCoverage? target = null)
     {
         foreach (var axisLine in view.CenterLines)
         {
@@ -453,7 +468,7 @@ internal static class DimensionCheckPlanner
                 if (p < c && coordinates.Any(other => DimensionGeometry.Same(other, q))
                     && net.Connected(view.Frame.Plane(axis, p), view.Frame.Plane(axis, q)))
                 {
-                    net.Connect(center, view.Frame.Plane(axis, p));
+                    (target ?? net).Connect(center, view.Frame.Plane(axis, p));
                 }
             }
         }

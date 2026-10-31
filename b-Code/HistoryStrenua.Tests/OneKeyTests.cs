@@ -173,4 +173,64 @@ internal static partial class Tests
         True(OneKeyFix.Text(PartKind.Frame).Contains("型材"), "框架查型材");
         True(OneKeyFix.Text(PartKind.Machined).Contains("导入件"), "加工件查导入件孔识别");
     }
+
+    static void TestRedundant()
+    {
+        // 比例 1 正对 +Z。100 × 50 的板，孔 (30, 20)。
+        var frame = new ViewFrame(new ModelDirection(1, 0, 0), new ModelDirection(0, 1, 0), new ModelDirection(0, 0, 1), new SheetPoint(0, 0), 1);
+        SheetSegment[] lines = [new(0, 0, 0, 0.05), new(0, 0.05, 0.1, 0.05), new(0.1, 0.05, 0.1, 0), new(0.1, 0, 0, 0)];
+        var (left, top, right, bottom) = (DimensionAnchor.Line(lines[0], true), DimensionAnchor.Line(lines[1], true), DimensionAnchor.Line(lines[2], true), DimensionAnchor.Line(lines[3], true));
+        HoleEdge[] holes = [new(0, 0.03, 0.02, 0.003, "/Cut")];
+        CheckView View(string name, params ViewDimension[] d) => new(name, "PART|默认", frame, lines, holes, [], d, []);
+        string N(RedundantMember m) => "D" + m.Index;
+
+        // 定位互不相关：没有重标（桥不算）。
+        ViewDimension total = new(0, 2, false, 0.1, [left, right]);
+        ViewDimension holeLeft = new(1, 2, false, 0.03, [left, C(0.03, 0.02)]);
+        Equal(0, DimensionCheckPlanner.Redundant([View("前", total, holeLeft, new(2, 2, false, 0.05, [bottom, top]))]).Count);
+
+        // 总长 = 孔左 + 孔右：三个成环多一个，总尺寸留下。
+        var loop = DimensionCheckPlanner.Redundant([View("前", total, holeLeft, new(2, 2, false, 0.07, [C(0.03, 0.02), right]))]);
+        Equal(1, loop.Count);
+        Equal(3, loop[0].Members.Count);
+        Equal(1, loop[0].Surplus);
+        Equal(1, loop[0].Suggested.Count);
+        True(loop[0].Suggested[0].Target.Index != 0, "总尺寸留下");
+        var text = RedundantCheck.Formula(loop[0].Suggested[0], N);
+        True(text.Contains('−') && !text.Contains("相切"), text);
+
+        // 带公差的优先留下。
+        var kept = DimensionCheckPlanner.Redundant([View("前", total, new(1, 2, false, 0.03, [left, C(0.03, 0.02)], ToleranceType: 4), new(2, 2, false, 0.07, [C(0.03, 0.02), right]))]);
+        True(kept[0].Suggested[0].Target.Index == 2 || kept[0].Suggested[0].Target.Index == 0, "公差留下");
+        True(kept[0].Suggested[0].Target.Index != 1, "公差留下");
+
+        // 跨视图同一段标了两遍：留前面视图的，算式就是另一个。
+        var cross = DimensionCheckPlanner.Redundant([View("前", total), View("后", new ViewDimension(0, 2, false, 0.1, [left, right]))]);
+        Equal(1, cross.Count);
+        Equal(1, cross[0].Suggested[0].Target.View);
+        Equal(1, cross[0].Suggested[0].Terms.Count);
+
+        // 两个环共用一条边：一组、多两个。
+        var two = DimensionCheckPlanner.Redundant([View("前", total, holeLeft, new(2, 2, false, 0.07, [C(0.03, 0.02), right]), new(3, 2, false, 0.07, [C(0.03, 0.02), right]))]);
+        Equal(1, two.Count);
+        Equal(2, two[0].Surplus);
+        Equal(2, two[0].Suggested.Count);
+
+        // 倒角 C、孔径不进图。
+        Equal(0, DimensionCheckPlanner.Redundant([View("前", total, new(1, 6, false, 0.006, [C(0.03, 0.02)]), new(2, 2, false, 0.1, [left, right], "C"))]).Count);
+
+        // 相切：圆心到相切直边的尺寸自己就定了。
+        FilletArc[] arcs = [new(0, new SheetPoint(0.095, 0.045), 0.005, 0.005, new SheetPoint(0.0985, 0.0485), false, Math.PI / 2, new SheetPoint(0.1, 0.045), new SheetPoint(0.095, 0.05))];
+        SheetSegment[] rounded = [new(0, 0, 0, 0.05), new(0, 0.05, 0.095, 0.05), new(0.1, 0.045, 0.1, 0), new(0.1, 0, 0, 0)];
+        var arcView = new CheckView("前", "PART|默认", frame, rounded, [], arcs, [new(0, 2, false, 0.005, [C(0.095, 0.045), DimensionAnchor.Line(rounded[2], true)])], []);
+        var tangent = DimensionCheckPlanner.Redundant([arcView]);
+        Equal(1, tangent.Count);
+        True(RedundantCheck.Formula(tangent[0].Suggested[0], N).Contains("相切"), "自环写明原因");
+
+        // 阵列跨度里的孔跟着起点，再标到它就算重标。
+        HoleEdge[] row = [new(0, 0.01, 0.02, 0.003, "/C"), new(1, 0.03, 0.02, 0.003, "/C"), new(2, 0.05, 0.02, 0.003, "/C")];
+        var arrayView = new CheckView("前", "PART|默认", frame, lines, row, [],
+            [new(0, 2, false, 0.04, [C(0.01, 0.02), C(0.05, 0.02)], "2 x "), new(1, 2, false, 0.02, [C(0.01, 0.02), C(0.03, 0.02)])], []);
+        Equal(1, DimensionCheckPlanner.Redundant([arrayView]).Count);
+    }
 }

@@ -429,31 +429,18 @@ internal static partial class DimensionCheckPlanner
     /// <summary>圆弧与水平 / 竖直直边相切：圆心那个面、切线那个面（差一个半径）、方向。</summary>
     private static IEnumerable<(ModelPlane Center, ModelPlane Line, PositionAxis Axis)> TangentPlanes(CheckView view, FilletArc arc)
     {
-        foreach (var end in new[] { arc.Start, arc.End })
+        if (arc.Start is null || arc.End is null)
+            yield break;
+        foreach (var line in view.Lines.Where(line => ArcCenterPlanner.TangentLine(arc.Center, arc.Radius, line)))
         {
-            if (end is not { } point)
-                continue;
-            var (rx, ry) = (point.X - arc.Center.X, point.Y - arc.Center.Y);
-            var radius = Math.Sqrt(rx * rx + ry * ry);
-            if (radius <= 0)
-                continue;
-            foreach (var line in view.Lines)
+            switch (Orientation(line))
             {
-                if (!ArcCenterPlanner.Reaches(point, radius, line))
-                    continue;
-                var (dx, dy) = (line.X2 - line.X1, line.Y2 - line.Y1);
-                var length = Math.Sqrt(dx * dx + dy * dy);
-                if (length <= 0 || Math.Abs((dx * rx + dy * ry) / (length * radius)) > 0.02)
-                    continue;
-                switch (Orientation(line))
-                {
-                    case LineOrientation.Horizontal:
-                        yield return (view.Frame.Plane(PositionAxis.Vertical, arc.Center.Y), view.Frame.Plane(PositionAxis.Vertical, line.Y1), PositionAxis.Vertical);
-                        break;
-                    case LineOrientation.Vertical:
-                        yield return (view.Frame.Plane(PositionAxis.Horizontal, arc.Center.X), view.Frame.Plane(PositionAxis.Horizontal, line.X1), PositionAxis.Horizontal);
-                        break;
-                }
+                case LineOrientation.Horizontal:
+                    yield return (view.Frame.Plane(PositionAxis.Vertical, arc.Center.Y), view.Frame.Plane(PositionAxis.Vertical, line.Y1), PositionAxis.Vertical);
+                    break;
+                case LineOrientation.Vertical:
+                    yield return (view.Frame.Plane(PositionAxis.Horizontal, arc.Center.X), view.Frame.Plane(PositionAxis.Horizontal, line.X1), PositionAxis.Horizontal);
+                    break;
             }
         }
     }

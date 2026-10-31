@@ -219,9 +219,9 @@ internal static partial class Tests
         // 孔径不进图。
         Equal(0, DimensionCheckPlanner.Redundant([View("前", total, new(1, 6, false, 0.006, [C(0.03, 0.02)]))]).Count);
 
-        // 真机夹爪2 右视图（比例 1 换算）：18、圆心 13、R5，弧和切线隔一小段；13 = 18 − R5，R 留下。
+        // 真机夹爪2 右视图（比例 1 换算）：18、圆心 13、R5，弧只画到一半、够不到切线；13 = 18 − R5，R 留下。
         SheetSegment[] jaw = [new(0, 0.1, 0, 0.0255), new(0, 0.0255, 0.013, 0.0255), new(0.018, 0.0195, 0.018, 0), new(0.018, 0, 0.04, 0)];
-        FilletArc[] arc = [new(0, new SheetPoint(0.013, 0.0205), 0.005, 0.005, new SheetPoint(0.0165, 0.024), false, Math.PI / 2, new SheetPoint(0.013, 0.0255), new SheetPoint(0.018, 0.0205))];
+        FilletArc[] arc = [new(0, new SheetPoint(0.013, 0.0205), 0.005, 0.005, new SheetPoint(0.0145, 0.025), false, Math.PI / 4, new SheetPoint(0.013, 0.0255), new SheetPoint(0.016, 0.0245))];
         var jawView = new CheckView("右", "PART|默认", frame, jaw, [], arc,
             [new(0, 2, false, 0.018, [DimensionAnchor.Line(jaw[0], true), DimensionAnchor.Line(jaw[2], true)]),
              new(1, 2, false, 0.013, [DimensionAnchor.Line(jaw[0], true), C(0.013, 0.0205)]),

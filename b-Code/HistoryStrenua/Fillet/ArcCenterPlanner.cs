@@ -268,46 +268,37 @@ internal static class ArcCenterPlanner
     }
 
     /// <summary>
-    /// 一段弧两端相切的直线方向（单位向量，图纸）：端点够得着直线（<see cref="Reaches"/>）、直线方向与端点的半径方向垂直。没有端点的整圆没有。
+    /// 这段弧所在的圆与直线相切：圆心到直线（含延长线）的距离等于半径，切点在线段上或差不到一个半径。
+    /// 不看弧的端点接没接上（1.29.0，真机夹爪2：R5 只画到一半，后面隔一小段别的边才到切线，13 = 18 − R5 认不出来）。
     /// </summary>
-    /// <summary>
-    /// 圆弧端点够得着这条直线：接上直线的一个端点；或在直线的延长线上、差不到一个半径（1.29.0，真机夹爪2：弧和切线中间隔一小段 1 mm 的曲线边，13 = 18 − R5 没认出来）。
-    /// </summary>
-    public static bool Reaches(SheetPoint point, double radius, SheetSegment line)
+    public static bool TangentLine(SheetPoint center, double radius, SheetSegment line)
     {
-        if (Near(point, line.X1, line.Y1) || Near(point, line.X2, line.Y2))
-            return true;
         var (dx, dy) = (line.X2 - line.X1, line.Y2 - line.Y1);
         var length = Math.Sqrt(dx * dx + dy * dy);
-        if (length <= 0 || Math.Abs((point.X - line.X1) * dy - (point.Y - line.Y1) * dx) / length > EndTolerance)
+        if (radius <= 0 || length <= EndTolerance)
             return false;
-        var along = ((point.X - line.X1) * dx + (point.Y - line.Y1) * dy) / length;
+        var distance = Math.Abs((center.X - line.X1) * dy - (center.Y - line.Y1) * dx) / length;
+        if (Math.Abs(distance - radius) > EndTolerance)
+            return false;
+        var along = ((center.X - line.X1) * dx + (center.Y - line.Y1) * dy) / length;
         return along < 0 ? -along <= radius : along - length <= radius;
     }
 
+    /// <summary>
+    /// 一段弧相切的直线方向（单位向量，图纸），见 <see cref="TangentLine"/>。没有端点的整圆没有。
+    /// </summary>
     public static List<(double X, double Y)> Tangents(FilletArc arc, IReadOnlyList<SheetSegment> lines)
     {
         var result = new List<(double, double)>();
-        foreach (var end in new[] { arc.Start, arc.End })
+        if (arc.Start is null || arc.End is null)
+            return result;
+        foreach (var line in lines)
         {
-            if (end is not { } point)
+            if (!TangentLine(arc.Center, arc.Radius, line))
                 continue;
-            var (rx, ry) = (point.X - arc.Center.X, point.Y - arc.Center.Y);
-            var radius = Math.Sqrt(rx * rx + ry * ry);
-            if (radius <= 0)
-                continue;
-            foreach (var line in lines)
-            {
-                var (dx, dy) = (line.X2 - line.X1, line.Y2 - line.Y1);
-                var length = Math.Sqrt(dx * dx + dy * dy);
-                if (length <= EndTolerance || !Reaches(point, radius, line))
-                    continue;
-                if (Math.Abs((dx * rx + dy * ry) / (length * radius)) <= TangentTolerance)
-                {
-                    result.Add((dx / length, dy / length));
-                    break;
-                }
-            }
+            var (dx, dy) = (line.X2 - line.X1, line.Y2 - line.Y1);
+            var length = Math.Sqrt(dx * dx + dy * dy);
+            result.Add((dx / length, dy / length));
         }
 
         return result;

@@ -18,6 +18,9 @@ internal sealed class QuickCommandRunner(StrenuaOptions options, ICommandBus? bu
     /// <summary>页面开关（避障、尺寸链模式）。</summary>
     public StrenuaOptions Options { get; } = options;
 
+    /// <summary>笔记区（1.28.0）：经 MCP 的回执最上面带上。</summary>
+    public WorkNotes Notes { get; } = new(options.DataDirectory);
+
     private readonly object _gate = new();
     private readonly Dictionary<string, QuickCommandStatus> _status = new(StringComparer.Ordinal);
     private CancellationTokenSource? _running;
@@ -52,9 +55,10 @@ internal sealed class QuickCommandRunner(StrenuaOptions options, ICommandBus? bu
 
         // 先回话之后调用方的取消令牌就不算数了；要停用 strenua.quick.cancel。
         var task = RunCoreAsync(command, context, CancellationToken.None);
-        if (await Task.WhenAny(task, Task.Delay(ReplyBudget)).ConfigureAwait(false) == task)
-            return await task.ConfigureAwait(false);
-        return CommandResult.Ok(RunningText(command.Key));
+        var result = await Task.WhenAny(task, Task.Delay(ReplyBudget)).ConfigureAwait(false) == task
+            ? await task.ConfigureAwait(false)
+            : CommandResult.Ok(RunningText(command.Key));
+        return Notes.Prepend(command.PageClass, result);
     }
 
     /// <summary>还在跑时给调用方的话：跑了多久、到哪一步、下一步做什么。</summary>
@@ -69,14 +73,21 @@ internal sealed class QuickCommandRunner(StrenuaOptions options, ICommandBus? bu
     }
 
     /// <summary>等正在跑的那条结束，最多 <paramref name="seconds"/> 秒，再回 <see cref="Last"/>。</summary>
-    public async Task<CommandResult> LastAsync(string key, int back, int seconds)
+    /// <param name="key">指令 key。</param>
+    /// <param name="back">往前第几次。</param>
+    /// <param name="seconds">最多等几秒。</param>
+    /// <param name="withNotes">最上面带笔记区（经 MCP 来的）。</param>
+    public async Task<CommandResult> LastAsync(string key, int back, int seconds, bool withNotes = false)
     {
         Task? running;
         lock (_gate)
             running = _runningKey == key && back == 0 ? _runningDone?.Task : null;
         if (running is not null && seconds > 0)
             await Task.WhenAny(running, Task.Delay(TimeSpan.FromSeconds(seconds))).ConfigureAwait(false);
-        return Last(key, back);
+        var result = Last(key, back);
+        return withNotes && QuickCommands.All.FirstOrDefault(command => command.Key == key) is { } known
+            ? Notes.Prepend(known.PageClass, result)
+            : result;
     }
 
     private async Task<CommandResult> RunCoreAsync(QuickCommand command, CommandContext context, CancellationToken caller)

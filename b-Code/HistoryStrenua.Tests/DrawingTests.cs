@@ -327,7 +327,7 @@ internal static partial class Tests
 
     static void TestDrawingSteps()
     {
-        // 1.16.0（用户定）：基础出图只做基础类各步；全图倒圆倒角做倒圆类三条全图；一键类的一键出图把各类的一键都做一遍。顺序写在用法里。
+        // 1.16.0（用户定）：基础出图只做基础类各步；全图倒圆倒角做倒圆类三条全图；一键类按类别出。顺序写在用法里。
         void InOrder(string key, params string[] steps)
         {
             var command = QuickCommands.All.Single(item => item.Key == key);
@@ -337,8 +337,7 @@ internal static partial class Tests
 
         InOrder("drawing-basic", "新建工程图", "投影视图", "轴测图", "排版", "对称轴");
         InOrder("fillet-flow", "全图圆心", "全图圆弧", "全图倒角");
-        // 1.17.0（用户定）：一键出图建好图后由 AI 判类别；三类各有一个按钮。外轮廓移出孔标注全流程，放在它后面。
-        InOrder("onekey-drawing", "基础出图", "技术要求", "AI", "钣金", "框架", "加工件");
+        // 1.17.0（用户定）：三类各有一个按钮。外轮廓移出孔标注全流程，放在它后面。
         InOrder("onekey-machined", "基础出图", "孔标注全流程", "全图外轮廓", "全图倒圆倒角");
         InOrder("onekey-sheetmetal", "基础出图", "孔标注全流程", "方形槽", "全图外轮廓");
         InOrder("onekey-frame", "基础出图", "全图外轮廓", "采用 xx 铝型材");
@@ -349,7 +348,6 @@ internal static partial class Tests
         Equal("drawing", QuickCommands.All.Single(command => command.Key == "outline-all").CommandClass);
         Equal("drawing", QuickCommands.All.Single(command => command.Key == "drawing-basic").CommandClass);
         Equal("fillet", QuickCommands.All.Single(command => command.Key == "fillet-flow").CommandClass);
-        Equal("onekey", QuickCommands.All.Single(command => command.Key == "onekey-drawing").CommandClass);
         Equal("一键", QuickCommands.ClassTitle("onekey"));
         var titles = QuickCommands.All.Select(command => command.Title).ToHashSet();
         foreach (var step in new[] { "新建工程图", "投影视图", "轴测图", "排版", "对称轴", "全图圆心", "全图圆弧", "全图倒角", "孔标注全流程", "基础出图", "全图倒圆倒角" })

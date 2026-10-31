@@ -24,7 +24,7 @@ namespace HistoryStrenua;
 /// <param name="Usage">怎么用的完整说明：写进按钮动作的说明（悬停可见）。</param>
 /// <param name="Run">在已附着 SolidWorks 的 STA 线程上执行。</param>
 /// <param name="Row">
-/// 在类面板里排第几行（1.17.0，用户定：一键类的「一键出钣金 / 框架 / 加工件」在「一键出图」下面另起一行）。默认 0；
+/// 在类面板里排第几行（1.17.0，用户定：同类按钮分行）。默认 0；
 /// 同一行的按钮仍交给 Aurora 自己折行。
 /// </param>
 /// <param name="Parameters">参数表；无参指令为 null。</param>
@@ -160,7 +160,6 @@ internal static class QuickCommands
 {
     public static IReadOnlyList<QuickCommand> All { get; } =
     [
-        OneKeyDrawing.Command,
         OneKeyDrawing.SheetMetalCommand,
         OneKeyDrawing.FrameCommand,
         OneKeyDrawing.MachinedCommand,
@@ -216,7 +215,7 @@ internal static class QuickCommands
     /// 1.14.0 起它有「AI 填写技术要求」一个按钮。登记表里出现了这里没有的类就排在最后。
     /// 1.15.0（用户定）：圆心位置、圆弧、倒角及其全图版从「出图」拆出，单成「倒圆倒角」类，排在出图后面。
     /// 1.16.0（用户定）：「出图」改名「基础」、「倒圆倒角」改名「倒圆」、「技术要求」改名「要求」（命令类名不变，MCP 调用照旧）；
-    /// 新类「一键」只有「一键出图」（把各类的一键都做一遍），排最前。
+    /// 新类「一键」排最前。
     /// 1.20.0（用户定：新指令待遇和以前一样）：带参数的「视图」「标注」两类排在倒圆后面。
     /// 1.23.0（用户定，页数少）：「基础」类拆掉——新建工程图、投影视图、轴测图、排版进「视图」，其余（基础出图、整理标注、对称轴、外轮廓）并进「一键」；
     /// 按 <see cref="QuickCommand.PageClass"/> 分，指令名（<c>strenua.drawing.*</c>）不变。

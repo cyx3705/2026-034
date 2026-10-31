@@ -31,7 +31,7 @@ internal static class TechAi
         Usage: "切到要加技术要求的工程图再按：先把当前图纸页截一张图，连同图纸信息（材料、属性、特征类型、图幅比例）和模板标题交给 AI（经 HistoryApollo 的识图供应商）选基础；"
             + $"再让 AI 按这张图最多删除 {TechAiEdit.MaxDelete} 条；不能添加或修改条目。"
             + "插的位置与换法同模板表格：标题栏上方或左侧，图框里已有技术要求就删掉换上。AI 的思考与答复逐轮进控制台。需要先在 HistoryApollo 配好识图供应商密钥（apollo.key.set provider=qwen token=…）。"
-            + "下面开关「AI 填写技术要求」开着时，模板表格与「一键出图」插技术要求也走这条。",
+            + "下面开关「AI 填写技术要求」开着时，模板表格与一键类插技术要求也走这条。",
         Run: context => Run(context));
 
     /// <summary>经总线调 Apollo 时的来源标签。</summary>

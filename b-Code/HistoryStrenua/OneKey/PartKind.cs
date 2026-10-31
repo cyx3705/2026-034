@@ -1,4 +1,3 @@
-using System.Text.Json;
 using System.Text.RegularExpressions;
 
 namespace HistoryStrenua;
@@ -12,76 +11,22 @@ internal enum PartKind
     /// <summary>框架：只标外轮廓，轴测图上写「采用 xx 铝型材」。</summary>
     Frame,
 
-    /// <summary>加工件：其他情况，即 1.16.0 的「一键出图」全套。</summary>
+    /// <summary>加工件：其他情况，孔、外轮廓、倒圆倒角全套。</summary>
     Machined,
 }
 
 /// <summary>
-/// 零件类别的纯逻辑部分（1.17.0）：读 AI 的答复、AI 没成时按特征树猜、型材规格怎么写。
+/// 零件类别的纯逻辑部分（1.17.0）：类别叫法、型材规格怎么写。
 /// </summary>
 internal static partial class PartKindPlanner
 {
-    /// <summary>类别在页面、提示词、回执里的叫法。</summary>
+    /// <summary>类别在页面、回执里的叫法。</summary>
     public static string Title(PartKind kind) => kind switch
     {
         PartKind.SheetMetal => "钣金",
         PartKind.Frame => "框架",
         _ => "加工件",
     };
-
-    /// <summary>提示词里的候选（顺序即说明顺序）。</summary>
-    public static IReadOnlyList<string> Titles { get; } = [Title(PartKind.SheetMetal), Title(PartKind.Frame), Title(PartKind.Machined)];
-
-    /// <summary>
-    /// AI 的答复 <c>{"kind": "钣金|框架|加工件", "reason": "…"}</c> → 类别与理由；读不出、不是三者之一返回 null。
-    /// 宽松认几个常见说法（「铝型材框架」「机加件」「钣金件」）：模型偶尔不照抄候选原文。
-    /// </summary>
-    public static (PartKind Kind, string Reason)? Read(string reply)
-    {
-        if (TechAiEdit.ReadJson(reply) is not { } json || !json.TryGetProperty("kind", out var value) || value.ValueKind != JsonValueKind.String)
-            return null;
-        var reason = json.TryGetProperty("reason", out var why) && why.ValueKind == JsonValueKind.String ? why.GetString()!.Trim() : string.Empty;
-        var text = value.GetString()!.Trim();
-        PartKind? kind = text switch
-        {
-            _ when text.Contains("钣金", StringComparison.Ordinal) => PartKind.SheetMetal,
-            _ when text.Contains("框架", StringComparison.Ordinal) || text.Contains("型材", StringComparison.Ordinal) => PartKind.Frame,
-            _ when text.Contains("加工", StringComparison.Ordinal) || text.Contains("机加", StringComparison.Ordinal) => PartKind.Machined,
-            _ => null,
-        };
-        return kind is { } k ? (k, reason) : null;
-    }
-
-    /// <summary>
-    /// AI 没成时的退路（也写进提示词给 AI 参考）：按图纸信息 JSON（<see cref="TechAiInfo.Read"/>）里模型的特征类型与材料、文件名猜。
-    /// 特征树里有钣金特征（<c>SheetMetal</c>）→ 钣金；有焊件结构构件（<c>WeldMemberFeat</c>）、或文件名带「型材 / 骨架」且材料是铝 → 框架；其余加工件。
-    /// </summary>
-    public static PartKind Guess(string infoJson)
-    {
-        try
-        {
-            using var document = JsonDocument.Parse(infoJson);
-            if (!document.RootElement.TryGetProperty("模型", out var model))
-                return PartKind.Machined;
-            var features = model.TryGetProperty("特征类型计数", out var counts) && counts.ValueKind == JsonValueKind.Object
-                ? counts.EnumerateObject().Select(item => item.Name).ToHashSet(StringComparer.OrdinalIgnoreCase)
-                : [];
-            if (features.Contains("SheetMetal"))
-                return PartKind.SheetMetal;
-            if (features.Contains("WeldMemberFeat"))
-                return PartKind.Frame;
-            var name = model.TryGetProperty("文件", out var file) ? file.GetString() ?? string.Empty : string.Empty;
-            var material = model.TryGetProperty("材料", out var stuff) ? stuff.GetString() ?? string.Empty : string.Empty;
-            var aluminum = material.Contains('铝') || material.StartsWith("6061", StringComparison.Ordinal) || material.StartsWith("6063", StringComparison.Ordinal);
-            return aluminum && (name.Contains("型材", StringComparison.Ordinal) || name.Contains("骨架", StringComparison.Ordinal))
-                ? PartKind.Frame
-                : PartKind.Machined;
-        }
-        catch (JsonException)
-        {
-            return PartKind.Machined;
-        }
-    }
 
     /// <summary>
     /// 焊件型材文件名 → 规格（「采用 xx 铝型材」的 xx）：「20x20」「20×20」写成「2020」，别的（「2020欧标」「4040」）原样，

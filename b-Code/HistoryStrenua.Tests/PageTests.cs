@@ -20,7 +20,8 @@ internal static partial class Tests
             "strenua.hole.place",
             "strenua.drawing.outline",
             "strenua.drawing.outlineall",
-            "strenua.onekey.drawing",
+            "strenua.note.write",
+            "strenua.note.read",
             "strenua.onekey.sheetmetal",
             "strenua.onekey.frame",
             "strenua.onekey.machined",
@@ -88,7 +89,7 @@ internal static partial class Tests
         True(registry.TryGet("strenua.quick.list", out var list) && list!.Readonly, "列表是只读的");
         True(!registry.TryGet("strenua.drawing.auto", out _), "1.16.0：出图类的一键出图拆成基础出图与一键类的一键出图");
         True(!registry.TryGet("strenua.hole.outline", out _), "1.17.0：外轮廓挪到基础类 strenua.drawing.outline");
-        foreach (var name in new[] { "strenua.drawing.create", "strenua.drawing.basic", "strenua.onekey.drawing", "strenua.fillet.all", "strenua.drawing.project", "strenua.drawing.iso", "strenua.tech.apply",
+        foreach (var name in new[] { "strenua.drawing.create", "strenua.drawing.basic", "strenua.onekey.sheetmetal", "strenua.fillet.all", "strenua.drawing.project", "strenua.drawing.iso", "strenua.tech.apply",
                      "strenua.drawing.arrange", "strenua.fillet.arcall", "strenua.fillet.chamferall", "strenua.fillet.arc", "strenua.fillet.chamfer",
                      "strenua.fillet.arccenter", "strenua.fillet.arccenterall",
                      "strenua.drawing.symmetry", "strenua.check.snapshot" })
@@ -307,7 +308,7 @@ internal static partial class Tests
         Equal("strenua.drawing.create", QuickCommands.All.Single(c => c.Title == "新建工程图").CommandName);
         Equal("全图倒圆倒角,全图圆心,全图圆弧,全图倒角,圆心位置,圆弧标注,倒角标注", Row("fillet"));
         // 1.17.0（用户定）：钣金、框架、加工件三个在一键出图下面另起一行。
-        Equal("一键出图|一键出钣金,一键出框架,一键出加工件|基础出图,整理标注,对称轴,全图外轮廓,外轮廓", Row("onekey"));
+        Equal("一键出钣金,一键出框架,一键出加工件|基础出图,整理标注,对称轴,全图外轮廓,外轮廓", Row("onekey"));
         // 1.13.0（用户定）：旧「技术要求」按钮删掉，「技术要求」类整支就是模板表格；1.14.0 的「写入」按钮不在这里，在最下面一行和 AI 开关并排（见 switches 那组）。
         var tech = branches.Single(branch => branch.GetProperty("case").GetString() == "要求");
         Equal("table", tech.GetProperty("type").GetString()!);

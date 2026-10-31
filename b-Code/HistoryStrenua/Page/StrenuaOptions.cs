@@ -52,14 +52,14 @@ internal sealed class StrenuaOptions
     }
 
     /// <summary>
-    /// AI 填写技术要求（1.14.0，默认关）：开着时模板表格点哪份、「一键出图」插技术要求，都改由 AI 选基础再微调（<see cref="TechAi"/>）。
+    /// AI 填写技术要求（1.14.0，默认关）：开着时模板表格点哪份、一键类插技术要求，都改由 AI 选基础再微调（<see cref="TechAi"/>）。
     /// </summary>
     public bool TechAi
     {
         get { lock (_gate) return _techAi; }
     }
 
-    /// <summary>默认技术要求模板的名字（1.13.0）：「一键出图」插这份。</summary>
+    /// <summary>默认技术要求模板的名字（1.13.0）：一键类插这份。</summary>
     public string TechDefault
     {
         get { lock (_gate) return _techDefault; }

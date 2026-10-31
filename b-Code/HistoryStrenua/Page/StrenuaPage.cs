@@ -75,7 +75,7 @@ internal static class StrenuaPage
         + "建图、投影视图留尺寸空间也照它估（默认关）";
 
     /// <summary>「AI 填写技术要求」开关管哪些地方。</summary>
-    public const string TechAiSummary = "开着时模板表格点哪一份、「一键出图」插技术要求，都改由 AI 看图从全部模板里选基础并只删除不适用条目（AI 没成退回原来那份）；不能添加或修改条目。"
+    public const string TechAiSummary = "开着时模板表格点哪一份、一键类插技术要求，都改由 AI 看图从全部模板里选基础并只删除不适用条目（AI 没成退回原来那份）；不能添加或修改条目。"
         + "关着照旧原样插模板（默认关）";
 
     private static readonly JsonSerializerOptions Options = new()
@@ -180,7 +180,7 @@ internal static class StrenuaPage
                 title = "设为默认技术要求",
                 command = TechApply.DefaultCommandName,
                 args = new { name = "{name}" },
-                summary = "把这一份设为默认（记到本机），「一键出图」插的就是它",
+                summary = "把这一份设为默认（记到本机），一键类插的就是它",
             })
             .Append(new
             {
@@ -323,7 +323,7 @@ internal static class StrenuaPage
 
     /// <summary>
     /// 一类的控制面板：一般只有一行（1.12.0）——按钮按登记顺序排，放不下由 Aurora 折行。
-    /// 1.17.0：按钮登记了 <see cref="QuickCommand.Row"/> 的另起一行（一键类：第一行「一键出图」，第二行钣金 / 框架 / 加工件）。
+    /// 1.17.0：按钮登记了 <see cref="QuickCommand.Row"/> 的另起一行（一键类：钣金 / 框架 / 加工件一行，基础出图等另一行）。
     /// </summary>
     private static object ClassPanel(string commandClass, IReadOnlyList<QuickCommand> commands)
     {

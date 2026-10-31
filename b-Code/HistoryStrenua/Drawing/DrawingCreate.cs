@@ -6,7 +6,7 @@ namespace HistoryStrenua;
 /// <summary>
 /// 快捷指令「新建工程图」（1.9.0，出图类）：给当前零件（或装配体里选中的零件）按用户的工程图模板建一张图——
 /// 选图幅与比例、放主视图。不保存。投影视图、轴测图、技术要求、排版各是一条指令（<see cref="DrawingProject"/>、<see cref="DrawingIso"/>、
-/// <see cref="TechApply"/>、<see cref="DrawingArrange"/>），「基础出图」（<see cref="DrawingBasic"/>）依次做完这一类，一键类「一键出图」（<see cref="OneKeyDrawing"/>）再加要求与标注。
+/// <see cref="TechApply"/>、<see cref="DrawingArrange"/>），「基础出图」（<see cref="DrawingBasic"/>）依次做完这一类，一键类（<see cref="OneKeyDrawing"/>）再加要求与标注。
 /// </summary>
 /// <remarks>
 /// <para>依据是用户 2026-025 台面2机器 15 张手工图的共同做法（DEC-021）：标题栏由模板的属性链接带出（图号、名称、材料、表面处理、
@@ -22,7 +22,7 @@ internal static class DrawingCreate
         CommandName: StrenuaIdentity.Domain + ".drawing.create",
         Title: "新建工程图",
         Summary: "给当前零件（或装配体里选中的零件）按工程图模板建图：按整套视图自动选图幅与比例、放主视图，不保存。",
-        Usage: "在 SolidWorks 里打开要出图的零件（或在装配体里选中一个零件，先选后按、先按后选都行，60 秒内）再按：按「零件」工程图模板建一张新图，主视图取孔、窗口和圆弧最多的那一面；图幅（A4 横 / A3 / A2）与比例按零件大小、孔的疏密，以及整套视图（主视图、该有的投影视图、轴测图、技术要求）排不排得下自动选，标题栏由模板的属性链接自动带出，新图名字与零件一致（保存时默认文件名）。只放主视图：接着按「投影视图」「轴测图」「技术要求」「排版」补齐摆好，或直接用「一键出图」全做并标注。新图不保存。",
+        Usage: "在 SolidWorks 里打开要出图的零件（或在装配体里选中一个零件，先选后按、先按后选都行，60 秒内）再按：按「零件」工程图模板建一张新图，主视图取孔、窗口和圆弧最多的那一面；图幅（A4 横 / A3 / A2）与比例按零件大小、孔的疏密，以及整套视图（主视图、该有的投影视图、轴测图、技术要求）排不排得下自动选，标题栏由模板的属性链接自动带出，新图名字与零件一致（保存时默认文件名）。只放主视图：接着按「投影视图」「轴测图」「技术要求」「排版」补齐摆好，或直接用一键类「一键出钣金 / 框架 / 加工件」全做并标注。新图不保存。",
         Run: context => Create(context).Outcome,
         Row: 1, Page: "view");
 
@@ -112,7 +112,7 @@ internal static class DrawingCreate
         var plannedText = sides.Select((side, index) => $"{DrawingSheet.SlotName(slots[index])}投影视图（{side.Reason}）").Append("轴测图").Append("技术要求");
         lines.Add($"· 图幅与比例按整套视图估（主视图、{string.Join("、", plannedText)}）" + (choice is null ? "。" : $"：{choice.Reason}。"));
         if (next)
-            lines.Add("· 接着按「投影视图」「轴测图」「技术要求」「排版」补齐摆好，或用「基础出图」一次建好排好、一键类「一键出图」连标注一起做完。");
+            lines.Add("· 接着按「投影视图」「轴测图」「技术要求」「排版」补齐摆好，或用「基础出图」一次建好排好、一键类「一键出钣金 / 框架 / 加工件」连标注一起做完。");
         return new Created(QuickOutcome.Ok(string.Join(Environment.NewLine, lines)), drawing, mainView, geometry);
     }
 

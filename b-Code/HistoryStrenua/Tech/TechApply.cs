@@ -38,7 +38,7 @@ internal static class TechApply
     public const string Summary = "把「通用技术要求」里的一份插到当前工程图标题栏上方或左侧，已有的原处替换，避障开时挪视图让位；"
         + "「AI 填写技术要求」开着时改由 AI 选基础并删不适用条目（AI 没成才插这份）。";
 
-    public const string DefaultSummary = "把「通用技术要求」里的一份设为默认（记到本机），「一键出图」插的就是它；省略 name 只报当前默认。";
+    public const string DefaultSummary = "把「通用技术要求」里的一份设为默认（记到本机），一键类插的就是它；省略 name 只报当前默认。";
 
     /// <summary>
     /// 模板表格点一份：「AI 填写技术要求」开关开着时由 AI 从全部模板里重新选基础并只删条目，AI 没成才插点的这份；关着照旧插这份。
@@ -126,7 +126,7 @@ internal static class TechApply
             }
         }
 
-        var message = $"技术要求：默认改为「{template.Name}」（{template.Items} 条），「一键出图」插这份。";
+        var message = $"技术要求：默认改为「{template.Name}」（{template.Items} 条），一键类插这份。";
         return CommandResult.Ok(failure is null ? message : message + $"（未能记到本机，下次启动回到上次的值：{failure}）");
     }
 

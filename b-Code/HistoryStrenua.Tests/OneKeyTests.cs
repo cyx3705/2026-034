@@ -75,18 +75,6 @@ internal static partial class Tests
 
     static void TestPartKind()
     {
-        Equal<(PartKind, string)?>((PartKind.SheetMetal, "有折弯"), PartKindPlanner.Read("{\"kind\": \"钣金\", \"reason\": \"有折弯\"}"));
-        Equal(PartKind.Frame, PartKindPlanner.Read("答复：{\"kind\": \"铝型材框架\"}")!.Value.Kind);
-        Equal(PartKind.Machined, PartKindPlanner.Read("{\"kind\": \"机加件\"}")!.Value.Kind);
-        True(PartKindPlanner.Read("{\"kind\": \"装配图\"}") is null && PartKindPlanner.Read("不知道") is null, "不是三类之一就读不出");
-
-        Equal(PartKind.SheetMetal, PartKindPlanner.Guess("{\"模型\":{\"文件\":\"右防护板.SLDPRT\",\"特征类型计数\":{\"SheetMetal\":1,\"EdgeFlange\":2}}}"));
-        Equal(PartKind.Frame, PartKindPlanner.Guess("{\"模型\":{\"文件\":\"骨架.SLDPRT\",\"特征类型计数\":{\"WeldMemberFeat\":12}}}"));
-        Equal(PartKind.Frame, PartKindPlanner.Guess("{\"模型\":{\"文件\":\"WTJYQ-04-01 型材骨架.SLDPRT\",\"材料\":\"6061-T6 (GB)\"}}"));
-        Equal(PartKind.Machined, PartKindPlanner.Guess("{\"模型\":{\"文件\":\"型材骨架.SLDPRT\",\"材料\":\"45钢\"}}"));
-        Equal(PartKind.Machined, PartKindPlanner.Guess("{坏的"));
-        Equal("钣金,框架,加工件", string.Join(",", PartKindPlanner.Titles));
-
         Equal("2020", PartKindPlanner.ProfileName(@"C:\weldment profiles\20x20.sldlfp"));
         Equal("2020欧标", PartKindPlanner.ProfileName("2020欧标.SLDLFP"));
         Equal("4040", PartKindPlanner.ProfileName("4040铝型材.sldlfp"));
@@ -132,5 +120,57 @@ internal static partial class Tests
         ];
         Equal("1,2,5", string.Join(",", SheetMetal.InBendZone(side, zone, scale)));
         Equal(0, SheetMetal.InBendZone(side, 0, scale).Count);
+    }
+
+    static void TestWorkNotes()
+    {
+        var notes = new WorkNotes(null);
+        Equal(string.Empty, notes.Section("onekey"));
+        Equal(null, notes.Write("onekey", "第一条", null));
+        Equal(null, notes.Write(WorkNotes.Common, "通用一条", null));
+        Equal(null, notes.Write("hole", "孔的", null));
+        var section = notes.Section("onekey");
+        True(section.Contains("【笔记区·通用】") && section.Contains("【笔记区·一键】") && section.Contains("1. 第一条") && !section.Contains("孔的"), "只带通用与本类：" + section);
+        Equal(null, notes.Write("onekey", "改过", 1));
+        Equal("改过", notes.Read("onekey")[0]);
+        True(notes.Write("onekey", "x", 5) is not null, "序号不存在要报");
+        Equal(null, notes.Write("onekey", QuickArgs.None, 1));
+        Equal(0, notes.Read("onekey").Count);
+        Equal("onekey", WorkNotes.Area("一键"));
+        Equal(null, WorkNotes.Area("没有"));
+
+        // 笔记放回执最上面，成败和数据不变。
+        var ok = notes.Prepend("hole", HistoryVulcan.Core.Commands.CommandResult.Ok("结果", "数据"));
+        True(ok.Success && ok.Message.StartsWith("【笔记区·通用】", StringComparison.Ordinal) && ok.Message.EndsWith("结果", StringComparison.Ordinal) && Equals(ok.Data, "数据"), ok.Message);
+        True(!notes.Prepend("hole", HistoryVulcan.Core.Commands.CommandResult.Fail("坏了")).Success, "失败还是失败");
+
+        var dir = Path.Combine(Path.GetTempPath(), "strenua-notes-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            Equal(null, new WorkNotes(dir).Write("onekey", "跨重启", null));
+            Equal("跨重启", new WorkNotes(dir).Read("onekey")[0]);
+        }
+        finally
+        {
+            Directory.Delete(dir, true);
+        }
+    }
+
+    static void TestOneKeyFix()
+    {
+        // 1.28.0（用户定）：没有 0 级的一键出图；三类各有修正要点，里面提到的指令都得真有。
+        True(QuickCommands.All.All(command => command.Key != "onekey-drawing"), "一键出图已删");
+        var registry = Registry();
+        foreach (var kind in Enum.GetValues<PartKind>())
+        {
+            var text = OneKeyFix.Text(kind);
+            True(text.Contains("【修正要点·" + PartKindPlanner.Title(kind)), text);
+            foreach (System.Text.RegularExpressions.Match match in System.Text.RegularExpressions.Regex.Matches(text, @"strenua\.[a-z]+\.[a-z]+"))
+                True(registry.TryGet(match.Value, out _), "修正要点里的指令不存在：" + match.Value);
+        }
+
+        True(OneKeyFix.Text(PartKind.SheetMetal).Contains("板厚"), "钣金查板厚");
+        True(OneKeyFix.Text(PartKind.Frame).Contains("型材"), "框架查型材");
+        True(OneKeyFix.Text(PartKind.Machined).Contains("导入件"), "加工件查导入件孔识别");
     }
 }

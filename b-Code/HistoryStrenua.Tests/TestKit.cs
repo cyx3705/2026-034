@@ -48,6 +48,7 @@ internal static partial class Tests
         ("dowels: fastener types and arc center", TestDowelGeometry),
         ("clearance: text boxes and lines (real drawing data)", TestClearanceHits),
         ("clearance: dimension text slides along its line", TestClearanceSlide),
+        ("clearance: dimension text stays between its extension lines", TestClearanceSeat),
         ("clearance: callout moves to a free corner", TestClearanceCallout),
         ("full flow: steps and scope", TestFlowCommand),
         ("dimension geometry: axis from anchors and value", TestDimensionAxes),

@@ -143,6 +143,14 @@ internal static class Clearance
             var obstacles = ObstaclesFor(shapes, i);
             if (sheet is not null)
                 obstacles = new Obstacles(obstacles.Lines.Concat(sheet.Lines).ToList(), obstacles.Texts.Concat(sheet.Texts).ToList());
+            if (shapes[i].Role == Role.Dimension && SeatDimension(api, shapes[i].Annotation, shapes[i].Lines, shapes[i].Texts, obstacles) is { } seat)
+            {
+                shapes[i] = shapes[i] with { Lines = seat.Lines, Texts = seat.Texts };
+                if (seat.Moved)
+                    moved++;
+                continue;
+            }
+
             var hits = ClearancePlanner.Hits(shapes[i].Texts, obstacles);
             if (hits == 0)
                 continue;
@@ -161,6 +169,27 @@ internal static class Clearance
         }
 
         return new ClearanceResult(moved, stuck);
+    }
+
+    /// <summary>
+    /// 尺寸数字留在自己两条尺寸界线之间（<see cref="ClearancePlanner.Seat"/>）：放不了返回 null，放得了返回现在的样子，
+    /// <c>Moved</c> 表示这次真的挪了。挪完读回还不在界线之间就放回原处，当放不了。
+    /// </summary>
+    internal static (IReadOnlyList<SheetSegment> Lines, IReadOnlyList<TextBox> Texts, bool Moved)? SeatDimension(
+        SolidWorksApi api, object annotation, IReadOnlyList<SheetSegment> lines, IReadOnlyList<TextBox> texts, Obstacles obstacles)
+    {
+        if (ClearancePlanner.Seat(texts, lines, obstacles) is not { } offset)
+            return null;
+        if (offset == 0)
+            return (lines, texts, false);
+        var (ux, uy) = (Math.Cos(texts[0].Angle), Math.Sin(texts[0].Angle));
+        if (!MoveBy(api, annotation, offset * ux, offset * uy))
+            return null;
+        var (afterLines, afterTexts) = DisplayGeometry(api, annotation);
+        if (ClearancePlanner.Seat(afterTexts, afterLines, obstacles) is 0.0)
+            return (afterLines, afterTexts, true);
+        MoveBy(api, annotation, -offset * ux, -offset * uy);
+        return null;
     }
 
     /// <summary>

@@ -49,7 +49,8 @@ internal static class AnnotationCheckPlanner
 
             foreach (var other in annotations)
             {
-                if (other.Index != self.Index && other.Lines.Any(line => self.Texts.Any(text => ClearancePlanner.Hits(text, line))))
+                if (other.Index != self.Index && other.Lines.Any(line => self.Texts.Any(text => ClearancePlanner.Hits(text, line)))
+                    && ClearancePlanner.Seat(self.Texts, self.Lines, new Obstacles(other.Lines, [])) is not 0.0)
                     issues.Add(new OverlapIssue(self.Index, other.Index, $"文字压在「{Label(other)}」的线上"));
             }
 

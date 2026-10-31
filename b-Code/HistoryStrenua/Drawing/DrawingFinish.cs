@@ -112,6 +112,18 @@ internal static class DrawingFinish
                 var outside = !AnnotationPlacementPlanner.Within(shape.Texts, frame.Value);
                 if (!shape.Movable && !outside) continue;
                 var obstacles = ObstaclesFor(i);
+                if (shape.Movable && Clearance.SeatDimension(api, shape.Annotation, shape.Lines, shape.Texts, obstacles) is { } seat)
+                {
+                    shapes[i] = shape with { Lines = seat.Lines, Texts = seat.Texts };
+                    if (seat.Moved)
+                    {
+                        moved++;
+                        changed = true;
+                    }
+
+                    continue;
+                }
+
                 var hits = Hits(shape, obstacles);
                 if (hits == 0) continue;
                 var position = api.CallDoubles(shape.Annotation, "IAnnotation", "GetPosition");
@@ -196,7 +208,7 @@ internal static class DrawingFinish
                 outsideNames.Add("视图「" + DrawingSheet.Name(api, view) + "」");
         }
 
-        return (moved, shapes.Where((s, i) => s.Movable && s.Texts.Count > 0 && Hits(s, ObstaclesFor(i)) > 0).Select(s => s.Name).ToList(), outsideNames);
+        return (moved, shapes.Where((s, i) => s.Movable && s.Texts.Count > 0 && Hits(s, ObstaclesFor(i)) > 0 && ClearancePlanner.Seat(s.Texts, s.Lines, ObstaclesFor(i)) is not 0.0).Select(s => s.Name).ToList(), outsideNames);
     }
 
     /// <summary>这个视图里同一行首尾相接的尺寸记进 <paramref name="peers"/>（shapes 下标 → 同链另外几段）。</summary>

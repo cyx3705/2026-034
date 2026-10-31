@@ -91,6 +91,42 @@ internal static partial class Tests
         True(moved.X >= M(63.06) || moved.X + moved.Width <= M(58.31), $"字应整个在界线外，实际 {moved.X * 1000:0.##}–{(moved.X + moved.Width) * 1000:0.##}");
     }
 
+    static void TestClearanceSeat()
+    {
+        static double M(double mm) => mm / 1000;
+        // 真机底层1 最下一行：33 的界线 x=64.4、71（间距 6.6 mm），字宽 6.13 mm。算上两边留白放不下，但字本身放得下。
+        SheetSegment[] own33 =
+        [
+            new(M(64.4), M(90), M(64.4), M(112)),
+            new(M(71), M(90), M(71), M(112)),
+            new(M(64.4), M(92), M(71), M(92)),
+        ];
+        var inGap = new TextBox(M(64.6), M(92.5), M(6.13), M(3.5));
+        True(ClearancePlanner.Hits(inGap, own33[1]), "前提：带留白时算压自己的界线");
+        Equal<double?>(0.0, ClearancePlanner.Seat([inGap], own33, new Obstacles(own33[..2], [])));
+
+        // 被挪到界线外了：放回两条界线正中。
+        var flown = inGap with { X = M(47.83) };
+        var back = ClearancePlanner.Seat([flown], own33, Obstacles.Empty);
+        True(back is not null && Math.Abs(flown.X + back.Value + flown.Width / 2 - M(67.7)) < 1e-9, "放回正中");
+
+        // 隔壁尺寸的箭头短线与自己的尺寸线共线，不算压；别的层的线、真挡着的字照样算。
+        var stub = new SheetSegment(M(66), M(92), M(69), M(92));
+        Equal<double?>(0.0, ClearancePlanner.Seat([inGap], own33, new Obstacles([stub], [])));
+        True(ClearancePlanner.Seat([inGap], own33, new Obstacles([new SheetSegment(M(60), M(94), M(75), M(94))], [])) is null, "穿字的另一层线要算");
+        True(ClearancePlanner.Seat([inGap], own33, new Obstacles([], [new TextBox(M(66), M(93), M(2), M(2))])) is null, "挡在中间的字要算");
+
+        // 10 的界线间距 2 mm 放不下：不管它，走原来的避让。
+        SheetSegment[] own10 = [new(M(62.4), M(90), M(62.4), M(112)), new(M(64.4), M(90), M(64.4), M(112)), new(M(62.4), M(92), M(64.4), M(92))];
+        True(ClearancePlanner.Seat([inGap with { X = M(55) }], own10, Obstacles.Empty) is null, "放不下返回 null");
+
+        // 竖直尺寸同样：字沿 +Y 长。
+        SheetSegment[] ownV = [new(M(30), M(100), M(50), M(100)), new(M(30), M(107), M(50), M(107)), new(M(35), M(100), M(35), M(107))];
+        var vertical = new TextBox(M(35), M(120), M(6.13), M(3.5), Math.PI / 2);
+        var up = ClearancePlanner.Seat([vertical], ownV, Obstacles.Empty);
+        True(up is not null && Math.Abs(vertical.Y + up.Value + vertical.Width / 2 - M(103.5)) < 1e-9, "竖直尺寸放回正中");
+    }
+
     static void TestClearanceCallout()
     {
         // 真机：孔标注「2 x Ø5.50 完全贯穿」在左时下划线 32.5–65.44，右端（折点）= 文字右缘 64.19 + 1.25；

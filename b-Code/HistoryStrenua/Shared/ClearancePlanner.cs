@@ -169,6 +169,46 @@ internal static class ClearancePlanner
         return null;
     }
 
+    /// <summary>
+    /// 字能不能留在自己两条尺寸界线之间（1.32.1，用户指出：底层1 的 33、37 放得下却被挪到界线外）：
+    /// 字宽不超过界线间距就算放得下，紧贴界线不算压，留白只对别的东西；同一行别的尺寸伸过来的箭头短线也不算压。
+    /// 字已在界线之间就留在原处，在外面就放回正中。返回沿字方向要挪多远；放不下或那里有别的东西返回 null。
+    /// </summary>
+    /// <param name="texts">尺寸的文字，只认一段的。</param>
+    /// <param name="own">尺寸自己的线：尺寸界线与尺寸线。</param>
+    /// <param name="obstacles">要躲的东西。</param>
+    public static double? Seat(IReadOnlyList<TextBox> texts, IReadOnlyList<SheetSegment> own, Obstacles obstacles)
+    {
+        if (texts.Count != 1)
+            return null;
+        var text = texts[0];
+        var (ux, uy) = (Math.Cos(text.Angle), Math.Sin(text.Angle));
+        var crossing = CrossingLines(own, text.Angle).ToList();
+        var stations = crossing.Select(line => (line.X1 + line.X2) / 2 * ux + (line.Y1 + line.Y2) / 2 * uy).ToList();
+        if (stations.Count < 2)
+            return null;
+        var (low, high) = (stations.Min(), stations.Max());
+        if (high - low < text.Width || text.Width <= 2 * Margin)
+            return null;
+        var start = text.X * ux + text.Y * uy;
+        var offset = start >= low && start + text.Width <= high ? 0 : (low + high - text.Width) / 2 - start;
+
+        // 同一行 = 与自己的尺寸线共线；只跳过这种线，别的平行线（视图的边、别的层的尺寸线）照样算压。
+        double Across(SheetSegment line) => -line.X1 * uy + line.Y1 * ux;
+        var rows = own.Except(crossing).Select(Across).ToList();
+        bool SameRow(SheetSegment line) => !CrossingLines([line], text.Angle).Any() && rows.Any(row => Math.Abs(Across(line) - row) < 1e-4);
+
+        // Hits 会四周放宽留白：沿字方向先收回去，上下的留白不变。
+        var inner = text with
+        {
+            X = text.X + (offset + Margin) * ux,
+            Y = text.Y + (offset + Margin) * uy,
+            Width = text.Width - 2 * Margin,
+        };
+        var lines = obstacles.Lines.Where(line => !SameRow(line)).ToList();
+        return Hits([inner], new Obstacles(lines, obstacles.Texts)) == 0 ? offset : null;
+    }
+
     /// <summary>孔标注可去的角位，按偏好排：近的一档四个角，再远一档……</summary>
     public static IEnumerable<CalloutSpot> CalloutSpots(HoleEdge hole)
     {

@@ -108,6 +108,7 @@ internal static class DrawingFinish
             + (AnnotationPlacementPlanner.Within(s.Texts, frame.Value) ? 0 : 100);
         // 已离开尺寸链的放不下的字（只算这一遍；下一遍读回时它和链已不同行，也不在 chainPeers 里）。字还对着自己的间距、又没有同行的链，也算离开了。
         var left = new HashSet<int>();
+        var rowsMoved = new HashSet<int>();
         bool OnChain(int index) => !left.Contains(index) && (chainPeers.ContainsKey(index) || !ClearancePlanner.OverGap(shapes[index].Texts, shapes[index].Lines));
         // 后加的尺寸界线也会压到先前文字，所以整页跑有上限的三轮。每次读回确认变好才保留，避免反复漂移。
         for (var pass = 0; pass < 3; pass++)
@@ -132,6 +133,7 @@ internal static class DrawingFinish
             }
 
             // 放得下的字被上一层尺寸界线的尾巴挡住（真机底层1 的两个 40）：不把字挪走，整条链往外退一层，一层 4 mm，最多 6 层。
+            // 只退这一侧最外层的链，每条链一遍只退一次：里层的链退出去，又会用界线挡住外层，互相追着退到图框边（首版真机）。
             bool MoveRow(int index)
             {
                 var shape = shapes[index];
@@ -139,11 +141,19 @@ internal static class DrawingFinish
                     || ClearancePlanner.Seat(shape.Texts, shape.Lines, Obstacles.Empty) is null)
                     return false;
                 var group = (chainPeers.GetValueOrDefault(index) ?? []).Append(index).ToList();
+                if (group.Any(rowsMoved.Contains))
+                    return false;
                 var free = ObstaclesWithout(group);
                 var members = group.Select(g => (shapes[g].Lines, shapes[g].Texts)).ToList();
                 var (vx, vy) = (-Math.Sin(shape.Texts[0].Angle), Math.Cos(shape.Texts[0].Angle));
                 var (centerX, centerY) = ((shape.View.Left + shape.View.Right) / 2, (shape.View.Bottom + shape.View.Top) / 2);
                 var sign = (shape.Texts[0].X - centerX) * vx + (shape.Texts[0].Y - centerY) * vy >= 0 ? 1 : -1;
+                double Out(TextBox text) => sign * (text.X * vx + text.Y * vy);
+                var outermost = shapes.Where((other, j) => other.ViewName == shape.ViewName && other.Movable && !group.Contains(j) && other.Texts.Count == 1
+                        && Math.Abs(other.Texts[0].Angle - shape.Texts[0].Angle) < 1e-3)
+                    .All(other => Out(other.Texts[0]) <= group.Max(g => Out(shapes[g].Texts[0])) + 1e-4);
+                if (!outermost)
+                    return false;
                 for (var tier = 1; tier <= 6; tier++)
                 {
                     var (dx, dy) = (sign * tier * 0.004 * vx, sign * tier * 0.004 * vy);
@@ -159,6 +169,7 @@ internal static class DrawingFinish
                         shapes[member] = shapes[member] with { Lines = lines, Texts = texts };
                     }
 
+                    rowsMoved.UnionWith(group);
                     moved++;
                     changed = true;
                     return true;

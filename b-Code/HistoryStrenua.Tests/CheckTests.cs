@@ -160,6 +160,19 @@ internal static partial class Tests
         var polylines = document.Descendants(ns + "polyline").ToList();
         Equal(2, polylines.Count);
         Equal("140,110 145,115 150,120", polylines[0].Attribute("points")!.Value);
+        // 1.32.0：曲线带编号，圆弧带圆心和半径；不是圆的只有编号。
+        var numberedSheet = sheet with { Views = [sheet.Views[1] with { Numbered = [
+            new SheetCurve([new SheetSegment(0.14, 0.11, 0.145, 0.115), new SheetSegment(0.145, 0.115, 0.15, 0.12)], new SheetPoint(0.14, 0.12), 0.01),
+            new SheetCurve([new SheetSegment(0.1, 0.1, 0.1, 0.1001)], null, 0)] }] };
+        var numberedCurves = System.Xml.Linq.XDocument.Parse(DrawingSvgWriter.Write(numberedSheet)).Descendants(ns + "polyline").ToList();
+        Equal("C0", numberedCurves[0].Attribute("id")!.Value);
+        Equal("140,120", numberedCurves[0].Attribute("data-center")!.Value);
+        Equal("10", numberedCurves[0].Attribute("data-r")!.Value);
+        Equal("C1", numberedCurves[1].Attribute("id")!.Value);
+        True(numberedCurves[1].Attribute("data-center") is null, "不是圆弧没有圆心");
+        SheetCurve[] measuredCurves = [new([new SheetSegment(0.02, 0.03, 0.05, 0.06)], new SheetPoint(0.04, 0.04), 0.01)];
+        Equal("C0 (40,40) ↔ C0.2 (50,60)", DrawingSvg.Measures(new ViewDimension(0, 2, false, 0.01, [DimensionAnchor.Center(new SheetPoint(0.04, 0.04)), DimensionAnchor.Point(new SheetPoint(0.05, 0.06))]), [], [], measuredCurves));
+
         var hole = document.Descendants(ns + "circle").Single();
         Equal("H0", hole.Attribute("id")!.Value);
         Equal("3", hole.Attribute("r")!.Value);

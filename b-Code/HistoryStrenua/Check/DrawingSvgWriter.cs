@@ -20,12 +20,12 @@ internal sealed record SvgSheet(string Title, string SheetName, double Width, do
 internal sealed record SvgBlock(string Id, string Label, SheetRect Rect, string Text);
 
 /// <summary>
-/// 一个视图：外框、可见直边（编号 E）、曲线（折线近似）、孔（编号 H）、注解。图纸页本身没有几何，只有注解。
+/// 一个视图：外框、可见直边（编号 E）、曲线（折线近似，有 <paramref name="Numbered"/> 时带编号 C，1.32.0）、孔（编号 H）、注解。图纸页本身没有几何，只有注解。
 /// 差异里 <paramref name="Change"/> 是 added / removed / moved / rescaled（空 = 视图本身没变，只是里面的注解变了），moved 时 <paramref name="From"/> 是原来的中心。
 /// </summary>
 internal sealed record SvgView(string Name, string Kind, string Parent, string Scale, SheetRect? Outline,
     IReadOnlyList<SheetSegment> Lines, IReadOnlyList<SheetSegment> Curves, IReadOnlyList<HoleEdge> Holes,
-    IReadOnlyList<SvgAnnotation> Annotations, string Note = "", string Change = "", SheetPoint? From = null);
+    IReadOnlyList<SvgAnnotation> Annotations, string Note = "", string Change = "", SheetPoint? From = null, IReadOnlyList<SheetCurve>? Numbered = null);
 
 /// <summary>
 /// 一个注解：方框画字占的地方（<paramref name="TextBox"/>，没有就用整个外框），<c>data-box</c> 另写连尺寸界线、引线在内的整个外框（<paramref name="Box"/>）；
@@ -111,7 +111,7 @@ internal static class DrawingSvgWriter
 
     private static void WriteHeader(StringBuilder svg)
     {
-        svg.Append("<!-- PowerSW 图纸 SVG：坐标为图纸 mm、左下角为原点（与 strenua.view.* / dim.* 的 x、y 相同）。id 形如视图组内的「E3」（直边）、「H0」（孔）、「RD1」（注解名），视图组 id 是视图名。"
+        svg.Append("<!-- PowerSW 图纸 SVG：坐标为图纸 mm、左下角为原点（与 strenua.view.* / dim.* 的 x、y 相同）。id 形如视图组内的「E3」（直边）、「C2」（曲线，圆弧带 data-center、data-r）、「H0」（孔）、「RD1」（注解名），视图组 id 是视图名。"
               + "标注只画方框与显示的字，data-measures 是尺寸量的两头；标题栏等图框格子整块一个方框，字在 data-text。"
               + "改图指令经 MCP 调用时回执只给本步差异（data-delta，data-change=added/removed/changed（字变了）/moved（只挪了，只给新方框）/rescaled，几何只在新建、换比例的视图里给）。 -->\n");
         svg.Append("<style>")
@@ -150,8 +150,25 @@ internal static class DrawingSvgWriter
                 svg.Append($"<line class=\"edge\" id=\"E{i}\" x1=\"{Mm(line.X1)}\" y1=\"{Mm(line.Y1)}\" x2=\"{Mm(line.X2)}\" y2=\"{Mm(line.Y2)}\"/>\n");
             }
 
-            foreach (var points in Polylines(view.Curves))
-                svg.Append($"<polyline class=\"curve\" points=\"{string.Join(" ", points.Select(p => Mm(p.X) + "," + Mm(p.Y)))}\"/>\n");
+            if (view.Numbered is { } numbered)
+            {
+                for (var i = 0; i < numbered.Count; i++)
+                {
+                    foreach (var points in Polylines(numbered[i].Segments))
+                    {
+                        svg.Append($"<polyline class=\"curve\" id=\"C{i}\" points=\"{string.Join(" ", points.Select(p => Mm(p.X) + "," + Mm(p.Y)))}\"");
+                        if (numbered[i].Center is { } center)
+                            svg.Append($" data-center=\"{Mm(center.X)},{Mm(center.Y)}\" data-r=\"{Mm(numbered[i].Radius)}\"");
+                        svg.Append("/>\n");
+                    }
+                }
+            }
+            else
+            {
+                foreach (var points in Polylines(view.Curves))
+                    svg.Append($"<polyline class=\"curve\" points=\"{string.Join(" ", points.Select(p => Mm(p.X) + "," + Mm(p.Y)))}\"/>\n");
+            }
+
             foreach (var hole in view.Holes)
             {
                 svg.Append($"<circle class=\"hole\" id=\"H{hole.Index}\" cx=\"{Mm(hole.X)}\" cy=\"{Mm(hole.Y)}\" r=\"{Mm(hole.Radius)}\"");

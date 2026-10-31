@@ -124,6 +124,17 @@ internal static partial class Tests
         Throws(() => GeometryRef.Parse("D1", "from"), "只认 E / H");
         Equal(new GeometryRef(false, 7, 2), GeometryRef.Parse("e7.2", "to"));
         Equal("E7.2", new GeometryRef(false, 7, 2).ToString());
+        Equal(new GeometryRef(false, 3, 0, true), GeometryRef.Parse("c3", "to"));
+        Equal(new GeometryRef(false, 3, 1, true), GeometryRef.Parse("C3.1", "to"));
+        Equal("C3.1", new GeometryRef(false, 3, 1, true).ToString());
+        True(DimAdd.SameEdge(new GeometryRef(false, 3, 0, true), new GeometryRef(false, 3, 1, true)), "圆心和自己的端点");
+        True(!DimAdd.SameEdge(new GeometryRef(false, 3, 0, true), new GeometryRef(false, 3)), "曲线和直边编号碰巧相同");
+        SheetCurve arc = new([new(0, 0.01, 0.003, 0.003), new(0.003, 0.003, 0.01, 0)], new SheetPoint(0.01, 0.01), 0.01);
+        Equal<double?>(0.01, DimAdd.CurveCoordinate(arc, 0, horizontal: true));
+        Equal<double?>(0.01, DimAdd.CurveCoordinate(arc, 1, horizontal: false));
+        Equal<double?>(0, DimAdd.CurveCoordinate(arc, 2, horizontal: false));
+        Equal<double?>(null, DimAdd.CurveCoordinate(arc with { Center = null }, 0, horizontal: true));
+        Equal<double?>(null, DimAdd.CurveCoordinate(new SheetCurve(ClearancePlanner.Octagon(new SheetPoint(0, 0), 0.01).ToList(), new SheetPoint(0, 0), 0.01), 1, horizontal: true));
         Throws(() => GeometryRef.Parse("E7.3", "to"), "端点只有 1、2");
         Throws(() => GeometryRef.Parse("H5.1", "to"), "孔没有端点");
         True(DimAdd.SameEdge(new GeometryRef(false, 7, 1), new GeometryRef(false, 7, 2)), "同一条边的两端");

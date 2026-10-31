@@ -106,7 +106,7 @@ internal static class SheetDelta
                 ? full.Annotations
                 : view.Annotations.Select(a => byName.TryGetValue(a.Name, out var f) ? f with { Change = a.Change } : a).ToList();
             return diff.Geometry.Contains(view.Name)
-                ? view with { Lines = full.Lines, Curves = full.Curves, Holes = full.Holes, Note = full.Note, Annotations = annotations }
+                ? view with { Lines = full.Lines, Curves = full.Curves, Numbered = full.Numbered, Holes = full.Holes, Note = full.Note, Annotations = annotations }
                 : view with { Annotations = annotations };
         }).ToList();
         return after with { Frame = null, Blocks = [], Views = views, Delta = true };

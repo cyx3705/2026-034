@@ -21,7 +21,7 @@ internal static class DrawingSvg
         CommandName: StrenuaIdentity.Domain + ".check.svg",
         Title: "图纸 SVG",
         Summary: "把当前图纸页（或一个视图）读成 SVG 代码回执给 AI：边与孔带编号，标注画方框加字，坐标为图纸 mm；超过 1 万字降级，最后回截图。",
-        Usage: "「视图」空着读整页，填视图名只读那一个视图（要某个视图的完整几何就用它）。回执的数据是一段 SVG（完整的一份另存到模块数据目录 snapshots，可用浏览器打开）。坐标是图纸 mm、左下角为原点，和视图、标注类的 X / Y 相同。每个视图一组：可见直边（id「视图名:E序号」）、曲线（折线近似）、孔（「视图名:H序号」，带孔种）；尺寸、孔标注、注释只画字占的方框和图上显示的字，尺寸另写量的两头（data-measures）；中心符号线、中心线画成线。标题栏、修改栏、图号框各一个方框，格子里的字合在 data-text。回执超过 1 万字就依次降成「几何 + 精简标注」「只有标注」，还超就回整页截图的路径。不改图。",
+        Usage: "「视图」空着读整页，填视图名只读那一个视图（要某个视图的完整几何就用它）。回执的数据是一段 SVG（完整的一份另存到模块数据目录 snapshots，可用浏览器打开）。坐标是图纸 mm、左下角为原点，和视图、标注类的 X / Y 相同。每个视图一组：可见直边（id「视图名:E序号」）、曲线（编号 C，折线近似，正对图纸的圆弧带圆心 data-center 和半径 data-r）、孔（「视图名:H序号」，带孔种）；尺寸、孔标注、注释只画字占的方框和图上显示的字，尺寸另写量的两头（data-measures）；中心符号线、中心线画成线。标题栏、修改栏、图号框各一个方框，格子里的字合在 data-text。回执超过 1 万字就依次降成「几何 + 精简标注」「只有标注」，还超就回整页截图的路径。不改图。",
         // 要存一份文件，所以和「图纸截图」一样不标只读（宿主的只读 = 不写文件）。
         Run: QuickCommand.Unbound,
         Parameters: [new QuickParameter("view", "视图", "视图名（视图列表的 name 列）；省略时读整页", false)],
@@ -174,6 +174,7 @@ internal static class DrawingSvg
         IReadOnlyList<SheetSegment> lines = [];
         IReadOnlyList<SheetSegment> curves = [];
         IReadOnlyList<HoleEdge> holes = [];
+        IReadOnlyList<SheetCurve>? numbered = null;
         var measures = new Dictionary<string, string>(StringComparer.Ordinal);
         var note = string.Empty;
         if (!scan)
@@ -193,8 +194,9 @@ internal static class DrawingSvg
                 lines = scanned.Lines;
                 curves = scanned.CurveSegments;
                 holes = scanned.Candidates;
+                numbered = scanned.CurveShapes;
                 foreach (var dimension in DimensionScan.Read(api, scanned))
-                    measures[api.CallString(dimension.Annotation, "IAnnotation", "GetName")] = Measures(dimension.Geometry, scanned.Lines, scanned.Candidates);
+                    measures[api.CallString(dimension.Annotation, "IAnnotation", "GetName")] = Measures(dimension.Geometry, scanned.Lines, scanned.Candidates, numbered);
                 if (scanned.BendLines > 0)
                     note = $"钣金折弯线 {scanned.BendLines} 条没有画（不当边、不当基准）";
             }
@@ -207,7 +209,7 @@ internal static class DrawingSvg
         var annotations = SheetLookup.Annotations(api, view)
             .Select(item => Annotation(api, name, item.Name, item.Annotation, measures.GetValueOrDefault(item.Name)))
             .ToList();
-        return new SvgView(name, row["kind"], row["parent"], row["scale"], DrawingSheet.Outline(api, view), lines, curves, holes, annotations, note);
+        return new SvgView(name, row["kind"], row["parent"], row["scale"], DrawingSheet.Outline(api, view), lines, curves, holes, annotations, note, Numbered: numbered);
     }
 
     /// <summary>一个注解：种类、字、值沿用 <see cref="DimList.Row"/>；注释的字取全文（多行）；中心符号线、中心线取显示数据里的线。</summary>
@@ -255,9 +257,9 @@ internal static class DrawingSvg
 
     /// <summary>
     /// 尺寸量的两头，如「E3 x=60.94 ↔ H5 (94.54,229.76)」：竖直边给 x、水平边给 y、圆心给 (x,y)、斜线写「斜线」；读不出的那头不写。
-    /// 落在这个视图的某条直边、某个孔上的，前面写它在 SVG 里的编号（真机第一版只有坐标，孔标注指的是哪个孔要自己对坐标）。
+    /// 落在这个视图的某条直边、某个孔、某段圆弧圆心、某个端点上的，前面写它在 SVG 里的编号（真机第一版只有坐标，孔标注指的是哪个孔要自己对坐标）。
     /// </summary>
-    internal static string Measures(ViewDimension dimension, IReadOnlyList<SheetSegment>? lines = null, IReadOnlyList<HoleEdge>? holes = null)
+    internal static string Measures(ViewDimension dimension, IReadOnlyList<SheetSegment>? lines = null, IReadOnlyList<HoleEdge>? holes = null, IReadOnlyList<SheetCurve>? curves = null)
     {
         return string.Join(" ↔ ", dimension.Anchors.Select(anchor => Id(anchor) + (anchor.X, anchor.Y) switch
         {
@@ -281,6 +283,35 @@ internal static class DrawingSvg
                 foreach (var hole in holes)
                     if (DimensionGeometry.Same(hole.X, x) && DimensionGeometry.Same(hole.Y, y))
                         return $"H{hole.Index} ";
+            }
+
+            if (anchor.Segment is null && anchor.X is { } px && anchor.Y is { } py)
+            {
+                bool At(SheetPoint? point) => point is { } p && DimensionGeometry.Same(p.X, px) && DimensionGeometry.Same(p.Y, py);
+                if (anchor.Hole)
+                {
+                    for (var i = 0; curves is not null && i < curves.Count; i++)
+                        if (At(curves[i].Center))
+                            return $"C{i} ";
+                }
+                else
+                {
+                    for (var i = 0; lines is not null && i < lines.Count; i++)
+                    {
+                        if (At(new SheetPoint(lines[i].X1, lines[i].Y1)))
+                            return $"E{i}.1 ";
+                        if (At(new SheetPoint(lines[i].X2, lines[i].Y2)))
+                            return $"E{i}.2 ";
+                    }
+
+                    for (var i = 0; curves is not null && i < curves.Count; i++)
+                    {
+                        if (At(curves[i].EndPoint(1)))
+                            return $"C{i}.1 ";
+                        if (At(curves[i].EndPoint(2)))
+                            return $"C{i}.2 ";
+                    }
+                }
             }
 
             return string.Empty;

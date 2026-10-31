@@ -22,6 +22,8 @@ namespace HistoryStrenua;
 /// <param name="ChamferItems">倒角斜边在图纸上的样子，与 <paramref name="ChamferEdges"/> 一一对应。</param>
 /// <param name="CircleArcs">收集圆角时去掉的「其实是圆 / 孔」的弧段数（1.12.0，见 <see cref="FilletPlanner.WithoutCircles"/>）。</param>
 /// <param name="BendLines">收集直边时去掉的钣金折弯处的线条数（折弯切线 + 折弯区里的短边，1.17.0，见 <see cref="SheetMetal"/>）。</param>
+/// <param name="CurveEdges">曲线边本身（1.32.0，SVG 编号 C 的下标），与 <paramref name="CurveShapes"/> 一一对应。</param>
+/// <param name="CurveShapes">曲线边在图纸上的样子（1.32.0）。</param>
 internal sealed record ScannedView(
     object Document,
     object View,
@@ -37,7 +39,9 @@ internal sealed record ScannedView(
     IReadOnlyList<object>? ChamferEdges = null,
     IReadOnlyList<ChamferEdge>? ChamferItems = null,
     int CircleArcs = 0,
-    int BendLines = 0)
+    int BendLines = 0,
+    IReadOnlyList<object>? CurveEdges = null,
+    IReadOnlyList<SheetCurve>? CurveShapes = null)
 {
     /// <summary>倒角斜边（只在要求收集倒角时有，1.10.0），<see cref="ChamferEdge.Index"/> 是 <see cref="ChamferEdges"/> 的下标。</summary>
     public IReadOnlyList<ChamferEdge> Chamfers => ChamferItems ?? [];
@@ -116,6 +120,8 @@ internal static class HoleScan
         var lineEdges = new List<object>();
         var lines = new List<SheetSegment>();
         var curves = new List<SheetSegment>();
+        var curveEdges = new List<object>();
+        var curveShapes = new List<SheetCurve>();
         var arcEdges = new List<object>();
         var arcs = new List<FilletArc>();
         var chamferEdges = new List<object>();
@@ -155,7 +161,11 @@ internal static class HoleScan
                 }
                 else if (withLines)
                 {
-                    curves.AddRange(geometry.CurveOutline(edge));
+                    var outline = geometry.CurveOutline(edge);
+                    curves.AddRange(outline);
+                    var circle = geometry.TryReadFacingCircle(edge);
+                    curveEdges.Add(edge);
+                    curveShapes.Add(new SheetCurve(outline, circle?.Center, circle?.Radius ?? 0));
                     if (withArcs && geometry.TryReadArc(edge, arcEdges.Count) is { } arc)
                     {
                         arcs.Add(arc);
@@ -181,7 +191,7 @@ internal static class HoleScan
 
         // 1.12.0：整圆、孔口残弧、与孔同圆的弧不是圆角（孔由孔类指令标），在这里就去掉。下标仍指 arcEdges。
         var (fillets, circleArcs) = FilletPlanner.WithoutCircles(arcs, candidates);
-        var scanned = new ScannedView(document, view, viewName, geometry, edges, candidates, lineEdges, lines, curves, arcEdges, fillets, chamferEdges, chamfers, circleArcs, bendLines);
+        var scanned = new ScannedView(document, view, viewName, geometry, edges, candidates, lineEdges, lines, curves, arcEdges, fillets, chamferEdges, chamfers, circleArcs, bendLines, curveEdges, curveShapes);
         context.Scans[cacheKey] = (transform, api.Generation, scanned);
         return scanned;
     }
@@ -611,6 +621,22 @@ internal static class HoleScan
                     return null;
                 var center = ToSheet(Transforms(edge), true, circle[0], circle[1], circle[2]);
                 return (new SheetPoint(center[0], center[1]), circle[6] * Scale);
+            }
+            catch (Exception ex) when (ex is System.Runtime.InteropServices.COMException or InvalidCastException or System.Reflection.TargetException)
+            {
+                return null;
+            }
+        }
+
+        /// <summary>正对图纸的圆或圆弧的圆心与半径（1.32.0）；侧着看（投影成椭圆、直线）、不是圆返回 null。</summary>
+        public (SheetPoint Center, double Radius)? TryReadFacingCircle(object edge)
+        {
+            try
+            {
+                if (Circle(edge) is not { } circle)
+                    return null;
+                var axis = ToSheet(Transforms(edge), false, circle[3], circle[4], circle[5]);
+                return HoleCalloutPlanner.FacesViewer(axis[0], axis[1], axis[2]) ? TryReadCircle(edge) : null;
             }
             catch (Exception ex) when (ex is System.Runtime.InteropServices.COMException or InvalidCastException or System.Reflection.TargetException)
             {

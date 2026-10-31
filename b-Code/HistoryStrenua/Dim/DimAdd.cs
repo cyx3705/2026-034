@@ -14,14 +14,14 @@ internal static class DimAdd
         Key: "dim-add",
         CommandName: StrenuaIdentity.Domain + ".dim.add",
         Title: "加尺寸",
-        Summary: "按图纸 SVG 的编号在两头之间（线、线的端点、孔）加一个水平或竖直尺寸，读回值与几何核对，对不上删掉报失败。",
-        Usage: "先用 strenua.check.svg view=视图名 查编号。「从」「到」都要填，各是直边 E3（线到线）、直边端点 E3.1 / E3.2（SVG 里 x1,y1 是 .1，x2,y2 是 .2）或孔 H5（圆心）。斜边只能取端点。两头不能在同一条边上：不量线自身长度，要定一条线的端点就从基准或已标的线量到那个端点。方向 h 水平、v 竖直，X、Y 是文字位置（图纸 mm）。不看避障开关，说放哪放哪。",
+        Summary: "按图纸 SVG 的编号在两头之间（线、线的端点、孔、圆弧圆心）加一个水平或竖直尺寸，读回值与几何核对，对不上删掉报失败。",
+        Usage: "先用 strenua.check.svg view=视图名 查编号。「从」「到」都要填，各是直边 E3（线到线）、直边端点 E3.1 / E3.2（SVG 里 x1,y1 是 .1，x2,y2 是 .2）孔 H5（圆心）、圆弧 C3（圆心，SVG 里带 data-center 的才行）或曲线端点 C3.1 / C3.2（折线首尾）。斜边只能取端点。两头不能在同一条边上：不量线自身长度，要定一条线的端点就从基准或已标的线量到那个端点。方向 h 水平、v 竖直，X、Y 是文字位置（图纸 mm）。不看避障开关，说放哪放哪。",
         Run: QuickCommand.Unbound,
         Parameters:
         [
             QuickArgs.View("视图名（视图列表的 name 列）"),
-            new QuickParameter("from", "从", "一头：直边 E3、直边端点 E3.1 或孔 H5", true),
-            new QuickParameter("to", "到", "另一头：直边 E7、直边端点 E7.2 或孔 H5；不能和「从」在同一条边上", true),
+            new QuickParameter("from", "从", "一头：直边 E3、直边端点 E3.1、孔 H5、圆弧圆心 C3 或曲线端点 C3.1", true),
+            new QuickParameter("to", "到", "另一头：直边 E7、直边端点 E7.2、孔 H5、圆弧圆心 C3 或曲线端点 C3.2；不能和「从」在同一条边上", true),
             new QuickParameter("axis", "方向", "h 水平、v 竖直", true),
             QuickArgs.X("文字位置 X（图纸 mm）"),
             QuickArgs.Y("文字位置 Y（图纸 mm）"),
@@ -46,7 +46,7 @@ internal static class DimAdd
     }
 
     /// <summary>两头是不是同一条直边（含它的端点）。</summary>
-    internal static bool SameEdge(GeometryRef from, GeometryRef to) => !from.Hole && !to.Hole && from.Index == to.Index;
+    internal static bool SameEdge(GeometryRef from, GeometryRef to) => !from.Hole && !to.Hole && from.Curve == to.Curve && from.Index == to.Index;
 
     internal static bool Axis(string text) => text.Trim().ToLowerInvariant() switch
     {
@@ -65,7 +65,7 @@ internal static class DimAdd
         var scale = Convert.ToDouble(api.Call(view, "IView", "get_ScaleDecimal"), CultureInfo.InvariantCulture);
         var label = $"{from} ↔ {to}";
         if (Expected(scan, from, to, horizontal, scale) is not { } expected)
-            return QuickOutcome.Fail($"加尺寸：{label} 量不出{(horizontal ? "水平" : "竖直")}距离（编号不存在、直边和量的方向不垂直要改取端点，或两头在这个方向上重合）。");
+            return QuickOutcome.Fail($"加尺寸：{label} 量不出{(horizontal ? "水平" : "竖直")}距离（编号不存在、直边和量的方向不垂直要改取端点、曲线不是正对图纸的圆弧没有圆心，或两头在这个方向上重合）。");
 
         _ = api.Call(drawing, "IDrawingDoc", "ActivateView", viewName);
         api.Call(drawing, "IModelDoc2", "ClearSelection2", true);
@@ -100,7 +100,7 @@ internal static class DimAdd
     {
         if (item.Hole)
             return HolePosition.SelectEdge(api, scan, scan.Edges[item.Index], append);
-        var edge = scan.LineEdges[item.Index];
+        var edge = item.Curve ? scan.CurveEdges![item.Index] : scan.LineEdges[item.Index];
         if (item.End == 0)
             return HolePosition.SelectEdge(api, scan, edge, append);
         // TryReadLine 的 X1,Y1 就是起点顶点。
@@ -116,6 +116,8 @@ internal static class DimAdd
     {
         if (item.Hole)
             return item.Index < scan.Candidates.Count ? (horizontal ? scan.Candidates[item.Index].X : scan.Candidates[item.Index].Y) : null;
+        if (item.Curve)
+            return scan.CurveShapes is { } shapes && item.Index < shapes.Count ? CurveCoordinate(shapes[item.Index], item.End, horizontal) : null;
         if (item.Index >= scan.Lines.Count)
             return null;
         var line = scan.Lines[item.Index];
@@ -126,4 +128,8 @@ internal static class DimAdd
             _ => GeometryRef.Coordinate(line, horizontal),
         };
     }
+
+    /// <summary>曲线的一头：不带端点号是圆心（只有正对图纸的圆弧有），带端点号是折线首尾。</summary>
+    internal static double? CurveCoordinate(SheetCurve curve, int end, bool horizontal)
+        => (end == 0 ? curve.Center : curve.EndPoint(end)) is { } point ? (horizontal ? point.X : point.Y) : null;
 }

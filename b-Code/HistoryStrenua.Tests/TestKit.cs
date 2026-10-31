@@ -36,6 +36,8 @@ internal static partial class Tests
         ("hole position: datums are the leftmost and topmost straight edges", TestPositionDatums),
         ("hole position: only linear dimensions on holes are redone", TestPositionObsolete),
         ("hole position: pattern prefix text", TestPatternPrefix),
+        ("hole position: same span keeps the finer pattern", TestPositionSameSpanPatterns),
+        ("hole position: read-back value catches a wrong column", TestPositionValueCheck),
         ("hole position: chain mode is one ordinate group per direction", TestPositionChain),
         ("hole position: symmetric views measure across the axis", TestPositionSymmetry),
         ("hole callout: opposite face holes", TestOppositeHoles),

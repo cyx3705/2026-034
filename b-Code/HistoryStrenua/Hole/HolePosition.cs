@@ -198,7 +198,7 @@ internal static class HolePosition
     /// 竖直尺寸只选孔边。真机（SW 2025 SP5）实测：选中中心符号线加竖直尺寸，SolidWorks 不论点选偏移、选择先后，
     /// 一律拿符号的竖线，与水平基准边一起建成角度尺寸。API 也拿不到中心符号线的横线单独去选。
     /// </para>
-    /// <para>建出来的不是线性尺寸就删掉，退回选孔边再建。</para>
+    /// <para>建出来的不是线性尺寸、或值与规划对不上（选到旁边一列的中心符号线）就删掉，退回选孔边再建。</para>
     /// </remarks>
     /// <returns>加上了没有，以及是不是连在中心线上。</returns>
     internal static (object? Created, bool OnCenterLines) Insert(SolidWorksApi api, ScannedView scan, object? datumEdge, PositionDimension dimension)
@@ -215,6 +215,14 @@ internal static class HolePosition
             if (api.Call(scan.Document, "IModelDoc2", method, dimension.TextAt.X, dimension.TextAt.Y, 0.0) is not { } created)
                 continue;
             if (!HolePositionPlanner.IsLinear(api.CallInt(created, "IDisplayDimension", "get_Type2")))
+            {
+                Discard(api, scan, created);
+                continue;
+            }
+
+            // 1.32.4：中心符号线可能选到旁边一列，值对不上就删掉，退回选孔边。
+            if (api.Call(created, "IDisplayDimension", "GetDimension2", 0) is { } value
+                && !HolePositionPlanner.SameValue(dimension.Expected, Convert.ToDouble(api.Call(value, "IDimension", "get_SystemValue"))))
             {
                 Discard(api, scan, created);
                 continue;

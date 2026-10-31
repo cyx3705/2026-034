@@ -18,7 +18,8 @@ internal enum PositionAxis
 /// <param name="ToEdgeIndex">终点孔边的下标。</param>
 /// <param name="TextAt">尺寸文字放在图纸上的位置（米）。</param>
 /// <param name="Prefix">尺寸值前面的文字；阵列标法是「(N-1) x 间距 =」，其余为空。</param>
-internal sealed record PositionDimension(PositionAxis Axis, int? FromEdgeIndex, int ToEdgeIndex, SheetPoint TextAt, string Prefix);
+/// <param name="Expected">规划的尺寸值（模型，米），建好后读回核对；0 表示不核对。</param>
+internal sealed record PositionDimension(PositionAxis Axis, int? FromEdgeIndex, int ToEdgeIndex, SheetPoint TextAt, string Prefix, double Expected = 0);
 
 /// <summary>
 /// 尺寸链模式下一个方向的一组 SolidWorks「尺寸链」（坐标尺寸，<c>swOrdinateDimension</c>）：
@@ -117,6 +118,16 @@ internal static class HolePositionPlanner
     /// <summary>判等距的容差：间距之差不超过 0.01 mm（模型尺寸）。</summary>
     public const double PitchTolerance = 1e-5;
 
+    /// <summary>孔位尺寸读回值与规划值相差超过这么多（模型 0.1 mm）就算连错了。</summary>
+    public const double ValueTolerance = 1e-4;
+
+    /// <summary>
+    /// 孔位尺寸连对了吗（1.32.4）：按孔心点选中心符号线可能选到旁边一列（真机底层1：x=70.4 的孔连成 x=71，标出 33、37，应为 30、40），
+    /// 尺寸照样建得出来，只有值对不上。<paramref name="expected"/> 为 0 表示不核对。
+    /// </summary>
+    public static bool SameValue(double expected, double actual)
+        => expected <= 0 || Math.Abs(expected - actual) <= ValueTolerance;
+
     /// <summary>直边算竖直 / 水平的斜率容差。</summary>
     private const double AxisTolerance = 1e-3;
 
@@ -155,7 +166,7 @@ internal static class HolePositionPlanner
 
         var dimensions = new List<PositionDimension>();
         var patterns = 0;
-        var datum = new Datum(left, top);
+        var datum = new Datum(left, top, scale);
         foreach (var axis in new[] { PositionAxis.Horizontal, PositionAxis.Vertical })
         {
             var chains = kinds
@@ -163,6 +174,8 @@ internal static class HolePositionPlanner
                 .Where(chain => chain.Stops.Count > 0)
                 .OrderBy(chain => chain.Reach)
                 .ThenBy(chain => chain.Stops[0].Offset)
+                // 1.32.4：跨度相同时站多的（间距细的）先标，否则粗阵列占了这一段，细间距就丢了（真机侧板 11 个孔只标出 5 x 200）。
+                .ThenByDescending(chain => chain.Stops.Count)
                 .ToList();
 
             // 已经标过的「中心线 → 中心线」段（基准记为 0）。尺寸按中心线标、不按孔标：
@@ -178,6 +191,8 @@ internal static class HolePositionPlanner
                 return true;
             }
 
+            // 已标过的阵列的各站：后面的阵列跨度相同且每站都落在这上面才算标过。
+            var located = new List<double>();
             var mirrored = symmetric?.Contains(axis) == true;
             // 1.23.0：每种孔（一条链）各自挑放哪一侧，两侧各自由里到外排层。
             var tiers = new int[2];
@@ -190,13 +205,15 @@ internal static class HolePositionPlanner
                 if (chain.Pattern)
                 {
                     var last = stops[^1];
-                    if (Claim(first.Offset, last.Offset))
+                    var onLocated = stops.All(stop => located.Any(offset => Math.Abs(offset - stop.Offset) <= HoleCalloutPlanner.CenterTolerance));
+                    if (Claim(first.Offset, last.Offset) || !onLocated)
                     {
                         var prefix = PatternPrefix(stops.Count - 1, (last.Offset - first.Offset) / (stops.Count - 1) / scale);
                         items.Add(new Planned(first, last, 0, prefix));
                         patterns++;
                     }
 
+                    located.AddRange(stops.Select(stop => stop.Offset));
                     if (needDatum)
                         items.Add(new Planned(null, first, 0, string.Empty));
                 }
@@ -476,7 +493,8 @@ internal static class HolePositionPlanner
     /// <see cref="Planned.Far"/> 的放到视图另一边（1.16.0 起避禁区、1.23.0 起选引线短的一侧）：水平的在视图最下沿之下、竖直的在最右沿之右，层照样由里到外。
     /// </summary>
     private static PositionDimension Dimension(PositionAxis axis, Planned item, Datum datum, PositionSpace? space)
-        => new(axis, item.From?.On(item.Far).Index, item.To.On(item.Far).Index, TextAt(axis, item, datum, space), item.Prefix);
+        => new(axis, item.From?.On(item.Far).Index, item.To.On(item.Far).Index, TextAt(axis, item, datum, space), item.Prefix,
+            datum.Scale > 0 ? (item.To.Offset - (item.From?.Offset ?? 0)) / datum.Scale : 0);
 
     private static SheetPoint TextAt(PositionAxis axis, Planned item, Datum datum, PositionSpace? space)
     {
@@ -534,5 +552,5 @@ internal static class HolePositionPlanner
     /// <summary>规划好的一个尺寸：起点站（null = 基准）、终点站、第几层、前缀、放没放到另一侧（下方 / 右侧）。</summary>
     internal sealed record Planned(Stop? From, Stop To, int Tier, string Prefix, bool Far = false);
 
-    internal readonly record struct Datum(double Left, double Top);
+    internal readonly record struct Datum(double Left, double Top, double Scale = 0);
 }

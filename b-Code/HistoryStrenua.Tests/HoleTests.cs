@@ -256,6 +256,42 @@ internal static partial class Tests
         Equal("0,2", string.Join(",", plan.Obsolete));
     }
 
+    static void TestPositionSameSpanPatterns()
+    {
+        // 1.32.4，真机侧板：6 个 Ø5 间距 200、11 个 Ø6.6 间距 100，跨度都是 1000。不管哪种先扫到，都标细的那个。
+        const double scale = 0.2;
+        const double left = 0.05;
+        const double top = 0.2;
+        static HoleEdge H(int i, double x, double y, double d, string kind) => new(i, left + x / 1000 * scale, top - y / 1000 * scale, d / 2000 * scale, kind);
+        var coarse = Enumerable.Range(0, 6).Select(i => H(i, 45 + 200 * i, 40, 5, "/M5")).ToList();
+        var fine = Enumerable.Range(0, 11).Select(i => H(6 + i, 45 + 100 * i, 138, 6.6, "/CBore")).ToList();
+        foreach (var edges in new[] { coarse.Concat(fine).ToList(), fine.Concat(coarse).ToList() })
+        {
+            var patterns = HolePositionPlanner.Plan(edges, left, top, scale).Dimensions.Where(d => d.Axis == PositionAxis.Horizontal && d.Prefix.Length > 0).ToList();
+            Equal(1, patterns.Count);
+            Equal("10 x 100 =", patterns[0].Prefix);
+            Near(1.0, patterns[0].Expected);
+        }
+
+        // 粗阵列的孔不在细阵列的站上：两个都要标，否则粗阵列没有位置。
+        var offStations = Enumerable.Range(0, 5).Select(i => H(i, 45 + 250 * i, 40, 5, "/M5")).Concat(fine).ToList();
+        var both = HolePositionPlanner.Plan(offStations, left, top, scale).Dimensions.Where(d => d.Axis == PositionAxis.Horizontal && d.Prefix.Length > 0).Select(d => d.Prefix).ToList();
+        True(both.Contains("10 x 100 =") && both.Contains("4 x 250 ="), string.Join(" / ", both));
+    }
+
+    static void TestPositionValueCheck()
+    {
+        // 1.32.4，真机底层1：应标 30，连到旁边一列读回 33。
+        True(!HolePositionPlanner.SameValue(0.030, 0.033), "连错列要拦下");
+        True(HolePositionPlanner.SameValue(0.030, 0.03001), "同一根线的读数误差不拦");
+        True(HolePositionPlanner.SameValue(0, 0.033), "没给规划值不核对");
+        var (holes, left, top, scale) = Strip(i => 10 + 60 * i);
+        var plan = HolePositionPlanner.Plan(holes, left, top, scale);
+        Near(0.6, plan.Dimensions[0].Expected);
+        Near(0.01, plan.Dimensions[1].Expected);
+        Near(0.03, plan.Dimensions[2].Expected);
+    }
+
     static void TestPositionPattern()
     {
         var (holes, left, top, scale) = Strip(i => 10 + 60 * i);

@@ -216,16 +216,35 @@ internal static partial class Tests
         Equal(2, two[0].Surplus);
         Equal(2, two[0].Suggested.Count);
 
-        // 倒角 C、孔径不进图。
-        Equal(0, DimensionCheckPlanner.Redundant([View("前", total, new(1, 6, false, 0.006, [C(0.03, 0.02)]), new(2, 2, false, 0.1, [left, right], "C"))]).Count);
+        // 孔径不进图。
+        Equal(0, DimensionCheckPlanner.Redundant([View("前", total, new(1, 6, false, 0.006, [C(0.03, 0.02)]))]).Count);
 
-        // 相切：圆心到相切直边的尺寸自己就定了。
-        FilletArc[] arcs = [new(0, new SheetPoint(0.095, 0.045), 0.005, 0.005, new SheetPoint(0.0985, 0.0485), false, Math.PI / 2, new SheetPoint(0.1, 0.045), new SheetPoint(0.095, 0.05))];
-        SheetSegment[] rounded = [new(0, 0, 0, 0.05), new(0, 0.05, 0.095, 0.05), new(0.1, 0.045, 0.1, 0), new(0.1, 0, 0, 0)];
-        var arcView = new CheckView("前", "PART|默认", frame, rounded, [], arcs, [new(0, 2, false, 0.005, [C(0.095, 0.045), DimensionAnchor.Line(rounded[2], true)])], []);
-        var tangent = DimensionCheckPlanner.Redundant([arcView]);
+        // 真机夹爪2 右视图（比例 1 换算）：18、圆心 13、R5，弧和切线隔一小段；13 = 18 − R5，R 留下。
+        SheetSegment[] jaw = [new(0, 0.1, 0, 0.0255), new(0, 0.0255, 0.013, 0.0255), new(0.018, 0.0195, 0.018, 0), new(0.018, 0, 0.04, 0)];
+        FilletArc[] arc = [new(0, new SheetPoint(0.013, 0.0205), 0.005, 0.005, new SheetPoint(0.0165, 0.024), false, Math.PI / 2, new SheetPoint(0.013, 0.0255), new SheetPoint(0.018, 0.0205))];
+        var jawView = new CheckView("右", "PART|默认", frame, jaw, [], arc,
+            [new(0, 2, false, 0.018, [DimensionAnchor.Line(jaw[0], true), DimensionAnchor.Line(jaw[2], true)]),
+             new(1, 2, false, 0.013, [DimensionAnchor.Line(jaw[0], true), C(0.013, 0.0205)]),
+             new(2, 5, false, 0.005, [C(0.013, 0.0205)])], []);
+        var tangent = DimensionCheckPlanner.Redundant([jawView]);
         Equal(1, tangent.Count);
-        True(RedundantCheck.Formula(tangent[0].Suggested[0], N).Contains("相切"), "自环写明原因");
+        Equal(1, tangent[0].Suggested[0].Target.Index);
+        Equal("D1 = D0(18) − D2(5)", RedundantCheck.Formula(tangent[0].Suggested[0], N));
+        Equal(1, ArcCenterPlanner.Tangents(arc[0], jaw).Count(t => Math.Abs(t.Y) > 0.9));
+
+        // 没标 R 时相切算已定，圆心到切线的尺寸自己就多余。
+        var noRadius = jawView with { Dimensions = [new(0, 2, false, 0.005, [C(0.013, 0.0205), DimensionAnchor.Line(jaw[2], true)])] };
+        True(RedundantCheck.Formula(DimensionCheckPlanner.Redundant([noRadius])[0].Suggested[0], N).Contains("相切"), "自环写明原因");
+
+        // 倒角 C：总长 100 = 平直段 95 + C5。
+        SheetSegment[] cut = [new(0, 0, 0, 0.05), new(0, 0.05, 0.095, 0.05), new(0.095, 0.05, 0.1, 0.045), new(0.1, 0.045, 0.1, 0)];
+        var cutView = new CheckView("前", "PART|默认", frame, cut, [], [],
+            [new(0, 2, false, 0.1, [DimensionAnchor.Line(cut[0], true), DimensionAnchor.Line(cut[3], true)]),
+             new(1, 2, false, 0.095, [DimensionAnchor.Line(cut[0], true), new DimensionAnchor(0.095, null)]),
+             new(2, 2, false, 0.005, [DimensionAnchor.Line(cut[2], true)], "C")], []);
+        var chamfered = DimensionCheckPlanner.Redundant([cutView]);
+        Equal(1, chamfered.Count);
+        Equal(1, chamfered[0].Suggested[0].Target.Index);
 
         // 阵列跨度里的孔跟着起点，再标到它就算重标。
         HoleEdge[] row = [new(0, 0.01, 0.02, 0.003, "/C"), new(1, 0.03, 0.02, 0.003, "/C"), new(2, 0.05, 0.02, 0.003, "/C")];

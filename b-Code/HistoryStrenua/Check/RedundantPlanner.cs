@@ -27,19 +27,20 @@ internal sealed record RedundantLoop(bool Horizontal, IReadOnlyList<RedundantMem
 /// </summary>
 /// <remarks>
 /// <list type="number">
-/// <item>不用尺寸也定了的关系（圆弧相切、腰型孔两端、对称轴、未注倒角、阵列跨度里等距的孔）先把点并起来；与「未标尺寸」用同一张尺寸网，跨视图也算。</item>
+/// <item>不用尺寸也定了的关系（腰型孔两端、对称轴、未注倒角、阵列跨度里等距的孔、没标 R 的相切）先把点并起来；与「未标尺寸」用同一张尺寸网，跨视图也算。</item>
+/// <item>R、C 也是边（用户定：圆角倒角要纳入判断）：R 连圆心与切线（如 13 = 18 − R5），C 连斜边两头。</item>
 /// <item>一条边的两头已经并成一个点：这个尺寸自己就是多余的。</item>
 /// <item>其余找桥（Tarjan）：桥不在环上，删了就定不住，不是重标。去掉桥后每个连通块是一组，多余个数 = 边数 − 点数 + 1。</item>
-/// <item>每组按保留优先级求最大生成树（公差 &gt; 阵列 &gt; 总尺寸 &gt; 整数，同分留前面视图的），不在树上的就是建议删的，树上的路径就是它的算式。</item>
+/// <item>每组按保留优先级求最大生成树（公差 &gt; 阵列 &gt; 总尺寸 &gt; R、C &gt; 整数，同分留前面视图的），不在树上的就是建议删的，树上的路径就是它的算式。</item>
 /// </list>
-/// <para>只判线性与坐标尺寸；孔径、R、角度、斜向距离、倒角 C 不进图。</para>
+/// <para>孔径、角度、斜向距离不进图；R、C 只经相切、斜边进图。</para>
 /// </remarks>
 internal static partial class DimensionCheckPlanner
 {
     private static readonly Regex ArrayPrefix = new(@"^\s*(\d+)\s*[x×]", RegexOptions.Compiled | RegexOptions.IgnoreCase);
     private static readonly Regex ChamferPrefix = new(@"^\s*(?:\d+\s*[x×]\s*)?C\s*$", RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
-    private sealed record DimensionEdge(RedundantMember Member, ModelPlane From, ModelPlane To, bool Horizontal, bool Array)
+    private sealed record DimensionEdge(RedundantMember Member, ModelPlane From, ModelPlane To, bool Horizontal, bool Array, bool Size = false)
     {
         /// <summary>从 <see cref="From"/> 到 <see cref="To"/> 的带符号距离。</summary>
         public double Delta => To.Offset - From.Offset;
@@ -60,18 +61,43 @@ internal static partial class DimensionCheckPlanner
     {
         var edges = new List<DimensionEdge>();
         var given = new OutlineCoverage();
-        ConnectGiven(given, views);
+        ConnectGiven(given, views, tangents: false);
+        var radii = new List<RedundantMember>();
         foreach (var (view, index) in views)
         {
-            ConnectChamfers(given, view, CoveredChamfers(view), chamfer);
+            ConnectChamfers(given, view, [], chamfer);
             foreach (var dimension in view.Dimensions)
             {
-                if (!(dimension.Linear || dimension.Ordinate) || ChamferPrefix.IsMatch(dimension.Prefix))
+                if (dimension.Type == RadialDimension && !double.IsNaN(dimension.Value))
+                    radii.Add(new RedundantMember(index, dimension.Index, dimension.Value, dimension.ToleranceType != 0));
+                if (!(dimension.Linear || dimension.Ordinate))
                     continue;
+                if (ChamferPrefix.IsMatch(dimension.Prefix))
+                {
+                    edges.AddRange(ChamferEdges(view, index, dimension));
+                    continue;
+                }
+
                 if (Edge(view, index, dimension) is not { } edge)
                     continue;
                 edges.Add(edge);
                 ConnectArray(given, view, dimension, edge);
+            }
+        }
+
+        // 相切：标了这个 R 就是一条边（同半径共用一个 R，同「未标尺寸」的认法），没标的算已定。
+        foreach (var (view, _) in views)
+        {
+            foreach (var arc in view.Arcs)
+            {
+                var radius = radii.FirstOrDefault(item => Math.Abs(item.Value - arc.ModelRadius) <= DimensionGeometry.ValueTolerance);
+                foreach (var (center, line, axis) in TangentPlanes(view, arc))
+                {
+                    if (radius is not null)
+                        edges.Add(new DimensionEdge(radius, center, line, axis == PositionAxis.Horizontal, false, Size: true));
+                    else
+                        given.Connect(center, line);
+                }
             }
         }
 
@@ -84,6 +110,20 @@ internal static partial class DimensionCheckPlanner
             ConnectSymmetry(full, view, given);
 
         return Loops(edges, given);
+    }
+
+    /// <summary>「C」尺寸：每条斜边两头在两个方向上各一条边。</summary>
+    private static IEnumerable<DimensionEdge> ChamferEdges(CheckView view, int index, ViewDimension dimension)
+    {
+        var member = new RedundantMember(index, dimension.Index, dimension.Value, dimension.ToleranceType != 0);
+        foreach (var line in ChamferLines(view, dimension))
+        {
+            foreach (var axis in Axes)
+            {
+                var (a, b) = axis == PositionAxis.Horizontal ? (line.X1, line.X2) : (line.Y1, line.Y2);
+                yield return new DimensionEdge(member, view.Frame.Plane(axis, Math.Min(a, b)), view.Frame.Plane(axis, Math.Max(a, b)), axis == PositionAxis.Horizontal, false, Size: true);
+            }
+        }
     }
 
     /// <summary>尺寸量的那一段：只连一条边的量它自身跨度；量不出的返回 null。45° 两向都对得上时只算水平。</summary>

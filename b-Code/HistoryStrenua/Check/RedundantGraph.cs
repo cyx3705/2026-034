@@ -3,9 +3,17 @@ namespace HistoryStrenua;
 /// <summary>「重标尺寸」的图算法部分：自环、找桥、分组、最大生成树、算式。</summary>
 internal static partial class DimensionCheckPlanner
 {
-    private static List<RedundantLoop> Loops(List<DimensionEdge> edges, OutlineCoverage given)
+    private static List<RedundantLoop> Loops(List<DimensionEdge> allEdges, OutlineCoverage given)
     {
         var result = new List<RedundantLoop>();
+        // 同一个 R / C 在几个视图、几段弧上连同一段只算一条；普通尺寸各是各的（标两遍就是重标）。R、C 两头已定的不报：它们是大小，不是位置。
+        var edges = allEdges
+            .Where(edge => !edge.Size || given.Component(edge.From) != given.Component(edge.To))
+            .GroupBy(edge => edge.Size
+                ? (edge.Member, Math.Min(given.Component(edge.From), given.Component(edge.To)), Math.Max(given.Component(edge.From), given.Component(edge.To)), 0)
+                : (edge.Member, 0, 0, allEdges.IndexOf(edge)))
+            .Select(group => group.First())
+            .ToList();
         var ends = edges.Select(edge => (U: given.Component(edge.From), V: given.Component(edge.To))).ToList();
 
         // 两头已经定了的：单独一组，算式只有不用尺寸的那部分。
@@ -100,6 +108,7 @@ internal static partial class DimensionCheckPlanner
             var fraction = Math.Abs(edge.Member.Value * 1000 - Math.Round(edge.Member.Value * 1000));
             return (edge.Member.Tolerance ? 1e6 : 0) + (edge.Array ? 1e5 : 0)
                 + (Math.Abs(edge.Delta) >= largest - DimensionGeometry.ValueTolerance ? 1e4 : 0)
+                + (edge.Size ? 5e3 : 0)
                 + (fraction < 0.005 ? 100 : -100);
         }
 

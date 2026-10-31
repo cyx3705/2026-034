@@ -333,11 +333,14 @@ internal static partial class DimensionCheckPlanner
     }
 
     /// <summary>不用尺寸也定了的：圆弧相切、腰型孔两端。</summary>
-    private static void ConnectGiven(OutlineCoverage net, List<(CheckView View, int Index)> views)
+    /// <param name="net">连进这张网。</param>
+    /// <param name="views">各视图。</param>
+    /// <param name="tangents">连不连相切（重标判断里相切另算，见 <see cref="RedundantInModel"/>）。</param>
+    private static void ConnectGiven(OutlineCoverage net, List<(CheckView View, int Index)> views, bool tangents = true)
     {
         foreach (var (view, _) in views)
         {
-            foreach (var arc in view.Arcs)
+            foreach (var arc in view.Arcs.Where(_ => tangents))
                 ConnectTangents(net, view, arc);
             foreach (var slot in HoleCalloutPlanner.Recognize(view.Holes).Where(hole => hole.Slot >= 0).GroupBy(hole => hole.Slot))
             {
@@ -357,19 +360,25 @@ internal static partial class DimensionCheckPlanner
     {
         var result = new List<SheetSegment>();
         foreach (var dimension in view.Dimensions.Where(d => d.Linear))
-        {
-            var match = System.Text.RegularExpressions.Regex.Match(dimension.Prefix, @"^\s*(?:(\d+)\s*[x×]\s*)?C\s*$", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-            if (!match.Success || !double.IsFinite(dimension.Value) || dimension.Value <= 0) continue;
-            var count = match.Groups[1].Success && int.TryParse(match.Groups[1].Value, out var parsed) ? parsed : 1;
-            bool SameSize(SheetSegment line) => Math.Abs(Math.Abs(line.X2 - line.X1) / view.Frame.Scale - dimension.Value) <= DimensionGeometry.ValueTolerance
-                && Math.Abs(Math.Abs(line.Y2 - line.Y1) / view.Frame.Scale - dimension.Value) <= DimensionGeometry.ValueTolerance;
-            var attached = dimension.Anchors.Where(a => a.Segment is not null).Select(a => a.Segment!.Value).Where(SameSize).ToList();
-            if (attached.Count == 0) continue;
-            result.AddRange(attached);
-            var equal = view.Lines.Where(SameSize).Distinct().ToList();
-            if (count > 1 && equal.Count <= count) result.AddRange(equal);
-        }
+            result.AddRange(ChamferLines(view, dimension));
         return result.Distinct().ToList();
+    }
+
+    /// <summary>一个「C」「N x C」尺寸定了哪几条斜边；不是这种尺寸为空。</summary>
+    internal static List<SheetSegment> ChamferLines(CheckView view, ViewDimension dimension)
+    {
+        var result = new List<SheetSegment>();
+        var match = System.Text.RegularExpressions.Regex.Match(dimension.Prefix, @"^\s*(?:(\d+)\s*[x×]\s*)?C\s*$", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        if (!match.Success || !double.IsFinite(dimension.Value) || dimension.Value <= 0) return result;
+        var count = match.Groups[1].Success && int.TryParse(match.Groups[1].Value, out var parsed) ? parsed : 1;
+        bool SameSize(SheetSegment line) => Math.Abs(Math.Abs(line.X2 - line.X1) / view.Frame.Scale - dimension.Value) <= DimensionGeometry.ValueTolerance
+            && Math.Abs(Math.Abs(line.Y2 - line.Y1) / view.Frame.Scale - dimension.Value) <= DimensionGeometry.ValueTolerance;
+        var attached = dimension.Anchors.Where(a => a.Segment is not null).Select(a => a.Segment!.Value).Where(SameSize).ToList();
+        if (attached.Count == 0) return result;
+        result.AddRange(attached);
+        var equal = view.Lines.Where(SameSize).Distinct().ToList();
+        if (count > 1 && equal.Count <= count) result.AddRange(equal);
+        return result;
     }
 
     private enum LineOrientation
@@ -413,6 +422,13 @@ internal static partial class DimensionCheckPlanner
     /// <summary>圆弧一端与水平 / 竖直直边相切：圆心在那条边的法向上跟着它（差一个半径）。</summary>
     private static void ConnectTangents(OutlineCoverage net, CheckView view, FilletArc arc)
     {
+        foreach (var (center, line, _) in TangentPlanes(view, arc))
+            net.Connect(center, line);
+    }
+
+    /// <summary>圆弧与水平 / 竖直直边相切：圆心那个面、切线那个面（差一个半径）、方向。</summary>
+    private static IEnumerable<(ModelPlane Center, ModelPlane Line, PositionAxis Axis)> TangentPlanes(CheckView view, FilletArc arc)
+    {
         foreach (var end in new[] { arc.Start, arc.End })
         {
             if (end is not { } point)
@@ -423,9 +439,7 @@ internal static partial class DimensionCheckPlanner
                 continue;
             foreach (var line in view.Lines)
             {
-                var touches = HoleCalloutPlanner.SameCenter(new SheetPoint(line.X1, line.Y1), point)
-                              || HoleCalloutPlanner.SameCenter(new SheetPoint(line.X2, line.Y2), point);
-                if (!touches)
+                if (!ArcCenterPlanner.Reaches(point, radius, line))
                     continue;
                 var (dx, dy) = (line.X2 - line.X1, line.Y2 - line.Y1);
                 var length = Math.Sqrt(dx * dx + dy * dy);
@@ -434,10 +448,10 @@ internal static partial class DimensionCheckPlanner
                 switch (Orientation(line))
                 {
                     case LineOrientation.Horizontal:
-                        net.Connect(view.Frame.Plane(PositionAxis.Vertical, arc.Center.Y), view.Frame.Plane(PositionAxis.Vertical, line.Y1));
+                        yield return (view.Frame.Plane(PositionAxis.Vertical, arc.Center.Y), view.Frame.Plane(PositionAxis.Vertical, line.Y1), PositionAxis.Vertical);
                         break;
                     case LineOrientation.Vertical:
-                        net.Connect(view.Frame.Plane(PositionAxis.Horizontal, arc.Center.X), view.Frame.Plane(PositionAxis.Horizontal, line.X1));
+                        yield return (view.Frame.Plane(PositionAxis.Horizontal, arc.Center.X), view.Frame.Plane(PositionAxis.Horizontal, line.X1), PositionAxis.Horizontal);
                         break;
                 }
             }

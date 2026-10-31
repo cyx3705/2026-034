@@ -268,8 +268,23 @@ internal static class ArcCenterPlanner
     }
 
     /// <summary>
-    /// 一段弧两端相切的直线方向（单位向量，图纸）：端点与直线的一个端点接上、直线方向与端点的半径方向垂直。没有端点的整圆没有。
+    /// 一段弧两端相切的直线方向（单位向量，图纸）：端点够得着直线（<see cref="Reaches"/>）、直线方向与端点的半径方向垂直。没有端点的整圆没有。
     /// </summary>
+    /// <summary>
+    /// 圆弧端点够得着这条直线：接上直线的一个端点；或在直线的延长线上、差不到一个半径（1.29.0，真机夹爪2：弧和切线中间隔一小段 1 mm 的曲线边，13 = 18 − R5 没认出来）。
+    /// </summary>
+    public static bool Reaches(SheetPoint point, double radius, SheetSegment line)
+    {
+        if (Near(point, line.X1, line.Y1) || Near(point, line.X2, line.Y2))
+            return true;
+        var (dx, dy) = (line.X2 - line.X1, line.Y2 - line.Y1);
+        var length = Math.Sqrt(dx * dx + dy * dy);
+        if (length <= 0 || Math.Abs((point.X - line.X1) * dy - (point.Y - line.Y1) * dx) / length > EndTolerance)
+            return false;
+        var along = ((point.X - line.X1) * dx + (point.Y - line.Y1) * dy) / length;
+        return along < 0 ? -along <= radius : along - length <= radius;
+    }
+
     public static List<(double X, double Y)> Tangents(FilletArc arc, IReadOnlyList<SheetSegment> lines)
     {
         var result = new List<(double, double)>();
@@ -285,7 +300,7 @@ internal static class ArcCenterPlanner
             {
                 var (dx, dy) = (line.X2 - line.X1, line.Y2 - line.Y1);
                 var length = Math.Sqrt(dx * dx + dy * dy);
-                if (length <= EndTolerance || !(Near(point, line.X1, line.Y1) || Near(point, line.X2, line.Y2)))
+                if (length <= EndTolerance || !Reaches(point, radius, line))
                     continue;
                 if (Math.Abs((dx * rx + dy * ry) / (length * radius)) <= TangentTolerance)
                 {

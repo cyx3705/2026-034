@@ -78,10 +78,7 @@ internal static class DrawingFinish
                     // 只去掉精确整数/一位小数多显示的零；47.207 之类模型真实尺寸绝不四舍五入成 47.2。
                     if (ExactPrecision(mm) is { } precision)
                     {
-                        api.Call(display, "IDisplayDimension", "SetPrecision3", precision,
-                            api.CallInt(display, "IDisplayDimension", "GetAlternatePrecision2"),
-                            api.CallInt(display, "IDisplayDimension", "GetPrimaryTolPrecision2"),
-                            api.CallInt(display, "IDisplayDimension", "GetAlternateTolPrecision2"));
+                        DimensionScan.SetPrecision(api, display, precision);
                         (lines, texts) = Clearance.DisplayGeometry(api, annotation);
                     }
                 }

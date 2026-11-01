@@ -6,6 +6,10 @@ internal static partial class Tests
     {
         Equal(1, DrawingFinish.ExactPrecision(17.5)!.Value);
         True(DrawingFinish.ExactPrecision(47.207) is null, "不能靠舍入真实尺寸掩盖两位小数警告");
+        Equal(2, DimensionGeometry.ToleranceDigits(0.02, -0.02)!.Value);
+        Equal(3, DimensionGeometry.ToleranceDigits(0.012, 0)!.Value);
+        Equal(1, DimensionGeometry.ToleranceDigits(0.1, -0.1)!.Value);
+        True(DimensionGeometry.ToleranceDigits(0, 0) is null, "公差没有数值时不定精度");
         var outline = new SheetRect(0.05, 0.05, 0.15, 0.15);
         var texts = new List<SheetRect> { new(0.12, 0.03, 0.20, 0.06), new(0.02, 0.15, 0.07, 0.18) };
         var box = DrawingSheet.MeasuredBox(outline, new ViewBox(0.1, 0.1, 0.01, 0.01), texts);

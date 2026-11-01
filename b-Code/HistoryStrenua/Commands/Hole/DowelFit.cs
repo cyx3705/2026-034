@@ -29,7 +29,6 @@ internal static class DowelFit
     private const int FitLinear = 3;
 
     /// <summary>H7 偏差值显示几位小数。</summary>
-    private const int TolerancePrecision = 3;
 
     /// <param name="context">快捷指令上下文。</param>
     /// <param name="view">直接处理这个视图（全流程用）；null 时取选中的或等用户点选。</param>
@@ -226,7 +225,7 @@ internal static class DowelFit
         api.Call(target, "ICalloutVariable", "set_FitDisplayStyle", FitLinear);
         api.Call(target, "ICalloutVariable", "set_ShowParenthesis", true);
         // 偏差值三位小数：默认两位时 ⌀5H7 的 +0.012 显示成 +0.01（真机底板）。
-        api.Call(target, "ICalloutLengthVariable", "set_TolerancePrecision", TolerancePrecision);
+        api.Call(target, "ICalloutLengthVariable", "set_TolerancePrecision", CalloutEdit.FitPrecision);
         return api.CallInt(target, "ICalloutVariable", "get_ToleranceType") == DimensionGeometry.ToleranceFitWithTolerance
                && api.CallString(target, "ICalloutVariable", "get_HoleFit") == DowelFitPlanner.HoleFit;
     }

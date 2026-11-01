@@ -92,8 +92,33 @@ internal static class DimensionScan
         // SetValues 才写得进去。
         if (!api.CallBool(tolerance, "IDimensionTolerance", "SetValues", -plusMinus, plusMinus))
             api.Call(tolerance, "IDimensionTolerance", "SetValues2", -plusMinus, plusMinus, 0, null);
-        return api.CallInt(tolerance, "IDimensionTolerance", "get_Type") == DimensionGeometry.ToleranceSymmetric
+        var written = api.CallInt(tolerance, "IDimensionTolerance", "get_Type") == DimensionGeometry.ToleranceSymmetric
                && Math.Abs(Convert.ToDouble(api.Call(tolerance, "IDimensionTolerance", "GetMaxValue")) - plusMinus) < 1e-9;
+        if (written)
+            SetPrecision(api, display, api.CallInt(display, "IDisplayDimension", "GetPrimaryPrecision2"));
+        return written;
+    }
+
+    /// <summary>
+    /// 设尺寸主精度，公差按自己的值定精度。公差精度默认跟主精度走：主精度改成 0 位时 ±0.02 显示成 ±0（真机移动安装板1）。
+    /// </summary>
+    public static void SetPrecision(SolidWorksApi api, object display, int primary)
+        => api.Call(display, "IDisplayDimension", "SetPrecision3", primary,
+            api.CallInt(display, "IDisplayDimension", "GetAlternatePrecision2"),
+            TolerancePrecision(api, display),
+            api.CallInt(display, "IDisplayDimension", "GetAlternateTolPrecision2"));
+
+    /// <summary>这个尺寸公差该显示几位小数；没有公差或公差没有数值（如配合）就是它现在的设置。</summary>
+    private static int TolerancePrecision(SolidWorksApi api, object display)
+    {
+        if (api.Call(display, "IDisplayDimension", "GetDimension2", 0) is { } dimension
+            && api.Call(dimension, "IDimension", "get_Tolerance") is { } tolerance
+            && api.CallInt(tolerance, "IDimensionTolerance", "get_Type") != 0
+            && DimensionGeometry.ToleranceDigits(
+                Convert.ToDouble(api.Call(tolerance, "IDimensionTolerance", "GetMaxValue")) * 1000,
+                Convert.ToDouble(api.Call(tolerance, "IDimensionTolerance", "GetMinValue")) * 1000) is { } digits)
+            return digits;
+        return api.CallInt(display, "IDisplayDimension", "GetPrimaryTolPrecision2");
     }
 
     /// <summary>尺寸文字位置（图纸坐标），下标是 <see cref="ViewDimension.Index"/>。</summary>

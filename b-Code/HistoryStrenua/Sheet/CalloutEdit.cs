@@ -145,8 +145,24 @@ internal static class CalloutEdit
         api.ClearSelection(scan.Document);
         if (callout is null || api.Call(callout, "IDisplayDimension", "GetAnnotation") is not { } annotation)
             return null;
+        RestoreFitPrecision(api, callout);
         AlignShoulder(api, annotation, spot.Shoulder, spot.TextLeft);
         return annotation;
+    }
+
+    /// <summary>H7 偏差值显示三位小数：默认两位时 ⌀5H7 的 +0.012 显示成 +0.01。</summary>
+    internal const int FitPrecision = 3;
+
+    /// <summary>
+    /// 同一孔已有配合时，新加的孔标注带着 H7 却回到默认精度（真机：换挂后 +0.012 变 +0.01），补回来。没有配合的不动。
+    /// </summary>
+    private static void RestoreFitPrecision(SolidWorksApi api, object callout)
+    {
+        foreach (var variable in api.CallArray(callout, "IDisplayDimension", "GetHoleCalloutVariables"))
+        {
+            if (variable is not null && api.CallInt(variable, "ICalloutVariable", "get_ToleranceType") == DimensionGeometry.ToleranceFitWithTolerance)
+                api.Call(variable, "ICalloutLengthVariable", "set_TolerancePrecision", FitPrecision);
+        }
     }
 
     /// <summary>一个注解所附着的圆边的圆心（图纸坐标）。悬空注解的附着对象读回 null，跳过。</summary>

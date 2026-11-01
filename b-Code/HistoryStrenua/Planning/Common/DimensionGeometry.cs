@@ -60,6 +60,20 @@ internal sealed record ViewDimension(
 /// </summary>
 internal static class DimensionGeometry
 {
+    /// <summary>公差上下偏差（mm）显示全要几位小数，最多 4 位；都是 0 时 null（没有数值，不用定）。</summary>
+    public static int? ToleranceDigits(double upper, double lower)
+    {
+        if (!double.IsFinite(upper) || !double.IsFinite(lower) || (Math.Abs(upper) < 1e-7 && Math.Abs(lower) < 1e-7))
+            return null;
+        for (var digits = 0; digits < 4; digits++)
+        {
+            if (Math.Abs(upper - Math.Round(upper, digits)) < 1e-7 && Math.Abs(lower - Math.Round(lower, digits)) < 1e-7)
+                return digits;
+        }
+
+        return 4;
+    }
+
     /// <summary>直线算竖直 / 水平的斜率容差（同 <see cref="HolePositionPlanner.Datums"/>）。</summary>
     public const double AxisTolerance = 1e-3;
 

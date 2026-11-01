@@ -200,7 +200,7 @@ internal static partial class Tests
         // 贴视图那格有条线：往外走到放得下为止。
         var blocked = ClearancePlanner.PlaceSqueezed(text4, own4, view, frame, new Obstacles([new(M(54), M(120), M(54), M(150))], neighbours));
         var outer = text4.Shift(blocked!.Value.X, blocked.Value.Y);
-        True(outer.X <= M(54) && outer.X > M(53), $"应刚好让开那条线，实际 {outer.X * 1000:0.##}");
+        True(outer.X <= M(53.25) && outer.X > M(52), $"应让开那条线并留够行距，实际 {outer.X * 1000:0.##}");
     }
 
     static void TestDimensionSidesTie()

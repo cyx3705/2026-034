@@ -291,6 +291,9 @@ internal static class ClearancePlanner
     /// <summary>离开尺寸链找地方时每步走多远（图纸 0.5 mm）。</summary>
     public const double SearchStep = 5e-4;
 
+    /// <summary>放不下的字离开这一行时，垂直尺寸线方向至少留这么多：字高 3.5、字到自己尺寸线 0.25，加起来正好一个行距。</summary>
+    private const double RowClearance = 7.5e-4;
+
     /// <summary>字沿尺寸线还对着自己的间距（和两条界线之间有重叠）。</summary>
     public static bool OverGap(IReadOnlyList<TextBox> texts, IReadOnlyList<SheetSegment> own)
     {
@@ -385,13 +388,13 @@ internal static class ClearancePlanner
             var moved = text.Shift(dx, dy);
             if (!AnnotationPlacementPlanner.Within([moved], frame))
                 return null;
-            // 放得下就行：四周的留白收回去。
+            // 沿线放得下就行；垂直尺寸线方向要留够，离开这一行后到相邻尺寸线也是一个行距（用户定）。
             var inner = moved with
             {
-                X = moved.X + Margin * (ux + vx),
-                Y = moved.Y + Margin * (uy + vy),
+                X = moved.X + Margin * ux - RowClearance * vx,
+                Y = moved.Y + Margin * uy - RowClearance * vy,
                 Width = Math.Max(moved.Width - 2 * Margin, 1e-6),
-                Height = Math.Max(moved.Height - 2 * Margin, 1e-6),
+                Height = moved.Height + 2 * RowClearance,
             };
             if (Hits([inner], clear) == 0)
                 return Math.Abs(dx) + Math.Abs(dy) < SeatTolerance ? new SheetPoint(0, 0) : new SheetPoint(dx, dy);

@@ -18,4 +18,7 @@ internal static class StrenuaIdentity
 
     /// <summary>用户看到的页面标题。模块叫 Strenua，面向用户的功能名是 PowerSW。</summary>
     public const string PageTitle = "PowerSW";
+
+    /// <summary>本模块经总线调别的模块时的来源。</summary>
+    public const string CommandSource = "module:" + Name;
 }

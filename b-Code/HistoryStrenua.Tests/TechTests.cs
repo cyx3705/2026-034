@@ -96,7 +96,7 @@ internal static partial class Tests
         Equal(system, parsed.Named["system"]);
         Equal(prompt.Replace("\n", " "), parsed.Named["prompt"]);
         True(!parsed.Named.ContainsKey("provider"), "不写 provider：带图片时 Apollo 自己走识图供应商");
-        Equal("module:HistoryStrenua", TechAi.CommandSource);
+        Equal("module:HistoryStrenua", StrenuaIdentity.CommandSource);
 
         // 回执说明：选择的基础与删除项。
         var based = new TechItems("技术要求", string.Empty, ["一", "螺纹嵌钢丝牙套；", "三"]);

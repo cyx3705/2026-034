@@ -51,7 +51,7 @@ internal static partial class Tests
         using var actions = JsonDocument.Parse(StrenuaPage.Actions());
         var declared = actions.RootElement.GetProperty("actions").EnumerateArray()
             .ToDictionary(action => action.GetProperty("id").GetString()!, action => action);
-        var rows = HistoryStrenuaModule.ListRows(new QuickCommandRunner(new StrenuaOptions()));
+        var rows = QuickAdminCommands.ListRows(new QuickCommandRunner(new StrenuaOptions()));
         foreach (var command in ParameterCommands())
         {
             True(rows.Any(row => row["id"] == command.Key), $"{command.Title} 应进 quick.list");
@@ -77,7 +77,7 @@ internal static partial class Tests
         // 同名参数共用一个框，按组分行：对象 / 位置 / 文字。
         Equal("材料,表面处理,热处理|日期,设计,保存", Inputs("prop"));
         // 每个按钮的动作只引用本面板有的框（Aurora：取不到的占位符整条拒绝执行）。
-        foreach (var commandClass in ParameterClasses.Where(item => !QuickCommands.HiddenPageClasses.Contains(item)))
+        foreach (var commandClass in ParameterClasses.Where(item => !QuickClasses.Hidden.Contains(item)))
         {
             var panel = Descendants(description.RootElement)
                 .Single(node => node.TryGetProperty("id", out var id) && id.GetString() == StrenuaPage.ClassPanelId(commandClass));
@@ -182,13 +182,13 @@ internal static partial class Tests
         Equal("12.5", QuickArgs.Format(0.0125));
         Equal("(100, 200)", QuickArgs.Format(current));
 
-        Equal(0, MoveView.Missed(new SheetPoint(0.1, 0.2), new SheetPoint(0.100004, 0.2)).Count);
-        Equal("Y", string.Join("", MoveView.Missed(new SheetPoint(0.1, 0.2), new SheetPoint(0.1, 0.15))));
+        Equal(0, SheetLookup.Missed(new SheetPoint(0.1, 0.2), new SheetPoint(0.100004, 0.2)).Count);
+        Equal("Y", string.Join("", SheetLookup.Missed(new SheetPoint(0.1, 0.2), new SheetPoint(0.1, 0.15))));
 
-        Equal("线性尺寸", DimList.DimensionKind(11));
-        Equal("坐标尺寸", DimList.DimensionKind(1));
-        Equal("技术要求 / 1. 未注圆角R1", DimList.Flatten("技术要求\r\n  1. 未注圆角R1\r\n"));
-        Equal(81, DimList.Flatten(new string('字', 100)).Length);
+        Equal("线性尺寸", AnnotationRows.DimensionKind(11));
+        Equal("坐标尺寸", AnnotationRows.DimensionKind(1));
+        Equal("技术要求 / 1. 未注圆角R1", AnnotationRows.Flatten("技术要求\r\n  1. 未注圆角R1\r\n"));
+        Equal(81, AnnotationRows.Flatten(new string('字', 100)).Length);
     }
 
     /// <summary>参数填错时不附着 SolidWorks，直接回失败；经 quick.run 也一样。</summary>
@@ -214,7 +214,7 @@ internal static partial class Tests
     static CommandContext Context(params (string Key, string Value)[] values)
     {
         var registry = Registry();
-        registry.TryGet(MoveView.Command.CommandName, out var descriptor);
+        registry.TryGet(ViewMove.Command.CommandName, out var descriptor);
         return new CommandContext(descriptor!, values.ToDictionary(pair => pair.Key, pair => pair.Value), "test", null, default);
     }
 

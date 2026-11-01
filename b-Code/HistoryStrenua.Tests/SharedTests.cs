@@ -2,21 +2,21 @@ using System.Text.Json;
 using HistoryStrenua;
 using HistoryVulcan.Core.Commands;
 
-/// <summary>离线测试：共用的避障、尺寸几何、视图朝向（Shared/）。</summary>
+/// <summary>离线测试：共用的避障、尺寸几何、视图朝向。</summary>
 internal static partial class Tests
 {
     static void TestSpeedLocalMath()
     {
         // 真机 Drawing View4（轴测，比例 1:3）读回的变换与 MultiplyTransform 的结果。
         double[] t = [0.7071, -0.4082, 0.5774, -0.7071, -0.4082, 0.5774, 0, -0.8165, -0.5773, 0.311, 0.1818, 0.0712, 0.3333, 0, 0, 0];
-        var point = HoleScan.ViewGeometry.ToSheet([t], true, 0.11, -0.07, 0.23);
+        var point = ViewGeometry.ToSheet([t], true, 0.11, -0.07, 0.23);
         Near(0.3333 * (0.7071 * 0.11 + -0.7071 * -0.07) + 0.311, point[0]);
         Near(0.3333 * (-0.4082 * 0.11 + -0.4082 * -0.07 + -0.8165 * 0.23) + 0.1818, point[1]);
-        var vector = HoleScan.ViewGeometry.ToSheet([t], false, 0.11, -0.07, 0.23);
+        var vector = ViewGeometry.ToSheet([t], false, 0.11, -0.07, 0.23);
         Near(0.3333 * (0.7071 * 0.11 + -0.7071 * -0.07), vector[0]);
         // 两个变换依次套用。
         double[] unit = [1, 0, 0, 0, 1, 0, 0, 0, 1, 0.01, 0.02, 0.03, 1, 0, 0, 0];
-        Near(HoleScan.ViewGeometry.ToSheet([t], true, 0.12, -0.05, 0.26)[0], HoleScan.ViewGeometry.ToSheet([unit, t], true, 0.11, -0.07, 0.23)[0]);
+        Near(ViewGeometry.ToSheet([t], true, 0.12, -0.05, 0.26)[0], ViewGeometry.ToSheet([unit, t], true, 0.11, -0.07, 0.23)[0]);
 
         // 外接框筛选不改结论：随机摆放，与逐条精确判定一致（含带角度的文字）。
         var random = new Random(7);

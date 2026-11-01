@@ -348,7 +348,7 @@ internal static partial class Tests
         Equal("drawing", QuickCommands.All.Single(command => command.Key == "outline-all").CommandClass);
         Equal("drawing", QuickCommands.All.Single(command => command.Key == "drawing-basic").CommandClass);
         Equal("fillet", QuickCommands.All.Single(command => command.Key == "fillet-flow").CommandClass);
-        Equal("一键", QuickCommands.ClassTitle("onekey"));
+        Equal("一键", QuickClasses.Title("onekey"));
         var titles = QuickCommands.All.Select(command => command.Title).ToHashSet();
         foreach (var step in new[] { "新建工程图", "投影视图", "轴测图", "排版", "对称轴", "全图圆心", "全图圆弧", "全图倒角", "孔标注全流程", "基础出图", "全图倒圆倒角" })
             True(titles.Contains(step), $"「{step}」要有自己的按钮与指令");

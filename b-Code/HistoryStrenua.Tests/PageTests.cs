@@ -167,7 +167,7 @@ internal static partial class Tests
             .Where(node => node.TryGetProperty("kind", out var kind) && kind.GetString() is "button" or "switch")
             .Select(node => node.GetProperty("action").GetString()!)
             .ToList();
-        foreach (var command in QuickCommands.All.Where(item => !QuickCommands.HiddenPageClasses.Contains(item.PageClass)))
+        foreach (var command in QuickCommands.All.Where(item => !QuickClasses.Hidden.Contains(item.PageClass)))
             True(bound.Contains(command.ActionId), $"指令「{command.Title}」应是页面上的一个按钮");
         foreach (var action in bound)
             True(declared.ContainsKey(action), $"页面绑定了未声明的动作 {action}");
@@ -175,7 +175,7 @@ internal static partial class Tests
         // 1.7.0 起没有指令表；1.13.0 唯一的表格是「技术要求」类里的模板表格：取数指令已注册，「技术要求」列点了按那一行的名字插模板。
         var tables = Descendants(description.RootElement).Where(node => node.TryGetProperty("type", out var type) && type.GetString() == "table").ToList();
         Equal(1, tables.Count);
-        Equal(StrenuaPage.TechTableId, tables[0].GetProperty("id").GetString()!);
+        Equal(TechApply.TableId, tables[0].GetProperty("id").GetString()!);
         var source = tables[0].GetProperty("dataSource");
         True(registry.TryGet(source.GetProperty("command").GetString()!, out _), "表格取数指令要已注册");
         Equal("tech", source.GetProperty("args").GetProperty("view").GetString()!);
@@ -196,7 +196,7 @@ internal static partial class Tests
 
     static void TestListRows()
     {
-        var rows = HistoryStrenuaModule.ListRows(new QuickCommandRunner(new StrenuaOptions()));
+        var rows = QuickAdminCommands.ListRows(new QuickCommandRunner(new StrenuaOptions()));
         Equal(QuickCommands.All.Count, rows.Count);
         var hole = rows.Single(row => row["id"] == "hole-callout");
         Equal("孔标注", hole["title"]);
@@ -205,8 +205,8 @@ internal static partial class Tests
         foreach (var row in rows)
             True(new[] { "id", "title", "class", "state", "result", "time" }.All(row.ContainsKey) && !row.ContainsKey("usage"), "列表行的列（1.22.0 去掉用法）");
         // 1.22.0：结果只留第一行；全文用 quick.last 取，没跑过的回失败。
-        Equal("孔标注全流程：3 个视图都已做完。", HistoryStrenuaModule.FirstLine("孔标注全流程：3 个视图都已做完。\r\n[销钉符号] ……"));
-        Equal(61, HistoryStrenuaModule.FirstLine(new string('字', 80)).Length);
+        Equal("孔标注全流程：3 个视图都已做完。", QuickAdminCommands.FirstLine("孔标注全流程：3 个视图都已做完。\r\n[销钉符号] ……"));
+        Equal(61, QuickAdminCommands.FirstLine(new string('字', 80)).Length);
         True(!new QuickCommandRunner(new StrenuaOptions()).Last("hole-flow").Success, "没跑过的 quick.last 回失败");
     }
 
@@ -305,7 +305,7 @@ internal static partial class Tests
             return string.Join("|", rows.Select(row => string.Join(",", row.GetProperty("widgets").EnumerateArray().Select(w => w.GetProperty("text").GetString()))));
         }
 
-        foreach (var group in QuickCommands.All.GroupBy(c => c.PageClass).Where(g => g.Key is not ("tech" or "prop") && !QuickCommands.HiddenPageClasses.Contains(g.Key)))
+        foreach (var group in QuickCommands.All.GroupBy(c => c.PageClass).Where(g => g.Key is not ("tech" or "prop") && !QuickClasses.Hidden.Contains(g.Key)))
             Equal(string.Join("|", group.GroupBy(c => c.Row).OrderBy(r => r.Key).Select(r => string.Join(",", r.Select(c => c.Title)))), Row(group.Key));
         // 1.17.0（用户定）：外轮廓挪到基础类，孔类加「方形槽」。
         Equal("孔标注全流程,销钉符号,中心符号线,孔位尺寸,孔标注,销孔标注,方形槽,孔标注选位", Row("hole"));
@@ -319,7 +319,7 @@ internal static partial class Tests
         // 1.13.0（用户定）：旧「技术要求」按钮删掉，「技术要求」类整支就是模板表格；1.14.0 的「写入」按钮不在这里，在最下面一行和 AI 开关并排（见 switches 那组）。
         var tech = branches.Single(branch => branch.GetProperty("case").GetString() == "要求");
         Equal("table", tech.GetProperty("type").GetString()!);
-        Equal(StrenuaPage.TechTableId, tech.GetProperty("id").GetString()!);
+        Equal(TechApply.TableId, tech.GetProperty("id").GetString()!);
         True(!panels.Any(panel => panel.GetProperty("id").GetString() == StrenuaPage.ClassPanelId("tech")), "技术要求类中间没有按钮面板");
         True(QuickCommands.All.All(command => command.Title != "技术要求"), "技术要求按钮已删");
         // 检查类 1.12.0 加「悬空标注」「注解重叠」。

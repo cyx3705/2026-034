@@ -214,7 +214,7 @@ internal static partial class Tests
         Equal("E1 x=60 ↔ H0 (140,150) ↔ 斜线", DrawingSvg.Measures(measured,
             [new SheetSegment(0, 0, 0.1, 0), new SheetSegment(0.06, 0.2, 0.06, 0.1)], [new HoleEdge(0, 0.14, 0.15, 0.003)]));
         // 真机：孔标注显示数据里的符号是代码。
-        Equal("4 x Ø 11 完全贯穿 ⌴ Ø 18 ↧ 11 <X-Y>", DimList.Readable("4 x <MOD-DIAM> 11 完全贯穿 <HOLE-SPOT> <MOD-DIAM> 18 <HOLE-DEPTH> 11 <X-Y>"));
+        Equal("4 x Ø 11 完全贯穿 ⌴ Ø 18 ↧ 11 <X-Y>", AnnotationRows.Readable("4 x <MOD-DIAM> 11 完全贯穿 <HOLE-SPOT> <MOD-DIAM> 18 <HOLE-DEPTH> 11 <X-Y>"));
     }
 
     /// <summary>1.21.0：每一步只回本步改了的——注解按名字比、跟着视图挪的不算改、新建 / 换比例的视图才带几何；预算按档降。</summary>
@@ -295,6 +295,6 @@ internal static partial class Tests
         True(geometryOnly.Contains("id=\"E0\"", StringComparison.Ordinal) && !geometryOnly.Contains("data-kind=\"线性尺寸\"", StringComparison.Ordinal), "只有几何档");
 
         // 只对 MCP 来的调用带反馈。
-        True(StepFeedback.Wanted("module:HistoryPortunus:MCP:client") && !StepFeedback.Wanted("ui") && !StepFeedback.Wanted(null), "来源");
+        True(CommandOrigin.IsAi("module:HistoryPortunus:MCP:client") && !CommandOrigin.IsAi("ui") && !CommandOrigin.IsAi(null), "来源");
     }
 }

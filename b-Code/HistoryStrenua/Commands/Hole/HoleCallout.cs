@@ -1,0 +1,196 @@
+using HistoryStrenua.SolidWorks;
+using static HistoryStrenua.CalloutEdit;
+
+namespace HistoryStrenua;
+
+/// <summary>
+/// 快捷指令「孔标注」：点一个工程图视图，视图里看得见的孔（含腰型孔）每种加一个孔标注。
+/// </summary>
+/// <remarks>
+/// 选视图与认孔见 <see cref="HoleScan"/>。每种孔（同一特征、同一孔径）只标一个：SolidWorks 的孔标注
+/// 自己会写上「N×」，每个都标就是同一行字重复 N 遍。某种孔里已经有一个带标注，整种跳过，连点两次不会出双份。
+/// 腰型孔选它一端的圆弧加孔标注，与圆孔同一个 <c>AddHoleCallout2</c>，规格由 SolidWorks 一次写全。
+/// 最后做标注避障（1.6.0，<see cref="Clearance.ClearCallouts"/>）：视图里孔标注的文字压在别的孔相关注解上就换角位，
+/// 已有的孔标注也算。1.7.0 起受页面「避障」开关控制（默认开）。
+/// 避障之前看对面（1.14.1，<see cref="MarkSuffixes"/>）：对面的同种孔与这一面同位置，孔标注后面写「(含对面)」。
+/// 跨视图不重复（1.15.0，用户定，<see cref="HoleCoveragePlanner"/>）：同一页上视线平行的视图（顶视图对底视图）已标过的种不再标；
+/// 柱形沉头孔的沉孔在这一面背面时，留给看得见沉孔的那个视图标，没有那样的视图才标在这里、后缀写「(反面)」。
+/// </remarks>
+internal static class HoleCallout
+{
+    public static QuickCommand Command { get; } = new(
+        Key: "hole-callout",
+        CommandName: StrenuaIdentity.Domain + ".hole.callout",
+        Title: "孔标注",
+        Summary: "点一个工程图视图，视图里每种孔（含腰型孔）各标一次孔标注，已有标注的种跳过。",
+        Usage: "在工程图里点一个视图（先点后按、先按后点都行，60 秒内），该视图里每种孔（含腰型孔）标一次（数量由 SolidWorks 的 N× 带出）；已有标注的种跳过，同一页上别的视图（如顶视图对底视图）已标过的种也跳过。柱形沉头孔的沉孔在这个视图背面时，这一页有看得见沉孔的视图就留给那个视图标，没有才标在这里、后面写「(反面)」。零件对面（背面）的同种孔与这一面位置一一相同时，这种的孔标注后面写「(含对面)」（SolidWorks 的 N× 把两面都数进去了，视图只看得到这一面）；对面位置不同时回执提示要从对面再开一个视图。「避障」开关开着时最后避障：孔标注文字压在别的孔的尺寸、中心符号线等线条上就换到孔的另一个角。",
+        Run: context => Run(context, null));
+
+    /// <summary>
+    /// 切成两段半圆的孔（<see cref="SplitHole"/>）：SolidWorks 孔标注从半圆进去只写 R，改标直径尺寸，前缀写数量，后缀写贯穿或深度，下一行写沉孔。
+    /// </summary>
+    private static bool InsertSplit(SolidWorksApi api, ScannedView scan, HoleEdge hole, SheetPoint at, PartGeometry? part)
+    {
+        var through = Through(api, scan, hole, at);
+        api.ClearSelection(scan.Document);
+        var dimension = api.CallBool(scan.View, "IView", "SelectEntity", scan.Edges[hole.Index], false)
+            ? api.Call(scan.Document, "IModelDoc2", "AddDiameterDimension2", at.X, at.Y, 0.0)
+            : null;
+        if (dimension is null)
+            return false;
+        var holes = HoleCalloutPlanner.Recognize(scan.Candidates);
+        var count = holes.Count(other => other.Kind == hole.Kind && Math.Abs(other.Radius - hole.Radius) <= HoleCalloutPlanner.CenterTolerance);
+        api.Call(dimension, "IDisplayDimension", "SetText", SwConst.TextPrefix, SplitHole.Prefix(count));
+
+        var wider = SplitHole.Merge(scan.Candidates)
+            .Where(other => other.Radius > hole.Radius + HoleCalloutPlanner.CenterTolerance && HoleCalloutPlanner.SameCenter(other.X, other.Y, hole.X, hole.Y))
+            .Select(other => (double?)other.Radius).Max();
+        var (depth, cbore) = SplitDepths(part, hole, scan.Geometry.Scale, wider);
+        api.Call(dimension, "IDisplayDimension", "SetText", SwConst.TextSuffix, !through && depth is { } d ? $" <HOLE-DEPTH> {SplitHole.Mm(d)}" : " 完全贯穿");
+        if (wider is { } radius && cbore is { } deep)
+            api.Call(dimension, "IDisplayDimension", "SetText", TextCalloutBelow, SplitHole.CounterboreLine(radius * 2 / scan.Geometry.Scale, deep));
+        return true;
+    }
+
+    /// <summary>
+    /// 通不通问 SolidWorks：临时加一个孔标注读它写没写「贯穿」，读完删掉。用零件总厚判不准——夹爪局部 22 厚、总厚 40，通孔被判成盲孔。
+    /// </summary>
+    private static bool Through(SolidWorksApi api, ScannedView scan, HoleEdge hole, SheetPoint at)
+    {
+        var probe = api.CallBool(scan.View, "IView", "SelectEntity", scan.Edges[hole.Index], false)
+            ? api.Call(scan.Document, "IDrawingDoc", "AddHoleCallout2", at.X, at.Y, 0.0)
+            : null;
+        if (probe is null || api.Call(probe, "IDisplayDimension", "GetAnnotation") is not { } annotation)
+            return false;
+        var text = AnnotationRows.Shown(api, annotation);
+        DimensionEdit.Discard(api, scan, probe);
+        return text.Contains("贯穿", StringComparison.Ordinal);
+    }
+
+    /// <summary>盲孔的深度（通孔为 null）与沉孔深度，从零件圆柱面算；读不到零件都是 null。</summary>
+    private static (double? Depth, double? Counterbore) SplitDepths(PartGeometry? part, HoleEdge hole, double scale, double? wider)
+    {
+        if (part is null || hole.Axis is not { } axis || part.Holes.FirstOrDefault(axis.Matches) is not { } partHole
+            || partHole.RangeAlong(partHole.Axis) is not { } range)
+            return (null, null);
+        double? depth = range.Max - range.Min;
+        if (wider is null)
+            return (depth, null);
+        var probe = new PartCylinder(partHole.Axis, partHole.Point, wider.Value / scale, true, true, string.Empty, []);
+        var wall = SplitHole.Whole(part.Cylinders).FirstOrDefault(cylinder => cylinder.Concave && cylinder.Full
+            && Math.Abs(cylinder.Radius - probe.Radius) <= probe.Radius * HoleCalloutPlanner.RadiusTolerance && PartHole.SameAxis(probe, cylinder));
+        return (depth, wall is null ? null : wall.AxialMax - wall.AxialMin);
+    }
+
+    // swDimensionTextParts_e：孔标注下面一行。
+    private const int TextCalloutBelow = 4;
+
+    /// <param name="context">快捷指令上下文。</param>
+    /// <param name="view">直接处理这个视图（全流程用）；null 时取选中的或等用户点选。</param>
+    internal static QuickOutcome Run(QuickCommandContext context, object? view)
+    {
+        var api = context.Api;
+        var scan = HoleScan.Scan(context, "孔标注", view: view);
+        var (document, viewName) = (scan.Document, scan.ViewName);
+
+        // 1.15.0：同一页视线平行的别的视图标过的种跳过；沉孔在背面的种优先留给看得见沉孔的视图。
+        var covering = HoleCoverage.Read(context, scan);
+        var part = ReadPart(context, scan);
+        var normal = scan.Geometry.Frame.Normal;
+        var plan = HoleCalloutPlanner.Plan(scan.Candidates, ExistingCalloutCenters(api, scan.Geometry, scan.View),
+            kind => HoleCoveragePlanner.Callout(kind, covering, HoleCoveragePlanner.Counterbore(kind, part), normal));
+        if (plan.HoleCount == 0)
+            return QuickOutcome.Nothing($"视图「{viewName}」里没有正对图纸的孔，没有加标注。");
+
+        context.SetState("加标注");
+        context.Report(plan.Targets.Count == 0
+            ? $"孔标注：视图「{viewName}」认出 {plan.Summary}，都已有孔标注或归别的视图标" + (context.Options.Clearance ? "，只做避障。" : "。")
+            : $"孔标注：视图「{viewName}」认出 {plan.Summary}，开始为 {plan.Targets.Count} 种各加一个标注。");
+        var added = 0;
+        var failed = 0;
+        var clearance = default(ClearanceResult);
+        var opposite = default(OppositeMarks);
+        _ = api.Call(document, "IDrawingDoc", "ActivateView", viewName);
+        try
+        {
+            foreach (var target in plan.Targets)
+            {
+                context.Cancellation.ThrowIfCancellationRequested();
+                api.ClearSelection(document);
+                if (HoleCalloutPlanner.Recognize(scan.Candidates).FirstOrDefault(hole => hole.Index == target.EdgeIndex) is { Split: true } split)
+                {
+                    if (InsertSplit(api, scan, split, target.Placement, part))
+                        added++;
+                    else
+                        failed++;
+                    continue;
+                }
+
+                // 先按「文字中心在折点左边一段」落下，再按实际下划线把折点对准——文字多宽要生成后才知道。
+                var callout = api.CallBool(scan.View, "IView", "SelectEntity", scan.Edges[target.EdgeIndex], false)
+                    ? api.Call(document, "IDrawingDoc", "AddHoleCallout2", target.Placement.X - InitialTextOffset, target.Placement.Y, 0.0)
+                    : null;
+                if (callout is null)
+                {
+                    failed++;
+                    continue;
+                }
+
+                added++;
+                if (api.Call(callout, "IDisplayDimension", "GetAnnotation") is { } annotation)
+                    AlignShoulder(api, annotation, target.Placement, textLeft: true);
+            }
+
+            context.SetState("对面孔");
+            opposite = MarkSuffixes(context, scan, part);
+
+            if (context.Options.Clearance)
+            {
+                context.SetState("避障");
+                clearance = Clearance.ClearCallouts(context, scan, HoleCalloutPlanner.Recognize(scan.Candidates));
+            }
+        }
+        finally
+        {
+            api.ClearSelection(document);
+            api.Redraw(document);
+        }
+
+        var message = $"视图「{viewName}」：{plan.Summary}，新加 {added} 个孔标注"
+            + (plan.AlreadyAnnotated > 0 ? $"，{plan.AlreadyAnnotated} 种已有标注跳过" : string.Empty)
+            + Elsewhere(plan)
+            + (failed > 0 ? $"，{failed} 个 SolidWorks 没有接受" : string.Empty)
+            + opposite.Describe()
+            + clearance.Describe("孔标注")
+            + "。";
+        return added == 0 && plan.Targets.Count > 0 ? QuickOutcome.Fail(message) : QuickOutcome.Ok(message);
+    }
+
+    /// <summary>回执里「别的视图已标」「留给看得见沉孔的视图」那一句（1.15.0）。</summary>
+    private static string Elsewhere(HoleCalloutPlan plan)
+    {
+        var skipped = plan.Elsewhere ?? [];
+        string Views(CalloutPlace place) => string.Join("、", skipped.Where(item => item.Place == place).Select(item => $"「{item.View}」").Distinct());
+        var done = skipped.Count(item => item.Place == CalloutPlace.Elsewhere);
+        var deferred = skipped.Count(item => item.Place == CalloutPlace.Deferred);
+        return (done > 0 ? $"，{done} 种别的视图（{Views(CalloutPlace.Elsewhere)}）已标过跳过" : string.Empty)
+               + (deferred > 0 ? $"，{deferred} 种沉孔在这个视图背面、留给看得见沉孔的视图（{Views(CalloutPlace.Deferred)}）标" : string.Empty);
+    }
+
+    /// <summary>视图里已有孔标注各自指着的孔心。</summary>
+    private static List<SheetPoint> ExistingCalloutCenters(SolidWorksApi api, ViewGeometry geometry, object view)
+    {
+        var centers = new List<SheetPoint>();
+        var dimension = api.Call(view, "IView", "GetFirstDisplayDimension5");
+        while (dimension is not null)
+        {
+            if (api.CallBool(dimension, "IDisplayDimension", "IsHoleCallout")
+                && api.Call(dimension, "IDisplayDimension", "GetAnnotation") is { } annotation)
+                centers.AddRange(AttachedCircleCenters(api, geometry, annotation));
+
+            dimension = api.Call(dimension, "IDisplayDimension", "GetNext5");
+        }
+
+        return centers;
+    }
+}

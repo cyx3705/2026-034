@@ -83,15 +83,6 @@ internal static class StrenuaPage
         Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
     };
 
-    /// <summary>「技术要求」类的命令类名。</summary>
-    public const string TechClass = "tech";
-
-    /// <summary>「属性」类的命令类名。</summary>
-    public const string PropClass = "prop";
-
-    /// <summary>「技术要求」那一支就是这张模板表格（1.13.0）。</summary>
-    public const string TechTableId = "tech-templates";
-
     /// <summary>表格取数指令（1.13.0 起只有技术要求模板这一张表）。</summary>
     public const string DataCommand = StrenuaIdentity.Domain + ".ui.data";
 
@@ -235,27 +226,27 @@ internal static class StrenuaPage
             .ToArray(),
     }, Options);
 
-    /// <summary>类选项框的候选：按 <see cref="QuickCommands.ClassOrder"/>。</summary>
+    /// <summary>类选项框的候选：按 <see cref="QuickClasses.Order"/>。</summary>
     internal static IReadOnlyList<string> ClassOptions(IReadOnlyList<QuickCommand> commands)
-        => Classes(commands).Select(group => QuickCommands.ClassTitle(group.Class)).ToList();
+        => Classes(commands).Select(group => QuickClasses.Title(group.Class)).ToList();
 
     /// <summary>
-    /// 各类与它的按钮：先按 <see cref="QuickCommands.ClassOrder"/>（没有按钮的只留「技术要求」——它有模板表格），再接登记表里多出来的类，类内保持登记顺序。
+    /// 各类与它的按钮：先按 <see cref="QuickClasses.Order"/>（没有按钮的只留「技术要求」——它有模板表格），再接登记表里多出来的类，类内保持登记顺序。
     /// </summary>
     private static IEnumerable<(string Class, IReadOnlyList<QuickCommand> Commands)> Classes(IReadOnlyList<QuickCommand> commands)
     {
         var grouped = commands.GroupBy(command => command.PageClass, StringComparer.Ordinal)
             .ToDictionary(group => group.Key, group => (IReadOnlyList<QuickCommand>)group.ToList(), StringComparer.Ordinal);
-        foreach (var commandClass in QuickCommands.ClassOrder.Where(item => !QuickCommands.HiddenPageClasses.Contains(item)))
+        foreach (var commandClass in QuickClasses.Order.Where(item => !QuickClasses.Hidden.Contains(item)))
         {
             if (grouped.TryGetValue(commandClass, out var members))
                 yield return (commandClass, members);
-            else if (commandClass == TechClass)
+            else if (commandClass == TechApply.CommandClass)
                 yield return (commandClass, []);
         }
 
         foreach (var (commandClass, members) in grouped)
-            if (!QuickCommands.ClassOrder.Contains(commandClass))
+            if (!QuickClasses.Order.Contains(commandClass))
                 yield return (commandClass, members);
     }
 
@@ -308,14 +299,14 @@ internal static class StrenuaPage
             {
                 type = "panel",
                 id = TechSwitchPanelId,
-                @case = QuickCommands.ClassTitle(TechClass),
+                @case = QuickClasses.Title(TechApply.CommandClass),
                 text = "开关",
                 rows = new object[]
                 {
                     new
                     {
                         mode = "even",
-                        widgets = commands.Where(command => command.PageClass == TechClass)
+                        widgets = commands.Where(command => command.PageClass == TechApply.CommandClass)
                             .Select(command => (object)new { kind = "button", action = command.ActionId, text = command.Title })
                             .Append(Switch("techai", "AI 填写技术要求", options.TechAi, TechAiActionId))
                             .ToArray(),
@@ -330,7 +321,7 @@ internal static class StrenuaPage
     /// 它的按钮（1.14.0「写入」）不在这里，在最下面一行和「AI 填写技术要求」开关并排（<see cref="OptionArea"/>）。
     /// </summary>
     private static object ClassBranch(string commandClass, IReadOnlyList<QuickCommand> commands, StrenuaOptions options)
-        => commandClass == TechClass ? TechTable(QuickCommands.ClassTitle(commandClass)) : ClassPanel(commandClass, commands, options);
+        => commandClass == TechApply.CommandClass ? TechTable(QuickClasses.Title(commandClass)) : ClassPanel(commandClass, commands, options);
 
     /// <summary>
     /// 一类的控制面板：一般只有一行（1.12.0）——按钮按登记顺序排，放不下由 Aurora 折行。
@@ -344,11 +335,11 @@ internal static class StrenuaPage
                 mode = "even",
                 widgets = group.Select(command => (object)new { kind = "button", action = command.ActionId, text = command.Title })
                     // 1.33.0：「设为默认」不碰 SolidWorks，不是快捷指令，接在属性类按钮后面。
-                    .Concat(commandClass == PropClass ? [new { kind = "button", action = PartProperties.DefaultCommandName, text = "设为默认" }] : Array.Empty<object>())
+                    .Concat(commandClass == PartProperties.CommandClass ? [new { kind = "button", action = PartProperties.DefaultCommandName, text = "设为默认" }] : Array.Empty<object>())
                     .ToArray(),
             });
         var rows = InputRows(commands, options.PropDefaults).Concat(buttons).ToArray();
-        var title = QuickCommands.ClassTitle(commandClass);
+        var title = QuickClasses.Title(commandClass);
         return new { type = "panel", id = ClassPanelId(commandClass), @case = title, text = title, rows };
     }
 
@@ -378,7 +369,7 @@ internal static class StrenuaPage
     private static object TechTable(string @case) => new
     {
         type = "table",
-        id = TechTableId,
+        id = TechApply.TableId,
         @case,
         dataSource = new { command = DataCommand, args = new { view = TechView } },
         columns = new object[]

@@ -9,6 +9,10 @@ internal static partial class Tests
     internal static readonly (string Name, Action Run)[] All =
     {
         ("command registration", TestCommandRegistration),
+        ("architecture: dependencies only point down", TestArchitectureLayers),
+        ("architecture: planning stays pure", TestPlanningIsPure),
+        ("architecture: folder is the command class", TestCommandFolders),
+        ("architecture: constants and origin check have one source", TestConstantsAndGuardsSingleSource),
         ("speed: local transform matches SolidWorks, obstacle filter keeps results", TestSpeedLocalMath),
         ("parameters: view and dim commands registered, examples parse (1.20.0)", TestParameterRegistration),
         ("parameters: input boxes on the page, actions and list rows (1.20.0)", TestParameterPage),

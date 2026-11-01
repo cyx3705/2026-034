@@ -147,6 +147,12 @@ internal sealed class SolidWorksApi : IDisposable
             _ => [],
         };
 
+    /// <summary>清掉文档的选择集（<c>ClearSelection2(true)</c>）。</summary>
+    public object? ClearSelection(object document) => Call(document, "IModelDoc2", "ClearSelection2", true);
+
+    /// <summary>重绘文档窗口（<c>GraphicsRedraw2</c>）。</summary>
+    public object? Redraw(object document) => Call(document, "IModelDoc2", "GraphicsRedraw2");
+
     /// <summary>释放本次会话里经手的全部 COM 对象。不会关闭 SolidWorks，只放下我们的引用。</summary>
     public void Dispose()
     {

@@ -9,12 +9,12 @@ internal static partial class Tests
         const string stack = """
                at System.RuntimeMethodHandle.InvokeMethod(Object target, Span`1& arguments, Signature sig, Boolean isConstructor)
                at HistoryStrenua.SolidWorks.SolidWorksApi.CallCore(Object target, String interfaceName, String method, CancellationToken cancellation, Object[] arguments) in F:\x\SolidWorksApi.cs:line 80
-               at HistoryStrenua.SymmetryAxes.DisplayLines(SolidWorksApi api, Object annotation) in F:\x\SymmetryAxes.cs:line 119
-               at HistoryStrenua.SymmetryAxes.Insert(SolidWorksApi api, ScannedView scan, IReadOnlyList`1 axes)
+               at HistoryStrenua.CenterLineEdit.DisplayLines(SolidWorksApi api, Object annotation) in F:\x\SymmetryAxes.cs:line 119
+               at HistoryStrenua.CenterLineEdit.Insert(SolidWorksApi api, ScannedView scan, IReadOnlyList`1 axes)
                at HistoryStrenua.OneKeyDrawing.<>c__DisplayClass5_0.<Run>b__0()
                at HistoryStrenua.StepLog.Run(String title, Func`1 run)
             """;
-        Equal("SymmetryAxes.DisplayLines:119 ← SymmetryAxes.Insert ← OneKeyDrawing.Run", string.Join(" ← ", QuickError.Frames(stack)));
+        Equal("CenterLineEdit.DisplayLines:119 ← CenterLineEdit.Insert ← OneKeyDrawing.Run", string.Join(" ← ", QuickError.Frames(stack)));
 
         var ex = new System.Reflection.TargetException("Object does not match target type.");
         False(QuickError.TagCall(ex, "IAnnotation", "GetDisplayData"));
@@ -91,10 +91,10 @@ internal static partial class Tests
             ["left"] = string.Empty, ["bottom"] = string.Empty, ["right"] = string.Empty, ["top"] = string.Empty,
         };
         var titleBlock = space.KeepOuts[0].Center;
-        Equal("标题栏等格子里的", DimList.SheetPlace(Row("±0.5", titleBlock.X, titleBlock.Y), space));
-        Equal("图框外的", DimList.SheetPlace(Row("技术要求 / 1、…", 0.350, 0.180), space));
-        Equal("空注释", DimList.SheetPlace(Row(string.Empty, 0.100, 0.100), space));
-        Equal<string?>(null, DimList.SheetPlace(Row("技术要求 / 1、…", 0.150, 0.150), space));
+        Equal("标题栏等格子里的", AnnotationRows.SheetPlace(Row("±0.5", titleBlock.X, titleBlock.Y), space));
+        Equal("图框外的", AnnotationRows.SheetPlace(Row("技术要求 / 1、…", 0.350, 0.180), space));
+        Equal("空注释", AnnotationRows.SheetPlace(Row(string.Empty, 0.100, 0.100), space));
+        Equal<string?>(null, AnnotationRows.SheetPlace(Row("技术要求 / 1、…", 0.150, 0.150), space));
     }
 
     /// <summary>未标尺寸：技术要求里的未注倒角 / 圆角；C1 倒角的内边不报。</summary>

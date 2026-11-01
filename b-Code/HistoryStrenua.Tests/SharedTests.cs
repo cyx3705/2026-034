@@ -197,6 +197,11 @@ internal static partial class Tests
         True(!ClearancePlanner.RowFits(row, 0, 0, new Obstacles([tail], []), frame), "原地被挡");
         True(ClearancePlanner.RowFits(row, 0, M(-4), new Obstacles([tail], []), frame), "退一层放得下");
 
+        // 同一行：方向相同、差不到半个行距。
+        True(ClearancePlanner.SameRow(new TextBox(M(50), M(10), M(9), M(3.5), Math.PI / 2), new TextBox(M(51), M(80), M(9), M(3.5), Math.PI / 2)), "竖直字差 1 mm 是同一行");
+        True(!ClearancePlanner.SameRow(new TextBox(M(50), M(10), M(9), M(3.5), Math.PI / 2), new TextBox(M(54.5), M(10), M(9), M(3.5), Math.PI / 2)), "差一个行距不是同一行");
+        True(!ClearancePlanner.SameRow(new TextBox(M(50), M(10), M(9), M(3.5)), new TextBox(M(50), M(10), M(9), M(3.5), Math.PI / 2)), "方向不同不是同一行");
+
         // 贴视图那格有条线：往外走到放得下为止。
         var blocked = ClearancePlanner.PlaceSqueezed(text4, own4, view, frame, new Obstacles([new(M(54), M(120), M(54), M(150))], neighbours));
         var outer = text4.Shift(blocked!.Value.X, blocked.Value.Y);

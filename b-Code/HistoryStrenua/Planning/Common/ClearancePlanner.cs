@@ -307,6 +307,15 @@ internal static class ClearancePlanner
         return start < stations.Max() && start + texts[0].Width > stations.Min();
     }
 
+    /// <summary>两段字在同一行：方向相同、垂直于字的方向上差不到半个行距。</summary>
+    public static bool SameRow(TextBox a, TextBox b)
+    {
+        if (Math.Abs(a.Angle - b.Angle) >= 1e-3)
+            return false;
+        var (vx, vy) = (-Math.Sin(a.Angle), Math.Cos(a.Angle));
+        return Math.Abs((a.X - b.X) * vx + (a.Y - b.Y) * vy) < HolePositionPlanner.TierStep / 2;
+    }
+
     /// <summary>这个尺寸的字放不进自己两条界线之间（只认一段字、有两条界线的）。</summary>
     public static bool Squeezed(IReadOnlyList<TextBox> texts, IReadOnlyList<SheetSegment> own)
     {

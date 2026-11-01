@@ -105,10 +105,14 @@ internal static class DrawingFinish
 
         int Hits(Shape s, Obstacles obstacles) => ClearancePlanner.Hits(s.Texts, obstacles)
             + (AnnotationPlacementPlanner.Within(s.Texts, frame.Value) ? 0 : 100);
-        // 已离开尺寸链的放不下的字（只算这一遍；下一遍读回时它和链已不同行，也不在 chainPeers 里）。字还对着自己的间距、又没有同行的链，也算离开了。
+        // 已离开尺寸链的放不下的字（只算这一遍；下一遍读回时它和链已不同行，也不在 chainPeers 里）。字还对着自己的间距、又没有同行的尺寸，也算离开了。
+        // 带公差的尺寸不进 chainPeers，同行有别的尺寸就还在这一行（真机移动安装板1 的 45 ±0.02）；第一遍谁都还没离开过。
         var left = new HashSet<int>();
         var rowsMoved = new HashSet<int>();
-        bool OnChain(int index) => !left.Contains(index) && (chainPeers.ContainsKey(index) || !ClearancePlanner.OverGap(shapes[index].Texts, shapes[index].Lines));
+        bool OnChain(int index) => !left.Contains(index) && (ownViewOnly || chainPeers.ContainsKey(index)
+            || !ClearancePlanner.OverGap(shapes[index].Texts, shapes[index].Lines)
+            || shapes.Where((other, j) => j != index && other.Movable && other.ViewName == shapes[index].ViewName && other.Texts.Count == 1)
+                .Any(other => ClearancePlanner.SameRow(other.Texts[0], shapes[index].Texts[0])));
         // 后加的尺寸界线也会压到先前文字，所以整页跑有上限的三轮。每次读回确认变好才保留，避免反复漂移。
         for (var pass = 0; pass < 3; pass++)
         {

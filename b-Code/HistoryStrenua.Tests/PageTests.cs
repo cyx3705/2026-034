@@ -77,6 +77,7 @@ internal static partial class Tests
             "strenua.doc.close",
             "strenua.prop.read",
             "strenua.prop.write",
+            "strenua.prop.default",
         ];
         foreach (var name in expected)
         {
@@ -301,7 +302,7 @@ internal static partial class Tests
             return string.Join("|", rows.Select(row => string.Join(",", row.GetProperty("widgets").EnumerateArray().Select(w => w.GetProperty("text").GetString()))));
         }
 
-        foreach (var group in QuickCommands.All.GroupBy(c => c.PageClass).Where(g => g.Key != "tech" && !QuickCommands.HiddenPageClasses.Contains(g.Key)))
+        foreach (var group in QuickCommands.All.GroupBy(c => c.PageClass).Where(g => g.Key is not ("tech" or "prop") && !QuickCommands.HiddenPageClasses.Contains(g.Key)))
             Equal(string.Join("|", group.GroupBy(c => c.Row).OrderBy(r => r.Key).Select(r => string.Join(",", r.Select(c => c.Title)))), Row(group.Key));
         // 1.17.0（用户定）：外轮廓挪到基础类，孔类加「方形槽」。
         Equal("孔标注全流程,销钉符号,中心符号线,孔位尺寸,孔标注,销孔标注,方形槽,孔标注选位", Row("hole"));
@@ -325,6 +326,7 @@ internal static partial class Tests
         // 1.23.0：基础类的视图指令进视图类第二行（上面已核）。
         // 1.33.0（用户定）：视图、标注、文档三类不上页面，指令照常注册。
         True(!panels.Any(panel => panel.GetProperty("id").GetString() is "class-view" or "class-dim" or "class-doc"), "AI 用的三类不上页面");
+        Equal("读取属性,写入属性,设为默认", Row("prop"));
         Equal("一键,孔,倒圆,要求,属性,检查", string.Join(",", StrenuaPage.ClassOptions(QuickCommands.All)));
         // 类面板里只有按钮和（带参数的类的）输入框，没有开关（1.11.0 开关挪到窗口最下面）。
         True(panels.SelectMany(branch => branch.GetProperty("rows").EnumerateArray())

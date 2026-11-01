@@ -296,6 +296,29 @@ internal static partial class Tests
         Equal("名称", string.Join(",", PropertySlots.Plan("阀体.SLDPRT", new WriteRequest(null, null, null, null, null, false)).Select(item => item.Key)));
     }
 
+    static void TestPropertyDefaults()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "strenua-prop-" + Guid.NewGuid().ToString("N"));
+        var path = Path.Combine(directory, StrenuaOptions.FileName);
+        try
+        {
+            new StrenuaOptions(path).SetPropDefaults(new PropertyDefaults(Surface: "镀白锌", Date: "今天", Designer: "张三"));
+            var loaded = new StrenuaOptions(path);
+            Equal("镀白锌", loaded.PropDefaults.Surface!);
+            True(loaded.PropDefaults.Material is null, "没填的项仍是不改");
+            // 存的是「今天」，写入时才算成当日。
+            Equal(DateTime.Now.ToString(PropertySlots.DateFormat, System.Globalization.CultureInfo.InvariantCulture), PartProperties.Parse(loaded.PropDefaults, false).Date!);
+            // 页面初值显示存下的默认值。
+            var page = StrenuaPage.Describe(loaded);
+            True(page.Contains("\"id\":\"designer\",\"label\":\"设计\",\"mode\":\"input\",\"value\":\"张三\"", StringComparison.Ordinal), "页面初值是默认值");
+        }
+        finally
+        {
+            if (Directory.Exists(directory))
+                Directory.Delete(directory, true);
+        }
+    }
+
     static void TestPropertyInputs()
     {
         var today = new DateTime(2026, 11, 1);

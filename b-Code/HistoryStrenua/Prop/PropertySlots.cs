@@ -81,6 +81,26 @@ internal static class PropertySlots
     }
 }
 
+/// <summary>记到本机的属性默认值，存选择框里的字（日期可以是「今天」，写入时才算成当日）；null 表示不改。</summary>
+internal sealed record PropertyDefaults(
+    string? Material = null,
+    string? Surface = null,
+    string? Heat = null,
+    string? Date = null,
+    string? Designer = null)
+{
+    /// <summary>按参数名取值（页面输入框的初值）。</summary>
+    public string? ValueOf(string parameter) => parameter switch
+    {
+        "material" => Material,
+        "surface" => Surface,
+        "heat" => Heat,
+        "date" => Date,
+        "designer" => Designer,
+        _ => null,
+    };
+}
+
 /// <summary>一次写属性填了什么；null 的不动。</summary>
 internal sealed record WriteRequest(
     FavoriteMaterial? Material,

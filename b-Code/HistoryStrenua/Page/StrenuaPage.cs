@@ -86,6 +86,9 @@ internal static class StrenuaPage
     /// <summary>「技术要求」类的命令类名。</summary>
     public const string TechClass = "tech";
 
+    /// <summary>「属性」类的命令类名。</summary>
+    public const string PropClass = "prop";
+
     /// <summary>「技术要求」那一支就是这张模板表格（1.13.0）。</summary>
     public const string TechTableId = "tech-templates";
 
@@ -132,7 +135,7 @@ internal static class StrenuaPage
                             fill = true,
                             source = "{selection." + ClassChannel + ".value}",
                             children = Classes(commands)
-                                .Select(group => ClassBranch(group.Class, group.Commands))
+                                .Select(group => ClassBranch(group.Class, group.Commands, options))
                                 .ToArray(),
                         },
                         OptionArea(commands, options),
@@ -181,6 +184,14 @@ internal static class StrenuaPage
                 command = TechApply.DefaultCommandName,
                 args = new { name = "{name}" },
                 summary = "把这一份设为默认（记到本机），一键类插的就是它",
+            })
+            .Append(new
+            {
+                id = PartProperties.DefaultCommandName,
+                title = "设为默认",
+                command = PartProperties.DefaultCommandName,
+                args = (object)new { material = "{material}", surface = "{surface}", heat = "{heat}", date = "{date}", designer = "{designer}" },
+                summary = PartProperties.DefaultSummary,
             })
             .Append(new
             {
@@ -318,22 +329,25 @@ internal static class StrenuaPage
     /// 切换容器的一支：一类的控制面板。「技术要求」类整支是模板表格，点「技术要求」列的名字就插那一份；
     /// 它的按钮（1.14.0「写入」）不在这里，在最下面一行和「AI 填写技术要求」开关并排（<see cref="OptionArea"/>）。
     /// </summary>
-    private static object ClassBranch(string commandClass, IReadOnlyList<QuickCommand> commands)
-        => commandClass == TechClass ? TechTable(QuickCommands.ClassTitle(commandClass)) : ClassPanel(commandClass, commands);
+    private static object ClassBranch(string commandClass, IReadOnlyList<QuickCommand> commands, StrenuaOptions options)
+        => commandClass == TechClass ? TechTable(QuickCommands.ClassTitle(commandClass)) : ClassPanel(commandClass, commands, options);
 
     /// <summary>
     /// 一类的控制面板：一般只有一行（1.12.0）——按钮按登记顺序排，放不下由 Aurora 折行。
     /// 1.17.0：按钮登记了 <see cref="QuickCommand.Row"/> 的另起一行（一键类：钣金 / 框架 / 加工件一行，基础出图等另一行）。
     /// </summary>
-    private static object ClassPanel(string commandClass, IReadOnlyList<QuickCommand> commands)
+    private static object ClassPanel(string commandClass, IReadOnlyList<QuickCommand> commands, StrenuaOptions options)
     {
         var buttons = commands.GroupBy(command => command.Row).OrderBy(group => group.Key)
             .Select(group => (object)new
             {
                 mode = "even",
-                widgets = group.Select(command => (object)new { kind = "button", action = command.ActionId, text = command.Title }).ToArray(),
+                widgets = group.Select(command => (object)new { kind = "button", action = command.ActionId, text = command.Title })
+                    // 1.33.0：「设为默认」不碰 SolidWorks，不是快捷指令，接在属性类按钮后面。
+                    .Concat(commandClass == PropClass ? [new { kind = "button", action = PartProperties.DefaultCommandName, text = "设为默认" }] : Array.Empty<object>())
+                    .ToArray(),
             });
-        var rows = InputRows(commands).Concat(buttons).ToArray();
+        var rows = InputRows(commands, options.PropDefaults).Concat(buttons).ToArray();
         var title = QuickCommands.ClassTitle(commandClass);
         return new { type = "panel", id = ClassPanelId(commandClass), @case = title, text = title, rows };
     }
@@ -343,7 +357,7 @@ internal static class StrenuaPage
     /// 按 <see cref="QuickParameter.Group"/> 分行（对象 / 位置 / 文字），每行 even 分宽。框的 id 就是参数名，按钮的动作用 <c>{参数名}</c> 取值；
     /// 有限取值的渲染成选择框，第一项是缺省。无参的类没有输入行。
     /// </summary>
-    internal static IEnumerable<object> InputRows(IReadOnlyList<QuickCommand> commands)
+    internal static IEnumerable<object> InputRows(IReadOnlyList<QuickCommand> commands, PropertyDefaults? defaults = null)
         => commands.SelectMany(command => command.Arguments)
             .GroupBy(parameter => parameter.Name, StringComparer.Ordinal)
             .Select(group => group.First())
@@ -353,10 +367,10 @@ internal static class StrenuaPage
             {
                 mode = "even",
                 widgets = group.Select(parameter => parameter.OptionsView is { } view
-                        ? (object)new { kind = "textbox", id = parameter.Name, label = parameter.Label, mode = "select", optionsSource = new { command = DataCommand, args = new { view } }, value = PropertySlots.KeepOption, minWidth = 60 }
+                        ? (object)new { kind = "textbox", id = parameter.Name, label = parameter.Label, mode = "select", optionsSource = new { command = DataCommand, args = new { view } }, value = defaults?.ValueOf(parameter.Name) ?? PropertySlots.KeepOption, minWidth = 60 }
                         : parameter.Options is { Length: > 0 } options
-                        ? new { kind = "textbox", id = parameter.Name, label = parameter.Label, mode = "select", options, value = options[0], minWidth = 60 }
-                        : new { kind = "textbox", id = parameter.Name, label = parameter.Label, mode = "input", value = string.Empty, minWidth = 60 })
+                        ? new { kind = "textbox", id = parameter.Name, label = parameter.Label, mode = "select", options, value = defaults?.ValueOf(parameter.Name) ?? options[0], minWidth = 60 }
+                        : new { kind = "textbox", id = parameter.Name, label = parameter.Label, mode = "input", value = defaults?.ValueOf(parameter.Name) ?? string.Empty, minWidth = 60 })
                     .ToArray(),
             });
 

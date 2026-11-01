@@ -193,6 +193,20 @@ public sealed class HistoryStrenuaModule : IModuleContextAware
             Handler = context => TechApply.SetDefaultAsync(runner.Options, context.GetString("name"), bus),
         });
 
+        registry.Register(new CommandDescriptor
+        {
+            Name = PartProperties.DefaultCommandName,
+            Domain = StrenuaIdentity.Domain,
+            CommandClass = StrenuaPage.PropClass,
+            Summary = PartProperties.DefaultSummary,
+            Example = PartProperties.DefaultCommandName + " date=今天 designer=张三",
+            Parameters = PartProperties.WriteCommand.Arguments
+                .Where(parameter => parameter.Name != "save")
+                .Select((parameter, index) => parameter.ToSpec(index))
+                .ToArray(),
+            Handler = CommandDescriptor.Sync(context => PartProperties.SetDefaults(runner.Options, context)),
+        });
+
         var areas = string.Join(" / ", WorkNotes.Areas.Select(area => $"{area}（{WorkNotes.Title(area)}）"));
         registry.Register(new CommandDescriptor
         {

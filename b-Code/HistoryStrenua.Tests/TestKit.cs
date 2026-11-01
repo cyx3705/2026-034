@@ -123,6 +123,7 @@ internal static partial class Tests
         ("tech ai: reading the model's answers", TestTechAiAnswers),
         ("prop: slots from the file name", TestPropertySlots),
         ("prop: date and material inputs", TestPropertyInputs),
+        ("prop: defaults persist and show on the page", TestPropertyDefaults),
         ("tech ai: apollo command line and receipt", TestTechAiCommand),
         ("feedback: errors name the SolidWorks call and the step (1.24.0)", TestQuickError),
         ("feedback: callout leaders too long or crossing (1.24.0)", TestLeaders),

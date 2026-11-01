@@ -20,6 +20,7 @@ internal sealed class StrenuaOptions
     private bool _chain;
     private string _techDefault = TechApply.InitialDefault;
     private bool _techAi;
+    private PropertyDefaults _propDefaults = new();
 
     /// <param name="path">存档文件；null 表示只在内存里（离线测试用）。</param>
     public StrenuaOptions(string? path = null)
@@ -33,6 +34,8 @@ internal sealed class StrenuaOptions
             if (saved is not null)
                 (_clearance, _chain, _techDefault, _techAi) = (saved.Clearance, saved.Chain,
                     string.IsNullOrWhiteSpace(saved.TechDefault) ? TechApply.InitialDefault : saved.TechDefault, saved.TechAi);
+            if (saved?.PropDefaults is { } defaults)
+                _propDefaults = defaults;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
         {
@@ -65,6 +68,26 @@ internal sealed class StrenuaOptions
         get { lock (_gate) return _techDefault; }
     }
 
+    /// <summary>属性默认值（1.33.0）：页面属性类的初值，一键类自动写入零件。</summary>
+    public PropertyDefaults PropDefaults
+    {
+        get { lock (_gate) return _propDefaults; }
+    }
+
+    /// <summary>改属性默认值并存档。</summary>
+    /// <returns>存档失败时的原因；成功为 null。</returns>
+    public string? SetPropDefaults(PropertyDefaults defaults)
+    {
+        Saved snapshot;
+        lock (_gate)
+        {
+            _propDefaults = defaults;
+            snapshot = new Saved(_clearance, _chain, _techDefault, _techAi, _propDefaults);
+        }
+
+        return Save(snapshot);
+    }
+
     /// <summary>改一个开关并存档。</summary>
     /// <returns>存档失败时的原因；成功为 null。</returns>
     public string? Set(StrenuaOption option, bool value)
@@ -85,7 +108,7 @@ internal sealed class StrenuaOptions
                     break;
             }
 
-            snapshot = new Saved(_clearance, _chain, _techDefault, _techAi);
+            snapshot = new Saved(_clearance, _chain, _techDefault, _techAi, _propDefaults);
         }
 
         return Save(snapshot);
@@ -99,7 +122,7 @@ internal sealed class StrenuaOptions
         lock (_gate)
         {
             _techDefault = name;
-            snapshot = new Saved(_clearance, _chain, _techDefault, _techAi);
+            snapshot = new Saved(_clearance, _chain, _techDefault, _techAi, _propDefaults);
         }
 
         return Save(snapshot);
@@ -132,7 +155,7 @@ internal sealed class StrenuaOptions
     public string? DataDirectory => _path is null ? null : Path.GetDirectoryName(_path);
 
     /// <summary>缺的项按默认值：将来加开关时旧存档照样读。</summary>
-    private sealed record Saved(bool Clearance = true, bool Chain = false, string? TechDefault = null, bool TechAi = false);
+    private sealed record Saved(bool Clearance = true, bool Chain = false, string? TechDefault = null, bool TechAi = false, PropertyDefaults? PropDefaults = null);
 }
 
 /// <summary>页面开关。</summary>

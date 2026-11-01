@@ -89,6 +89,8 @@ internal static class OneKeyDrawing
         // 孔标注最早标、看不到后面的尺寸，等视图和尺寸都定了再挑位置；框架不标孔。
         if (kind != PartKind.Frame)
             steps.Run("孔标注选位", () => CalloutPlacer.Run(context, drawing));
+        // 1.33.0（用户定）：属性默认值自动写入；写了不等于对，一键笔记要求事后核对。
+        steps.Run("写入属性", () => PartProperties.WriteDefaults(context, drawing));
         context.Api.Call(drawing, "IModelDoc2", "ClearSelection2", true);
         context.Api.Call(drawing, "IModelDoc2", "ViewZoomtofit2");
         var outcome = steps.Finish(name, $"新图建好并按{PartKindPlanner.Title(kind)}标完（未保存）");

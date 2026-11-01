@@ -1,4 +1,5 @@
 using HistoryStrenua.SolidWorks;
+using HistoryVulcan.Core.Commands;
 
 namespace HistoryStrenua;
 
@@ -49,16 +50,42 @@ internal static class PartProperties
         Example: StrenuaIdentity.Domain + ".prop.write date=今天 designer=张三",
         Bind: arguments =>
         {
-            var request = new WriteRequest(
-                PropertyOptions.ResolveMaterial(arguments.GetString("material"), PropertyOptions.Materials()),
-                Selected(arguments.GetString("surface")),
-                Selected(arguments.GetString("heat")),
-                PropertySlots.ResolveDate(arguments.GetString("date"), DateTime.Now),
-                Selected(arguments.GetString("designer")),
-                QuickArgs.Flag(arguments, "save"));
+            var request = Parse(FromArguments(arguments), QuickArgs.Flag(arguments, "save"));
             return context => Write(context, request);
         },
         SelfReport: true);
+
+    /// <summary>设默认值的指令，也是页面「设为默认」按钮的动作。不碰 SolidWorks，所以不走快捷指令执行器。</summary>
+    public const string DefaultCommandName = StrenuaIdentity.Domain + ".prop.default";
+
+    public const string DefaultSummary = "把材料、表面处理、热处理、日期、设计记成默认（存本机）：页面初值显示它们，一键类出图时自动写入零件；没填的项不写。";
+
+    private static PropertyDefaults FromArguments(CommandContext arguments) => new(
+        Selected(arguments.GetString("material")),
+        Selected(arguments.GetString("surface")),
+        Selected(arguments.GetString("heat")),
+        Selected(arguments.GetString("date")),
+        Selected(arguments.GetString("designer")));
+
+    /// <summary><c>strenua.prop.default</c>：先校验再整份替换并存档。</summary>
+    internal static CommandResult SetDefaults(StrenuaOptions options, CommandContext arguments)
+    {
+        var values = FromArguments(arguments);
+        try
+        {
+            Parse(values, save: false);
+        }
+        catch (QuickArgumentException ex)
+        {
+            return CommandResult.Fail(ex.Message);
+        }
+
+        var failure = options.SetPropDefaults(values);
+        var filled = new[] { ("材料", values.Material), ("表面处理", values.Surface), ("热处理", values.Heat), ("日期", values.Date), ("设计", values.Designer) }
+            .Where(item => item.Item2 is not null).Select(item => $"{item.Item1}={item.Item2}").ToList();
+        var message = "属性默认：" + (filled.Count == 0 ? "全部不改" : string.Join("，", filled)) + "；一键类出图时写入。";
+        return CommandResult.Ok(failure is null ? message : message + $"（未能记到本机：{failure}）");
+    }
 
     /// <summary>选择框候选的取数 view（<c>strenua.ui.data</c>）。</summary>
     public const string MaterialsView = "materials";
@@ -83,10 +110,10 @@ internal static class PartProperties
     private static string? Selected(string? text) => PropertySlots.IsUnset(text) ? null : text!.Trim();
 
     /// <summary>要操作的零件与配置：当前零件的活动配置，或当前工程图第一个模型视图引用的零件与配置。</summary>
-    private static (object? Part, string Configuration, object? Drawing, string? Error) Target(QuickCommandContext context)
+    private static (object? Part, string Configuration, object? Drawing, string? Error) Target(QuickCommandContext context, object? document = null)
     {
         var api = context.Api;
-        if (context.Session.ActiveDocument() is not { } active)
+        if ((document ?? context.Session.ActiveDocument()) is not { } active)
             return (null, string.Empty, null, "SolidWorks 里没有打开的文档。");
         var type = api.CallInt(active, "IModelDoc2", "GetType");
         if (type == DocumentPart)
@@ -151,9 +178,31 @@ internal static class PartProperties
         return QuickOutcome.Ok($"「{api.CallString(part, "IModelDoc2", "GetTitle")}」配置「{configuration}」{Environment.NewLine}{string.Join(Environment.NewLine, lines)}", values);
     }
 
-    private static QuickOutcome Write(QuickCommandContext context, WriteRequest request)
+    /// <summary>一键类最后一步：把默认值写进这张图引用的零件。不存盘；默认材料已不在收藏里时这一步算没成，不拦出图。</summary>
+    internal static QuickOutcome WriteDefaults(QuickCommandContext context, object drawing)
     {
-        var (part, configuration, drawing, error) = Target(context);
+        try
+        {
+            return Write(context, Parse(context.Options.PropDefaults, save: false), drawing);
+        }
+        catch (QuickArgumentException ex)
+        {
+            return QuickOutcome.Fail("写入属性：默认值不能用：" + ex.Message);
+        }
+    }
+
+    /// <summary>默认值 → 写入请求（校验材料与日期，不对抛 <see cref="QuickArgumentException"/>）。</summary>
+    internal static WriteRequest Parse(PropertyDefaults values, bool save) => new(
+        PropertyOptions.ResolveMaterial(values.Material, PropertyOptions.Materials()),
+        Selected(values.Surface),
+        Selected(values.Heat),
+        PropertySlots.ResolveDate(values.Date, DateTime.Now),
+        Selected(values.Designer),
+        save);
+
+    private static QuickOutcome Write(QuickCommandContext context, WriteRequest request, object? document = null)
+    {
+        var (part, configuration, drawing, error) = Target(context, document);
         if (part is null)
             return QuickOutcome.Fail("写入属性：" + error);
         var api = context.Api;

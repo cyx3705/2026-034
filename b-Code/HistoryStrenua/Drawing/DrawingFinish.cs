@@ -134,7 +134,7 @@ internal static class DrawingFinish
 
             // 放得下的字被上一层尺寸界线的尾巴挡住（真机底层1 的两个 40）：不把字挪走，整条链往外退一层，一层 4 mm，最多 6 层。
             // 只退这一侧最外层的链，每条链一遍只退一次：里层的链退出去，又会用界线挡住外层，互相追着退到图框边（首版真机）。
-            bool MoveRow(int index)
+            bool MoveRow(int index, TextBox? yieldTo = null)
             {
                 var shape = shapes[index];
                 if (!shape.Movable || shape.Texts.Count != 1 || ClearancePlanner.Squeezed(shape.Texts, shape.Lines)
@@ -159,7 +159,8 @@ internal static class DrawingFinish
                 for (var tier = 1; tier <= 6; tier++)
                 {
                     var (dx, dy) = (sign * tier * 0.004 * vx, sign * tier * 0.004 * vy);
-                    if (!ClearancePlanner.RowFits(members, dx, dy, free, frame.Value))
+                    if (!ClearancePlanner.RowFits(members, dx, dy, free, frame.Value)
+                        || (yieldTo is { } text && members.Any(member => ClearancePlanner.StillBlocks(member.Lines, shape.Texts[0].Angle, dx, dy, text))))
                         continue;
                     foreach (var member in group)
                     {
@@ -215,6 +216,19 @@ internal static class DrawingFinish
                         chainPeers[peer].Remove(i);
                     chainPeers.Remove(i);
                     left.Add(i);
+                }
+            }
+
+            // 1.34.0（用户定，后板 304）：放不下的短尺寸跑到上面后，压着它的最外层长尺寸往外让，字不再飞远。
+            foreach (var i in placed)
+            {
+                var text = shapes[i].Texts[0];
+                for (var j = 0; j < shapes.Count; j++)
+                {
+                    var other = shapes[j];
+                    if (j != i && other.Movable && other.ViewName == shapes[i].ViewName && other.Texts.Count == 1 && !ClearancePlanner.Squeezed(other.Texts, other.Lines)
+                        && Math.Abs(other.Texts[0].Angle - text.Angle) < 1e-3 && ClearancePlanner.StillBlocks(other.Lines, text.Angle, 0, 0, text))
+                        MoveRow(j, text);
                 }
             }
 

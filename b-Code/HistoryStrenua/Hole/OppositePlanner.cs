@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.RegularExpressions;
 
 namespace HistoryStrenua;
@@ -101,6 +102,9 @@ internal static class OppositePlanner
         {
             if (n == 2 * front.Count && missing == 0 && unused.Count == 0)
                 return (OppositeResult.Same, front.Count);
+            // 1.34.0（用户定，移动安装板1、外壳）：对面是另一个特征，孔标注只数了这一面；一一对上也算含对面，数量翻倍见 TotalCount。
+            if (n == front.Count && matched == front.Count && unused.Count == 0)
+                return (OppositeResult.Same, matched);
             return n > front.Count ? (OppositeResult.Different, Math.Max(n - front.Count, pool)) : (OppositeResult.None, 0);
         }
 
@@ -179,6 +183,29 @@ internal static class OppositePlanner
     /// <summary>显示出来的文字里已经有「(含对面)」了吗（空格不论）。</summary>
     public static bool HasMarker(IEnumerable<string> texts)
         => texts.Any(text => text.Replace(" ", string.Empty, StringComparison.Ordinal).Contains(Marker, StringComparison.Ordinal));
+
+    /// <summary>
+    /// 含对面时孔标注该写的总数（1.34.0）：「N x」只数了这一面（或单孔没有 N x）就是这一面孔数的两倍；已经数全的不用改，为 null。
+    /// </summary>
+    /// <param name="count">孔标注上的「N x」。</param>
+    /// <param name="front">这一面的孔数（<see cref="Judge"/> 的 Back，两面一一对上时相等）。</param>
+    public static int? TotalCount(int? count, int front)
+        => count is { } n && n >= 2 * front ? null : 2 * front;
+
+    /// <summary>把孔标注上方那行模板文字的数量换成 <paramref name="total"/>：有变量换变量，写死的换数字，没有就加在最前面。</summary>
+    public static string WithCount(string text, int total)
+    {
+        if (text.Contains(CountVariable, StringComparison.Ordinal))
+            return text.Replace(CountVariable, total.ToString(CultureInfo.InvariantCulture), StringComparison.Ordinal);
+        var written = LeadingCount.Match(text);
+        return written.Success
+            ? total.ToString(CultureInfo.InvariantCulture) + text[written.Groups[1].Length..]
+            : $"{total} x {text}";
+    }
+
+    private const string CountVariable = "<NUM_INST>";
+
+    private static readonly Regex LeadingCount = new(@"^(\s*\d+)(?=\s*[xX×])", RegexOptions.Compiled);
 
     /// <summary>孔标注显示文字里的「N x」（第一段以数字加 x / × 开头的）；没有为 null。</summary>
     public static int? CalloutCount(IEnumerable<string> texts)

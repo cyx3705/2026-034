@@ -81,8 +81,13 @@ internal static partial class DimensionCheckPlanner
 
                 if (Edge(view, index, dimension) is not { } edge)
                     continue;
-                edges.Add(edge);
                 ConnectArray(given, view, dimension, edge);
+                // 1.34.0（用户定）：同跨度的第二组阵列（5 x 200 与 10 x 100）定的是另一组孔，不算重标。
+                if (edge.Array && edges.Any(other => other.Array && other.Member.View == edge.Member.View
+                        && other.Horizontal == edge.Horizontal && DimensionGeometry.Same(other.Member.Value, edge.Member.Value)
+                        && DimensionGeometry.Same(other.From.Offset, edge.From.Offset)))
+                    continue;
+                edges.Add(edge);
             }
         }
 

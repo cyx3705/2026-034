@@ -173,6 +173,7 @@ internal static class HoleCallout
 
     // swDimensionTextParts_e.swDimensionTextSuffix / swDocumentTypes_e.swDocPART
     private const int TextSuffix = 2;
+    private const int TextCalloutAbove = 3;
     private const int DocumentPart = 1;
 
     /// <summary>后缀做了什么：「(含对面)」（1.14.1）写上的、已有的、去掉的种数，对面位置不同的种数与孔数；「(反面)」（1.15.0）写上的种数。</summary>
@@ -264,6 +265,18 @@ internal static class HoleCallout
             var wantBack = HoleCoveragePlanner.IsBack(HoleCoveragePlanner.Counterbore(kind, part), normal);
             foreach (var callout in mine)
             {
+                // 1.34.0：写在上方那行（变量 <NUM_INST> 只数这一个特征，只能写死总数）。写之前留折点，文字变长引线不跟丢。
+                if (want && OppositePlanner.TotalCount(count, back) is { } total)
+                {
+                    var before = ShoulderTowards(api, callout.Annotation, callout.Center);
+                    api.Call(callout.Display, "IDisplayDimension", "SetText", TextCalloutAbove,
+                        OppositePlanner.WithCount(api.CallString(callout.Display, "IDisplayDimension", "GetText", TextCalloutAbove), total));
+                    if (before is { } b)
+                        AlignShoulder(api, callout.Annotation, b.Point, b.TextLeft);
+                    if (OppositePlanner.CalloutCount(Texts(api, callout.Annotation)) != total)
+                        context.Report($"孔标注的数量没改成 {total}，要手工核对。");
+                }
+
                 var texts = Texts(api, callout.Annotation).ToList();
                 var (has, hasBack) = (OppositePlanner.HasMarker(texts), HoleCoveragePlanner.HasBackMarker(texts));
                 if (has == want && hasBack == wantBack)

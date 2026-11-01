@@ -276,6 +276,18 @@ internal static class ClearancePlanner
         return true;
     }
 
+    /// <summary>
+    /// 长尺寸整条平移后，尺寸线（和字平行的线）还压不压 <paramref name="text"/>（1.34.0：放不下的短尺寸跑到上面，长尺寸让路）。
+    /// 尺寸界线不算：它们只是跟着变长，本来就在别处。
+    /// </summary>
+    public static bool StillBlocks(IReadOnlyList<SheetSegment> lines, double angle, double dx, double dy, TextBox text)
+    {
+        var (ux, uy) = (Math.Cos(angle), Math.Sin(angle));
+        return lines
+            .Where(line => Math.Abs(((line.X2 - line.X1) * uy) - ((line.Y2 - line.Y1) * ux)) <= 1e-6)
+            .Any(line => Hits(text, new SheetSegment(line.X1 + dx, line.Y1 + dy, line.X2 + dx, line.Y2 + dy)));
+    }
+
     /// <summary>离开尺寸链找地方时每步走多远（图纸 0.5 mm）。</summary>
     public const double SearchStep = 5e-4;
 

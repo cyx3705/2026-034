@@ -132,8 +132,18 @@ internal static partial class Tests
         // 中间那个一头被窗口截短：深度不同不影响（不比长度）。
         var cut = same.Select(c => c.Point.Y == 0.03 && c.Feature == "镜向1" ? c with { AxialMax = 0.005 } : c).ToList();
         Equal(OppositeResult.Same, OppositePlanner.Judge(new PartGeometry(box, cut, []), normal, "/M4螺纹孔1", 0.00165, 6).Result);
-        // 对面同位置同孔径、却是另一个特征单独标的（孔标注只数这一面的「3 x」）：不写「(含对面)」。
-        Equal((OppositeResult.None, 0), OppositePlanner.Judge(part, normal, "/M4螺纹孔1", 0.00165, 3));
+        // 1.34.0（用户定）：对面同位置同孔径、是另一个特征（孔标注只数这一面的「3 x」）：也算含对面，数量翻倍。
+        Equal((OppositeResult.Same, 3), OppositePlanner.Judge(part, normal, "/M4螺纹孔1", 0.00165, 3));
+        True(OppositePlanner.TotalCount(3, 3) == 6 && OppositePlanner.TotalCount(null, 1) == 2 && OppositePlanner.TotalCount(6, 3) is null, "含对面的总数");
+        Equal("12 x <MOD-DIAM>7", OppositePlanner.WithCount("<NUM_INST> x <MOD-DIAM>7", 12));
+        Equal("12 x <MOD-DIAM>7", OppositePlanner.WithCount("6 x <MOD-DIAM>7", 12));
+        Equal("2 x <MOD-DIAM>7", OppositePlanner.WithCount("<MOD-DIAM>7", 2));
+        // 1.34.0：技术要求逐条增删，重新编号。
+        var tech = new TechItems("技术要求", string.Empty, ["甲", "乙", "丙"]);
+        Equal("技术要求\n1、甲\n2、丙", TechLine.Without(tech, [2])!.Text);
+        True(TechLine.Without(tech, [4]) is null, "编号越界");
+        Equal("技术要求\n1、丁\n2、甲\n3、乙\n4、丙", TechLine.With(tech, "丁", 0)!.Text);
+        Equal("技术要求\n1、甲\n2、乙\n3、丙\n4、丁", TechLine.With(tech, "丁", null)!.Text);
         // 对面孔径不同（另一种）：没有对面同种孔。
         var other = ys.Select(y => Hole(0.1, y, 1, "M4螺纹孔1")).Concat(ys.Select(y => Hole(0, y, -1, "别的") with { Radius = 0.002 })).ToList();
         Equal((OppositeResult.None, 0), OppositePlanner.Judge(new PartGeometry(box, other, []), normal, "/M4螺纹孔1", 0.00165, null));
@@ -258,7 +268,7 @@ internal static partial class Tests
 
     static void TestPositionSameSpanPatterns()
     {
-        // 1.32.4，真机侧板：6 个 Ø5 间距 200、11 个 Ø6.6 间距 100，跨度都是 1000。不管哪种先扫到，都标细的那个。
+        // 1.34.0，真机侧板：6 个 Ø5 间距 200、11 个 Ø6.6 间距 100，跨度都是 1000。数量不同各标各的，不管哪种先扫到；基准段跟细阵列同一行。
         const double scale = 0.2;
         const double left = 0.05;
         const double top = 0.2;
@@ -271,11 +281,12 @@ internal static partial class Tests
         foreach (var edges in new[] { coarse.Concat(fine).ToList(), fine.Concat(coarse).ToList(), shorter.Concat(fine).ToList(), longer.Concat(fine).ToList() })
         {
             var patterns = HolePositionPlanner.Plan(edges, left, top, scale).Dimensions.Where(d => d.Axis == PositionAxis.Horizontal && d.Prefix.Length > 0).ToList();
-            Equal(1, patterns.Count);
-            Equal("10 x 100 =", patterns[0].Prefix);
-            Near(1.0, patterns[0].Expected);
+            Equal(2, patterns.Count);
+            var fineArray = patterns.Single(d => d.Prefix == "10 x 100 =");
+            True(patterns.Any(d => d.Prefix == "5 x 200 ="), string.Join(" / ", patterns.Select(d => d.Prefix)));
+            Near(1.0, fineArray.Expected);
             var datumSpan = HolePositionPlanner.Plan(edges, left, top, scale).Dimensions.Single(d => d.Axis == PositionAxis.Horizontal && d.FromEdgeIndex is null);
-            Near(patterns[0].TextAt.Y, datumSpan.TextAt.Y);
+            Near(fineArray.TextAt.Y, datumSpan.TextAt.Y);
         }
 
         // 粗阵列的孔不在细阵列的站上：两个都要标，否则粗阵列没有位置。
@@ -700,7 +711,7 @@ internal static partial class Tests
         True(usage.Contains("当前图纸页", StringComparison.Ordinal), "范围是当前图纸页");
         Equal("onekey-sheetmetal,onekey-frame,onekey-machined,hole-flow,dowel-symbol,center-mark,hole-position,hole-callout,dowel-fit,square-slot,hole-place,"
             + "drawing-basic,drawing-create,drawing-project,drawing-iso,drawing-arrange,drawing-finish,symmetry-axes,outline-all,outline,fillet-flow,arc-center-all,arc-all,chamfer-all,arc-center,arc,chamfer,"
-            + "check-dimension,check-redundant,check-chain,check-decimal,check-dangling,check-overlap,snapshot,svg,tech-ai,"
+            + "check-dimension,check-redundant,check-chain,check-decimal,check-dangling,check-overlap,snapshot,svg,tech-ai,tech-list,tech-add,tech-remove,"
             + "view-list,view-move,dim-list,dim-delete,dim-move,dim-edit,dim-add,dim-hole,dim-center,doc-list,doc-open,doc-activate,doc-save,doc-close,prop-read,prop-write",
             string.Join(",", QuickCommands.All.Select(command => command.Key)));
     }

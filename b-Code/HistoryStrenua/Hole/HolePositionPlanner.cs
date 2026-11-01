@@ -189,13 +189,12 @@ internal static class HolePositionPlanner
                 return true;
             }
 
-            // 1.32.4：粗阵列每站都落在另一个站更多的阵列上，就只标细的（真机侧板 11 个孔只标出 5 x 200，细间距丢了）。
-            // 不靠排序：两种孔的跨度差着浮点误差，谁先谁后说不准。
+            // 1.34.0（用户定，推翻 1.32.4）：两组阵列数量不同就各标各的（侧板 5 x 200 和 10 x 100 都要），只有站完全相同才算重复。
+            // 粗阵列每站都落在站更多的阵列上时，基准段留给细阵列，两段才在同一条链上。不靠排序：两种孔的跨度差着浮点误差，谁先谁后说不准。
             static bool OnStops(IReadOnlyList<Stop> stops, IReadOnlyList<Stop> others)
                 => stops.All(stop => others.Any(other => Math.Abs(other.Offset - stop.Offset) <= HoleCalloutPlanner.CenterTolerance));
-            bool Superseded(KindChain chain) => chain.Pattern
+            bool Coarser(KindChain chain) => chain.Pattern
                 && chains.Any(other => other.Pattern && other.Stops.Count > chain.Stops.Count && OnStops(chain.Stops, other.Stops));
-            // 已标过的阵列：跨度相同但站不重合的（孔不在那些站上）还得标。
             var patterned = new List<KindChain>();
             var mirrored = symmetric?.Contains(axis) == true;
             // 1.23.0：每种孔（一条链）各自挑放哪一侧，两侧各自由里到外排层。
@@ -204,14 +203,14 @@ internal static class HolePositionPlanner
             {
                 var stops = chain.Stops;
                 var first = stops[0];
-                // 被取代的粗阵列也不占基准这一段：留给细阵列，两段才在同一行、同一条链上（真机侧板 45 在上方、10 x 100 在下方）。
-                var needDatum = !mirrored && !Superseded(chain) && Claim(0, first.Offset);
+                // 真机侧板：粗阵列占了基准段，45 在上方、10 x 100 在下方，链就断了。
+                var needDatum = !mirrored && !Coarser(chain) && Claim(0, first.Offset);
                 var items = new List<Planned>();
                 if (chain.Pattern)
                 {
                     var last = stops[^1];
-                    var located = patterned.Any(other => OnStops(stops, other.Stops));
-                    if (!Superseded(chain) && (Claim(first.Offset, last.Offset) || !located))
+                    var located = patterned.Any(other => OnStops(stops, other.Stops) && OnStops(other.Stops, stops));
+                    if (Claim(first.Offset, last.Offset) || !located)
                     {
                         var prefix = PatternPrefix(stops.Count - 1, (last.Offset - first.Offset) / (stops.Count - 1) / scale);
                         items.Add(new Planned(first, last, 0, prefix));

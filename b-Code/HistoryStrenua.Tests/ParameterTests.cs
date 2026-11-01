@@ -14,12 +14,12 @@ internal static partial class Tests
     {
         var registry = Registry();
         var commands = ParameterCommands().ToList();
-        Equal("check.svg,view.list,view.move,dim.list,dim.delete,dim.move,dim.edit,dim.add,dim.hole,dim.center,doc.open,doc.activate,doc.save,doc.close,prop.write",
+        Equal("check.svg,tech.add,tech.remove,view.list,view.move,dim.list,dim.delete,dim.move,dim.edit,dim.add,dim.hole,dim.center,doc.open,doc.activate,doc.save,doc.close,prop.write",
             string.Join(",", commands.Select(command => command.CommandName["strenua.".Length..])));
         foreach (var command in commands)
         {
             True(registry.TryGet(command.CommandName, out var descriptor), $"未注册 {command.CommandName}");
-            True(ParameterClasses.Contains(command.CommandClass), $"{command.CommandName} 的类");
+            True(ParameterClasses.Contains(command.PageClass), $"{command.CommandName} 的类");
             Equal(command.Readonly, descriptor!.Readonly);
             True(descriptor.HiddenReason is null, $"{command.CommandName} 要能经 MCP 调");
             Equal(command.Arguments.Count, descriptor.Parameters.Count);

@@ -315,7 +315,7 @@ internal static class StrenuaPage
                     new
                     {
                         mode = "even",
-                        widgets = commands.Where(command => command.CommandClass == TechClass)
+                        widgets = commands.Where(command => command.PageClass == TechClass)
                             .Select(command => (object)new { kind = "button", action = command.ActionId, text = command.Title })
                             .Append(Switch("techai", "AI 填写技术要求", options.TechAi, TechAiActionId))
                             .ToArray(),

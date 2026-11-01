@@ -61,9 +61,11 @@ internal static partial class DimensionCheckPlanner
             var here = items.Where(item => item.Axis == axis).ToList();
             var axes = ThroughAxes(view, axis);
             var rooted = here.Where(item => Rooted(item, datum, axes)).ToHashSet();
+            // 1.34.0：同跨度的两组阵列（5 x 200 与 10 x 100）放不到一行，有一组在链上另一组就算在。
+            bool Twins(ChainItem a, ChainItem b) => DimensionGeometry.Same(a.From, b.From) && DimensionGeometry.Same(a.To, b.To) && IsArray(view, a) && IsArray(view, b);
             for (var grew = true; grew;)
             {
-                var next = here.Where(item => !rooted.Contains(item) && rooted.Any(other => (SameLine(item, other) || Short(item) || Short(other)) && Abuts(item, other))).ToList();
+                var next = here.Where(item => !rooted.Contains(item) && rooted.Any(other => ((SameLine(item, other) || Short(item) || Short(other)) && Abuts(item, other)) || Twins(item, other))).ToList();
                 grew = next.Count > 0;
                 rooted.UnionWith(next);
             }
@@ -133,6 +135,9 @@ internal static partial class DimensionCheckPlanner
 
         return items;
     }
+
+    private static bool IsArray(CheckView view, ChainItem item)
+        => view.Dimensions.Any(dimension => dimension.Index == item.Index && ArrayPrefix.IsMatch(dimension.Prefix));
 
     private static bool Rooted(ChainItem item, double datum, IReadOnlyList<double> axes)
         => DimensionGeometry.Same(item.From, datum) || DimensionGeometry.Same(item.To, datum)

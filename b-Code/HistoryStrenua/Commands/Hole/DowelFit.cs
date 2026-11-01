@@ -91,6 +91,8 @@ internal static class DowelFit
                 }
             }
 
+            var spanNames = new HashSet<string>(StringComparer.Ordinal);
+
             context.SetState("销孔间 ±0.02");
             foreach (var span in spans)
             {
@@ -116,14 +118,17 @@ internal static class DowelFit
 
                 tolerated++;
                 SetSharedSuffix(api, display, span.Shared);
+                if (api.Call(display, "IDisplayDimension", "GetAnnotation") is { } spanAnnotation)
+                    spanNames.Add(api.CallString(spanAnnotation, "IAnnotation", "GetName"));
                 if (span.Shared)
                     spansShared++;
             }
 
-            if (context.Options.Clearance && spansAdded > 0)
+            // 已有的尺寸加上公差和后缀也会变长，所以改过的都要躲，连整页的线性尺寸和标题栏这些禁区一起。
+            if (context.Options.Clearance && spanNames.Count > 0)
             {
                 context.SetState("避障");
-                clearance = Clearance.ClearDimensions(context, scan, HoleCalloutPlanner.Recognize(scan.Candidates));
+                clearance = Clearance.ClearOutline(context, scan, HoleCalloutPlanner.Recognize(scan.Candidates), spanNames, Clearance.SheetKeepOuts(api, scan.Document));
             }
         }
         finally

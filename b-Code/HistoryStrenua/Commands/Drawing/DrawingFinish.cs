@@ -131,7 +131,7 @@ internal static class DrawingFinish
                 return true;
             }
 
-            // 放得下的字被上一层尺寸界线的尾巴挡住（真机底层1 的两个 40）：不把字挪走，整条链往外退一层，一层 4 mm，最多 6 层。
+            // 放得下的字被上一层尺寸界线的尾巴挡住（真机底层1 的两个 40）：不把字挪走，整条链往外退一层（标准行距），最多 6 层。
             // 只退这一侧最外层的链，每条链一遍只退一次：里层的链退出去，又会用界线挡住外层，互相追着退到图框边（首版真机）。
             bool MoveRow(int index, TextBox? yieldTo = null)
             {
@@ -157,7 +157,7 @@ internal static class DrawingFinish
                     return false;
                 for (var tier = 1; tier <= 6; tier++)
                 {
-                    var (dx, dy) = (sign * tier * 0.004 * vx, sign * tier * 0.004 * vy);
+                    var (dx, dy) = (sign * tier * HolePositionPlanner.TierStep * vx, sign * tier * HolePositionPlanner.TierStep * vy);
                     if (!ClearancePlanner.RowFits(members, dx, dy, free, frame.Value)
                         || (yieldTo is { } text && members.Any(member => ClearancePlanner.StillBlocks(member.Lines, shape.Texts[0].Angle, dx, dy, text))))
                         continue;

@@ -54,8 +54,8 @@ internal static class Clearance
     /// 外轮廓尺寸（1.11.0，用户定：往图上加东西的指令都挂上避障）：<paramref name="names"/> 这几个尺寸（这一轮新加的）的数字
     /// 压在孔相关注解或别的线性尺寸上就沿尺寸线滑开。障碍比孔位尺寸多一样：不连孔的线性尺寸（别的外轮廓尺寸、手工加的）。
     /// </summary>
-    public static ClearanceResult ClearOutline(QuickCommandContext context, ScannedView scan, IReadOnlyList<HoleEdge> holes, IReadOnlySet<string> names)
-        => Clear(context, scan, holes, shape => shape.Role == Role.Dimension && names.Contains(shape.Name), SlideDimension, allLinear: true);
+    public static ClearanceResult ClearOutline(QuickCommandContext context, ScannedView scan, IReadOnlyList<HoleEdge> holes, IReadOnlySet<string> names, Obstacles? sheet = null)
+        => Clear(context, scan, holes, shape => shape.Role == Role.Dimension && names.Contains(shape.Name), SlideDimension, allLinear: true, sheet: sheet);
 
     /// <summary>尺寸数字沿尺寸线滑到不压的地方。</summary>
     private static bool SlideDimension(SolidWorksApi api, List<Shape> shapes, int index, Obstacles obstacles, int hits)

@@ -36,7 +36,7 @@ internal static class HolePositionPlanner
     public const double FirstTier = 0.007;
 
     /// <summary>层与层之间多远（图纸上 6 mm；首版 8 mm）。</summary>
-    public const double TierStep = 0.004;
+    public const double TierStep = 0.0045;
 
     /// <summary>
     /// 尺寸链模式：坐标尺寸文字离零件左侧（上侧）直边多远（图纸上 14 mm）。取自用户的演示图——

@@ -75,6 +75,8 @@ internal static partial class Tests
             "strenua.doc.activate",
             "strenua.doc.save",
             "strenua.doc.close",
+            "strenua.prop.read",
+            "strenua.prop.write",
         ];
         foreach (var name in expected)
         {
@@ -324,7 +326,7 @@ internal static partial class Tests
         // 1.23.0：基础类的视图指令进视图类第二行（上面已核）。
         Equal("标注列表,删标注,挪标注,改尺寸,加尺寸,加孔标注,加中心符号线", Row("dim"));
         Equal("文档列表,打开文档,切换文档,保存工程图,关工程图", Row("doc"));
-        Equal("一键,孔,倒圆,视图,标注,文档,要求,检查", string.Join(",", StrenuaPage.ClassOptions(QuickCommands.All)));
+        Equal("一键,孔,倒圆,视图,标注,文档,要求,属性,检查", string.Join(",", StrenuaPage.ClassOptions(QuickCommands.All)));
         // 类面板里只有按钮和（带参数的类的）输入框，没有开关（1.11.0 开关挪到窗口最下面）。
         True(panels.SelectMany(branch => branch.GetProperty("rows").EnumerateArray())
             .SelectMany(row => row.GetProperty("widgets").EnumerateArray())

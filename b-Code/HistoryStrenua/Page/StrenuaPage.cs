@@ -352,8 +352,10 @@ internal static class StrenuaPage
             .Select(group => (object)new
             {
                 mode = "even",
-                widgets = group.Select(parameter => parameter.Options is { Length: > 0 } options
-                        ? (object)new { kind = "textbox", id = parameter.Name, label = parameter.Label, mode = "select", options, value = options[0], minWidth = 60 }
+                widgets = group.Select(parameter => parameter.OptionsView is { } view
+                        ? (object)new { kind = "textbox", id = parameter.Name, label = parameter.Label, mode = "select", optionsSource = new { command = DataCommand, args = new { view } }, value = PropertySlots.KeepOption, minWidth = 60 }
+                        : parameter.Options is { Length: > 0 } options
+                        ? new { kind = "textbox", id = parameter.Name, label = parameter.Label, mode = "select", options, value = options[0], minWidth = 60 }
                         : new { kind = "textbox", id = parameter.Name, label = parameter.Label, mode = "input", value = string.Empty, minWidth = 60 })
                     .ToArray(),
             });

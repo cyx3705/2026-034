@@ -5,7 +5,7 @@ using HistoryVulcan.Core.Commands;
 /// <summary>带参数的快捷指令（1.20.0「视图」「标注」两类）。</summary>
 internal static partial class Tests
 {
-    static readonly string[] ParameterClasses = ["view", "dim", "doc", "check"];
+    static readonly string[] ParameterClasses = ["prop", "view", "dim", "doc", "check"];
 
     static IEnumerable<QuickCommand> ParameterCommands()
         => QuickCommands.All.Where(command => command.Arguments.Count > 0 || command.Bind is not null);
@@ -14,7 +14,7 @@ internal static partial class Tests
     {
         var registry = Registry();
         var commands = ParameterCommands().ToList();
-        Equal("check.svg,view.list,view.move,dim.list,dim.delete,dim.move,dim.edit,dim.add,dim.hole,dim.center,doc.open,doc.activate,doc.save,doc.close",
+        Equal("check.svg,view.list,view.move,dim.list,dim.delete,dim.move,dim.edit,dim.add,dim.hole,dim.center,doc.open,doc.activate,doc.save,doc.close,prop.write",
             string.Join(",", commands.Select(command => command.CommandName["strenua.".Length..])));
         foreach (var command in commands)
         {

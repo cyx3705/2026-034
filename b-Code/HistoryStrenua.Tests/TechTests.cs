@@ -282,3 +282,33 @@ internal static partial class Tests
         True(wide.Free && wide.Slot == NoteSlot.AboveTitle, wide.Problem);
     }
 }
+
+/// <summary>离线测试：属性类（Prop/）。</summary>
+internal static partial class Tests
+{
+    static void TestPropertySlots()
+    {
+        Equal(("ZS-01", "阀体"), PropertySlots.SplitFileName("ZS-01 阀体.SLDPRT"));
+        Equal(("", "阀体"), PropertySlots.SplitFileName("阀体.SLDPRT"));
+        Equal("\"SW-Material@@默认@ZS-01 阀体.SLDPRT\"", PropertySlots.MaterialLink("默认", "ZS-01 阀体.SLDPRT"));
+        var plan = PropertySlots.Plan("ZS-01 阀体.SLDPRT", new WriteRequest(null, "镀白锌", null, null, null, false));
+        Equal("图号,名称,表面处理", string.Join(",", plan.Select(item => item.Key)));
+        Equal("名称", string.Join(",", PropertySlots.Plan("阀体.SLDPRT", new WriteRequest(null, null, null, null, null, false)).Select(item => item.Key)));
+    }
+
+    static void TestPropertyInputs()
+    {
+        var today = new DateTime(2026, 11, 1);
+        True(PropertySlots.ResolveDate("不改", today) is null, "不改 = 不动");
+        Equal("2026/11/01", PropertySlots.ResolveDate("今天", today)!);
+        var favorites = PropertyOptions.ParseFavorites(["库A|304不锈钢|1", "库A|45钢", "库B|45钢", "坏记录"]);
+        Equal(3, favorites.Count);
+        Equal("304不锈钢", favorites[0].Label);
+        Equal("45钢（库B）", favorites[2].Label);
+        Equal("库B", PropertyOptions.ResolveMaterial("45钢（库B）", favorites)!.Value.Database);
+        True(PropertyOptions.ResolveMaterial("不改", favorites) is null, "不改 = 不动材质");
+        var refused = false;
+        try { PropertyOptions.ResolveMaterial("铜", favorites); } catch (QuickArgumentException) { refused = true; }
+        True(refused, "收藏里没有的材质必须报错");
+    }
+}

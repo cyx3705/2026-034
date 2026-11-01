@@ -235,9 +235,14 @@ public sealed class HistoryStrenuaModule : IModuleContextAware
             HiddenReason = Hidden,
             AllowUnspecifiedParameters = true,
             Handler = CommandDescriptor.Sync(context =>
-                context.GetString("view")?.Trim().ToLowerInvariant() is null or StrenuaPage.TechView
-                    ? CommandResult.Ok("PowerSW 技术要求模板", TechApply.Rows(runner.Options.TechDefault))
-                    : CommandResult.Fail("未知 view；支持 " + StrenuaPage.TechView)),
+            {
+                var view = context.GetString("view")?.Trim().ToLowerInvariant();
+                if (view is null or StrenuaPage.TechView)
+                    return CommandResult.Ok("PowerSW 技术要求模板", TechApply.Rows(runner.Options.TechDefault));
+                return PartProperties.OptionRows(view) is { } rows
+                    ? CommandResult.Ok("PowerSW 属性候选", rows)
+                    : CommandResult.Fail("未知 view；支持 tech、materials、surfaces、heats");
+            }),
         });
 
         registry.Register(Internal("describe", "返回 PowerSW 页面描述", _ => Json(StrenuaPage.Describe(runner.Options))));

@@ -12,7 +12,8 @@ namespace HistoryStrenua;
 /// <param name="Required">必填。</param>
 /// <param name="Group">输入框排在面板的第几行（0 = 对象：视图、名字；1 = 位置；2 = 文字、公差）。</param>
 /// <param name="Options">有限取值：输入框渲染成选择框，第一项是缺省；null 为自由输入。</param>
-internal sealed record QuickParameter(string Name, string Label, string Description, bool Required, int Group = 0, string[]? Options = null)
+/// <param name="OptionsView">候选实时取数（<c>strenua.ui.data view=</c>）的选择框（1.33.0）；取到的第一项是缺省。</param>
+internal sealed record QuickParameter(string Name, string Label, string Description, bool Required, int Group = 0, string[]? Options = null, string? OptionsView = null)
 {
     public ParameterSpec ToSpec(int position) => new()
     {

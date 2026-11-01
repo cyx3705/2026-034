@@ -57,6 +57,8 @@ internal static partial class Tests
         True(OppositePlanner.GroupCount(null, 8) == 8 && OppositePlanner.GroupCount(4, 4) is null && OppositePlanner.GroupCount(null, 1) is null && OppositePlanner.GroupCount(6, 4) == 4, "这一组的数量");
         Equal("<MOD-DIAM>7", OppositePlanner.WithCount("4 x <MOD-DIAM>7", 1));
         Equal("<MOD-DIAM>7", OppositePlanner.WithCount("<NUM_INST> x <MOD-DIAM>7", 1));
+        Equal("<HOLE-DEPTH>15", OppositePlanner.WithoutMarkers("<HOLE-DEPTH>15 (含对面)"));
+        Equal(string.Empty, OppositePlanner.WithoutMarkers(" (反面) (含对面)"));
         True(OppositePlanner.CountsMatch([null], 1) && OppositePlanner.CountsMatch([6], 3) && OppositePlanner.CountsMatch([5, 3], 8), "数量合计对得上");
         True(!OppositePlanner.CountsMatch([null], 8) && !OppositePlanner.CountsMatch([4], 3), "数量合计对不上");
         // 1.34.0：技术要求逐条增删，重新编号。

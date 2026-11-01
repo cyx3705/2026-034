@@ -54,8 +54,7 @@ internal static class CalloutEdit
                 if (want && OppositePlanner.TotalCount(count, back) is { } total)
                 {
                     var before = ShoulderTowards(api, callout.Annotation, callout.Center);
-                    api.Call(callout.Display, "IDisplayDimension", "SetText", TextCalloutTemplate,
-                        OppositePlanner.WithCount(api.CallString(callout.Display, "IDisplayDimension", "GetText", TextCalloutTemplate), total));
+                    WriteCount(api, callout.Display, total);
                     if (before is { } b)
                         AlignShoulder(api, callout.Annotation, b.Point, b.TextLeft);
                     if (OppositePlanner.CalloutCount(Texts(api, callout.Annotation)) != total)
@@ -72,7 +71,9 @@ internal static class CalloutEdit
                 }
 
                 var shoulder = ShoulderTowards(api, callout.Annotation, callout.Center);
-                var suffix = (wantBack ? HoleCoveragePlanner.BackSuffix : string.Empty) + (want ? OppositePlanner.Suffix : string.Empty);
+                // 导入特征的后缀里是深度或「贯穿」，不能冲掉；向导孔这里读回是空的。
+                var suffix = OppositePlanner.WithoutMarkers(api.CallString(callout.Display, "IDisplayDimension", "GetText", SwConst.TextSuffix))
+                    + (wantBack ? HoleCoveragePlanner.BackSuffix : string.Empty) + (want ? OppositePlanner.Suffix : string.Empty);
                 api.Call(callout.Display, "IDisplayDimension", "SetText", SwConst.TextSuffix, suffix);
                 if (shoulder is { } s)
                     AlignShoulder(api, callout.Annotation, s.Point, s.TextLeft);
@@ -108,13 +109,23 @@ internal static class CalloutEdit
             if (OppositePlanner.GroupCount(OppositePlanner.CalloutCount(Texts(api, callout.Annotation)), group) is not { } wanted)
                 continue;
             var before = ShoulderTowards(api, callout.Annotation, callout.Center);
-            api.Call(callout.Display, "IDisplayDimension", "SetText", TextCalloutTemplate,
-                OppositePlanner.WithCount(api.CallString(callout.Display, "IDisplayDimension", "GetText", TextCalloutTemplate), wanted));
+            WriteCount(api, callout.Display, wanted);
             if (before is { } b)
                 AlignShoulder(api, callout.Annotation, b.Point, b.TextLeft);
             if ((OppositePlanner.CalloutCount(Texts(api, callout.Annotation)) ?? 1) != wanted)
                 context.Report($"视图「{scan.ViewName}」有个孔标注的数量没改成 {wanted}，要手工核对。");
         }
+    }
+
+    /// <summary>
+    /// 写孔标注的数量。异形孔向导的数量在模板那一段；导入特征的孔标注其实是直径尺寸，模板和前缀是同一段，
+    /// 往模板写会把孔径和深度一起弄丢（真机显示「5 x Ø」），要写前缀。
+    /// </summary>
+    private static void WriteCount(SolidWorksApi api, object display, int total)
+    {
+        var template = api.CallString(display, "IDisplayDimension", "GetText", TextCalloutTemplate);
+        var part = template == api.CallString(display, "IDisplayDimension", "GetText", SwConst.TextPrefix) ? SwConst.TextPrefix : TextCalloutTemplate;
+        api.Call(display, "IDisplayDimension", "SetText", part, OppositePlanner.WithCount(template, total));
     }
 
     /// <summary>

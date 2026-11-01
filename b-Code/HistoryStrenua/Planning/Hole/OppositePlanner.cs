@@ -221,6 +221,12 @@ internal static class OppositePlanner
             : $"{total} x {text}";
     }
 
+    /// <summary>后缀去掉本模块写的「(反面)」「(含对面)」，留下原有的（深度、贯穿）。</summary>
+    public static string WithoutMarkers(string suffix)
+        => suffix.Replace(HoleCoveragePlanner.BackSuffix.Trim(), string.Empty, StringComparison.Ordinal)
+            .Replace(Suffix.Trim(), string.Empty, StringComparison.Ordinal)
+            .TrimEnd();
+
     private const string CountVariable = "<NUM_INST>";
 
     private static readonly Regex LeadingCountAndX = new(@"^\s*(?:\d+|<NUM_INST>)\s*[xX×]\s*", RegexOptions.Compiled);

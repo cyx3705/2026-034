@@ -163,7 +163,7 @@ internal static partial class Tests
             .Where(node => node.TryGetProperty("kind", out var kind) && kind.GetString() is "button" or "switch")
             .Select(node => node.GetProperty("action").GetString()!)
             .ToList();
-        foreach (var command in QuickCommands.All)
+        foreach (var command in QuickCommands.All.Where(item => !QuickCommands.HiddenPageClasses.Contains(item.PageClass)))
             True(bound.Contains(command.ActionId), $"指令「{command.Title}」应是页面上的一个按钮");
         foreach (var action in bound)
             True(declared.ContainsKey(action), $"页面绑定了未声明的动作 {action}");
@@ -301,18 +301,17 @@ internal static partial class Tests
             return string.Join("|", rows.Select(row => string.Join(",", row.GetProperty("widgets").EnumerateArray().Select(w => w.GetProperty("text").GetString()))));
         }
 
-        foreach (var group in QuickCommands.All.GroupBy(c => c.PageClass).Where(g => g.Key != "tech"))
+        foreach (var group in QuickCommands.All.GroupBy(c => c.PageClass).Where(g => g.Key != "tech" && !QuickCommands.HiddenPageClasses.Contains(g.Key)))
             Equal(string.Join("|", group.GroupBy(c => c.Row).OrderBy(r => r.Key).Select(r => string.Join(",", r.Select(c => c.Title)))), Row(group.Key));
         // 1.17.0（用户定）：外轮廓挪到基础类，孔类加「方形槽」。
         Equal("孔标注全流程,销钉符号,中心符号线,孔位尺寸,孔标注,销孔标注,方形槽,孔标注选位", Row("hole"));
         // 1.16.0（用户定）：出图类改名「基础」、一键出图改成「基础出图」只做这一类；倒圆倒角改名「倒圆」并加「全图倒圆倒角」。
         // 1.23.0（用户定，页数少）：基础类拆掉——视图的四个进视图类第二行，其余并进一键类第三行；指令名不变。
         True(QuickCommands.All.All(c => c.PageClass != "drawing"), "页面上没有基础类了");
-        Equal("视图列表,挪视图|新建工程图,投影视图,轴测图,排版", Row("view"));
         Equal("strenua.drawing.create", QuickCommands.All.Single(c => c.Title == "新建工程图").CommandName);
         Equal("全图倒圆倒角,全图圆心,全图圆弧,全图倒角,圆心位置,圆弧标注,倒角标注", Row("fillet"));
         // 1.17.0（用户定）：钣金、框架、加工件三个在一键出图下面另起一行。
-        Equal("一键出钣金,一键出框架,一键出加工件|基础出图,整理标注,对称轴,全图外轮廓,外轮廓", Row("onekey"));
+        Equal("一键出钣金,一键出框架,一键出加工件|新建工程图,投影视图,轴测图,排版|基础出图,整理标注,对称轴,全图外轮廓,外轮廓", Row("onekey"));
         // 1.13.0（用户定）：旧「技术要求」按钮删掉，「技术要求」类整支就是模板表格；1.14.0 的「写入」按钮不在这里，在最下面一行和 AI 开关并排（见 switches 那组）。
         var tech = branches.Single(branch => branch.GetProperty("case").GetString() == "要求");
         Equal("table", tech.GetProperty("type").GetString()!);
@@ -324,9 +323,9 @@ internal static partial class Tests
         Equal("未标尺寸,重标尺寸,尺寸链,两位小数,悬空标注,注解重叠,图纸截图,图纸 SVG", Row("check"));
         // 1.20.0（用户定：新指令待遇和以前一样）：带参数的「视图」「标注」两类排在倒圆后面。
         // 1.23.0：基础类的视图指令进视图类第二行（上面已核）。
-        Equal("标注列表,删标注,挪标注,改尺寸,加尺寸,加孔标注,加中心符号线", Row("dim"));
-        Equal("文档列表,打开文档,切换文档,保存工程图,关工程图", Row("doc"));
-        Equal("一键,孔,倒圆,视图,标注,文档,要求,属性,检查", string.Join(",", StrenuaPage.ClassOptions(QuickCommands.All)));
+        // 1.33.0（用户定）：视图、标注、文档三类不上页面，指令照常注册。
+        True(!panels.Any(panel => panel.GetProperty("id").GetString() is "class-view" or "class-dim" or "class-doc"), "AI 用的三类不上页面");
+        Equal("一键,孔,倒圆,要求,属性,检查", string.Join(",", StrenuaPage.ClassOptions(QuickCommands.All)));
         // 类面板里只有按钮和（带参数的类的）输入框，没有开关（1.11.0 开关挪到窗口最下面）。
         True(panels.SelectMany(branch => branch.GetProperty("rows").EnumerateArray())
             .SelectMany(row => row.GetProperty("widgets").EnumerateArray())

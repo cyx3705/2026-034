@@ -17,7 +17,7 @@ internal static class DrawingIso
         Summary: "当前工程图：从主视图（或选中的视图）斜投影出一个轴测图，放进右边的空地（放不下缩一两档比例），已有就不再加。",
         Usage: "在工程图里按（选了视图就从它投影，没选就从主视图）：从主视图右上方斜投影出一个轴测图，放到离主视图那一行最近的空地，躲开现有视图连同它们的尺寸空间、标题栏等；原比例放不下就缩一档、两档（如 1:2 → 1:3 → 1:5）。「避障」关着时不找空地、不缩，原比例放在主视图那一行右边。图纸页上已有轴测图就不再加。别的视图不动；整页重排按「排版」。",
         Run: Run,
-        Row: 1, Page: "view");
+        Row: 1, Page: "onekey");
 
     private static QuickOutcome Run(QuickCommandContext context)
     {

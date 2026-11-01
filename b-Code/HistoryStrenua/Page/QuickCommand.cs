@@ -227,6 +227,12 @@ internal static class QuickCommands
     /// </summary>
     public static IReadOnlyList<string> ClassOrder { get; } = ["onekey", "hole", "fillet", "view", "dim", "doc", "tech", "prop", "check"];
 
+    /// <summary>
+    /// 页面上不显示的类（1.33.0，用户定：类太多，这三类是给 AI 用的）。只是不上页面，指令照常注册，MCP 和控制台调用不变。
+    /// 原在视图类的新建工程图、投影视图、轴测图、排版是人也要点的，挪进一键类。
+    /// </summary>
+    public static IReadOnlySet<string> HiddenPageClasses { get; } = new HashSet<string>(StringComparer.Ordinal) { "view", "dim", "doc" };
+
     /// <summary>命令类 → 页面上的类名。新类不登记也能用，只是显示成英文类名。</summary>
     private static readonly IReadOnlyDictionary<string, string> ClassTitles =
         new Dictionary<string, string>(StringComparer.Ordinal)

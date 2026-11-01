@@ -75,10 +75,9 @@ internal static partial class Tests
         }
 
         // 同名参数共用一个框，按组分行：对象 / 位置 / 文字。
-        Equal("视图|X,Y,右移,上移,解除对齐", Inputs("view"));
-        Equal("视图,名字,从,到,方向,孔,字朝向,孔组|X,Y,右移,上移|前缀,后缀,公差", Inputs("dim"));
+        Equal("材料,表面处理,热处理|日期,设计,保存", Inputs("prop"));
         // 每个按钮的动作只引用本面板有的框（Aurora：取不到的占位符整条拒绝执行）。
-        foreach (var commandClass in ParameterClasses)
+        foreach (var commandClass in ParameterClasses.Where(item => !QuickCommands.HiddenPageClasses.Contains(item)))
         {
             var panel = Descendants(description.RootElement)
                 .Single(node => node.TryGetProperty("id", out var id) && id.GetString() == StrenuaPage.ClassPanelId(commandClass));

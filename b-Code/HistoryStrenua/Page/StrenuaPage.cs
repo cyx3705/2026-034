@@ -235,7 +235,7 @@ internal static class StrenuaPage
     {
         var grouped = commands.GroupBy(command => command.PageClass, StringComparer.Ordinal)
             .ToDictionary(group => group.Key, group => (IReadOnlyList<QuickCommand>)group.ToList(), StringComparer.Ordinal);
-        foreach (var commandClass in QuickCommands.ClassOrder)
+        foreach (var commandClass in QuickCommands.ClassOrder.Where(item => !QuickCommands.HiddenPageClasses.Contains(item)))
         {
             if (grouped.TryGetValue(commandClass, out var members))
                 yield return (commandClass, members);

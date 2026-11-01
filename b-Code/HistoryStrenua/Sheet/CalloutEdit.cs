@@ -17,10 +17,13 @@ internal static class CalloutEdit
     /// </remarks>
     internal static OppositeMarks MarkSuffixes(QuickCommandContext context, ScannedView scan, PartGeometry? part)
     {
-        if (part is null)
-            return default;
-
         var api = context.Api;
+        if (part is null)
+        {
+            AlignGroupCounts(context, scan, HoleCalloutPlanner.GroupKinds(HoleCalloutPlanner.Recognize(scan.Candidates)));
+            return default;
+        }
+
         var normal = scan.Geometry.Frame.Normal;
         var scale = scan.Geometry.Scale;
         var kinds = HoleCalloutPlanner.GroupKinds(HoleCalloutPlanner.Recognize(scan.Candidates).Where(hole => hole.Slot < 0));
@@ -41,6 +44,9 @@ internal static class CalloutEdit
             }
 
             var want = result == OppositeResult.Same;
+            if (!want)
+                AlignGroupCounts(context, scan, [kind]);
+            AddCounterbore(api, scan, kind, mine, part);
             var wantBack = HoleCoveragePlanner.IsBack(HoleCoveragePlanner.Counterbore(kind, part), normal);
             foreach (var callout in mine)
             {
@@ -81,7 +87,93 @@ internal static class CalloutEdit
             }
         }
 
+        AlignGroupCounts(context, scan, HoleCalloutPlanner.GroupKinds(HoleCalloutPlanner.Recognize(scan.Candidates).Where(hole => hole.Slot >= 0)));
         return new OppositeMarks(marked, already, cleared, differentKinds, differentHoles, backMarked);
+    }
+
+    /// <summary>
+    /// 每组孔的标注数量写成这一组在这个视图的孔数（腰型孔两端算一个）。一组有几个标注是人分开标的，分法看不出来，不改，「未标尺寸」核对合计。
+    /// </summary>
+    private static void AlignGroupCounts(QuickCommandContext context, ScannedView scan, IEnumerable<List<HoleEdge>> kinds)
+    {
+        var api = context.Api;
+        var callouts = Callouts(api, scan);
+        foreach (var kind in kinds)
+        {
+            var mine = callouts.Where(c => kind.Any(hole => HoleCalloutPlanner.SameCenter(c.Center, new SheetPoint(hole.X, hole.Y)))).ToList();
+            if (mine.Count != 1)
+                continue;
+            var callout = mine[0];
+            var group = HoleCalloutPlanner.Count(kind).Holes;
+            if (OppositePlanner.GroupCount(OppositePlanner.CalloutCount(Texts(api, callout.Annotation)), group) is not { } wanted)
+                continue;
+            var before = ShoulderTowards(api, callout.Annotation, callout.Center);
+            api.Call(callout.Display, "IDisplayDimension", "SetText", TextCalloutTemplate,
+                OppositePlanner.WithCount(api.CallString(callout.Display, "IDisplayDimension", "GetText", TextCalloutTemplate), wanted));
+            if (before is { } b)
+                AlignShoulder(api, callout.Annotation, b.Point, b.TextLeft);
+            if ((OppositePlanner.CalloutCount(Texts(api, callout.Annotation)) ?? 1) != wanted)
+                context.Report($"视图「{scan.ViewName}」有个孔标注的数量没改成 {wanted}，要手工核对。");
+        }
+    }
+
+    /// <summary>
+    /// 导入件的沉头孔：SolidWorks 孔标注只写选中的底孔，没有沉孔那一行，按几何补上（同心、更粗、读得到整圈内凹圆柱面才算，孔口倒角不算）。已写了的不动。
+    /// </summary>
+    private static void AddCounterbore(SolidWorksApi api, ScannedView scan, IReadOnlyList<HoleEdge> kind, IReadOnlyList<(object Annotation, object Display, SheetPoint Center)> mine, PartGeometry part)
+    {
+        var hole = kind[0];
+        var wider = SplitHole.Merge(scan.Candidates)
+            .Where(other => other.Radius > hole.Radius + HoleCalloutPlanner.CenterTolerance && HoleCalloutPlanner.SameCenter(other.X, other.Y, hole.X, hole.Y))
+            .Select(other => (double?)other.Radius).Max();
+        if (wider is not { } radius || SplitDepths(part, hole, scan.Geometry.Scale, wider).Counterbore is not { } deep)
+            return;
+        foreach (var callout in mine)
+        {
+            if (Texts(api, callout.Annotation).Any(text => text.Contains("HOLE-SPOT", StringComparison.Ordinal) || text.Contains("⌴", StringComparison.Ordinal)))
+                continue;
+            var before = ShoulderTowards(api, callout.Annotation, callout.Center);
+            api.Call(callout.Display, "IDisplayDimension", "SetText", TextCalloutBelow, SplitHole.CounterboreLine(radius * 2 / scan.Geometry.Scale, deep));
+            if (before is { } b)
+                AlignShoulder(api, callout.Annotation, b.Point, b.TextLeft);
+        }
+    }
+
+    /// <summary>「未标尺寸」用：这个视图里孔标注数量与图上孔数对不上的组，一组一句。</summary>
+    internal static List<string> CountFaults(SolidWorksApi api, ScannedView scan)
+    {
+        var callouts = Callouts(api, scan);
+        var faults = new List<string>();
+        foreach (var kind in HoleCalloutPlanner.GroupKinds(HoleCalloutPlanner.Recognize(scan.Candidates)))
+        {
+            var mine = callouts.Where(c => kind.Any(hole => HoleCalloutPlanner.SameCenter(c.Center, new SheetPoint(hole.X, hole.Y)))).ToList();
+            if (mine.Count == 0)
+                continue;
+            var counts = mine.Select(c => OppositePlanner.CalloutCount(Texts(api, c.Annotation))).ToList();
+            var group = HoleCalloutPlanner.Count(kind).Holes;
+            if (!OppositePlanner.CountsMatch(counts, group))
+                faults.Add($"孔标注「{AnnotationRows.Shown(api, mine[0].Annotation)}」写 {counts.Sum(count => count ?? 1)} 个，这种孔在这个视图有 {group} 个");
+        }
+
+        return faults;
+    }
+
+    // swDimensionTextParts_e：孔标注下面一行。
+    internal const int TextCalloutBelow = 4;
+
+    /// <summary>盲孔的深度（通孔为 null）与沉孔深度，从零件圆柱面算；读不到零件都是 null。</summary>
+    internal static (double? Depth, double? Counterbore) SplitDepths(PartGeometry? part, HoleEdge hole, double scale, double? wider)
+    {
+        if (part is null || hole.Axis is not { } axis || part.Holes.FirstOrDefault(axis.Matches) is not { } partHole
+            || partHole.RangeAlong(partHole.Axis) is not { } range)
+            return (null, null);
+        double? depth = range.Max - range.Min;
+        if (wider is null)
+            return (depth, null);
+        var probe = new PartCylinder(partHole.Axis, partHole.Point, wider.Value / scale, true, true, string.Empty, []);
+        var wall = SplitHole.Whole(part.Cylinders).FirstOrDefault(cylinder => cylinder.Concave && cylinder.Full
+            && Math.Abs(cylinder.Radius - probe.Radius) <= probe.Radius * HoleCalloutPlanner.RadiusTolerance && PartHole.SameAxis(probe, cylinder));
+        return (depth, wall is null ? null : wall.AxialMax - wall.AxialMin);
     }
 
     /// <summary>视图引用的零件（1.15.0 起孔标注读一次，判沉孔朝向与对面孔共用）；装配视图不读模型，为 null。</summary>

@@ -53,6 +53,12 @@ internal static partial class Tests
         Equal("12 x <MOD-DIAM>7", OppositePlanner.WithCount("<NUM_INST> x <MOD-DIAM>7", 12));
         Equal("12 x <MOD-DIAM>7", OppositePlanner.WithCount("6 x <MOD-DIAM>7", 12));
         Equal("2 x <MOD-DIAM>7", OppositePlanner.WithCount("<MOD-DIAM>7", 2));
+        // 数量对齐标注的组：导入特征没写的补、跨面多数的改回这一面，单孔不写。
+        True(OppositePlanner.GroupCount(null, 8) == 8 && OppositePlanner.GroupCount(4, 4) is null && OppositePlanner.GroupCount(null, 1) is null && OppositePlanner.GroupCount(6, 4) == 4, "这一组的数量");
+        Equal("<MOD-DIAM>7", OppositePlanner.WithCount("4 x <MOD-DIAM>7", 1));
+        Equal("<MOD-DIAM>7", OppositePlanner.WithCount("<NUM_INST> x <MOD-DIAM>7", 1));
+        True(OppositePlanner.CountsMatch([null], 1) && OppositePlanner.CountsMatch([6], 3) && OppositePlanner.CountsMatch([5, 3], 8), "数量合计对得上");
+        True(!OppositePlanner.CountsMatch([null], 8) && !OppositePlanner.CountsMatch([4], 3), "数量合计对不上");
         // 1.34.0：技术要求逐条增删，重新编号。
         var tech = new TechItems("技术要求", string.Empty, ["甲", "乙", "丙"]);
         Equal("技术要求\n1、甲\n2、丙", TechLine.Without(tech, [2])!.Text);

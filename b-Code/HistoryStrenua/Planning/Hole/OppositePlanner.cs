@@ -192,9 +192,27 @@ internal static class OppositePlanner
     public static int? TotalCount(int? count, int front)
         => count is { } n && n >= 2 * front ? null : 2 * front;
 
+    /// <summary>
+    /// 不含对面时孔标注该写的数量：一个标注管一组，数量就是这一组在这个视图的孔数（用户定）。写对了为 null。
+    /// SolidWorks 对导入特征不写「N x」，对跨面的特征又把别的面也数进去，所以两种都按这一组改。
+    /// </summary>
+    /// <param name="count">孔标注上的「N x」。</param>
+    /// <param name="group">这一组的孔数。</param>
+    public static int? GroupCount(int? count, int group)
+        => (count ?? 1) == group ? null : group;
+
+    /// <summary>这一组的标注写的数量合起来对不对：等于这一面孔数，或两倍（含对面）。一组标了几个标注（手工分开）就加起来算。</summary>
+    public static bool CountsMatch(IEnumerable<int?> counts, int group)
+    {
+        var total = counts.Sum(count => count ?? 1);
+        return total == group || total == 2 * group;
+    }
+
     /// <summary>把孔标注上方那行模板文字的数量换成 <paramref name="total"/>：有变量换变量，写死的换数字，没有就加在最前面。</summary>
     public static string WithCount(string text, int total)
     {
+        if (total <= 1)
+            return LeadingCountAndX.Replace(text, string.Empty);
         if (text.Contains(CountVariable, StringComparison.Ordinal))
             return text.Replace(CountVariable, total.ToString(CultureInfo.InvariantCulture), StringComparison.Ordinal);
         var written = LeadingCount.Match(text);
@@ -204,6 +222,8 @@ internal static class OppositePlanner
     }
 
     private const string CountVariable = "<NUM_INST>";
+
+    private static readonly Regex LeadingCountAndX = new(@"^\s*(?:\d+|<NUM_INST>)\s*[xX×]\s*", RegexOptions.Compiled);
 
     private static readonly Regex LeadingCount = new(@"^(\s*\d+)(?=\s*[xX×])", RegexOptions.Compiled);
 

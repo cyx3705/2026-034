@@ -19,7 +19,7 @@ internal static class DimensionCheck
         CommandName: StrenuaIdentity.Domain + ".check.dimension",
         Title: "未标尺寸",
         Summary: "当前图纸页全部视图（轴测图除外）查边、孔、圆弧有没有没标的尺寸（位置按尺寸网连通判，孔径、R 另查），选中漏标的边并列出（手动点时弹窗），不改图。",
-        Usage: "不用点视图：当前图纸页上全部视图（轴测图不查）一起检查，与标注按钮怎么标无关——同一零件的全部尺寸（各视图合起来）连成一张网，竖直边的左右位置、水平边的上下位置、孔心与 R1 以上圆弧圆心的两向位置，没连进这张网的就是漏标（与直边相切的圆弧、阵列「N x」跨度里的、对称轴上的、腰型孔另一端算已定）；孔要有孔标注或 Ø、圆弧要有 R（同尺寸有一个标了就算）；斜边要连着尺寸或两端都定了（C1 小倒角不查）。查完在 SolidWorks 里选中（高亮）漏标的边，并列出，手动点时弹窗、AI 调用不弹；不加、不删任何尺寸。",
+        Usage: "不用点视图：当前图纸页上全部视图（轴测图不查）一起检查，与标注按钮怎么标无关——同一零件的全部尺寸（各视图合起来）连成一张网，竖直边的左右位置、水平边的上下位置、孔心与 R1 以上圆弧圆心的两向位置，没连进这张网的就是漏标（与直边相切的圆弧、阵列「N x」跨度里的、对称轴上的、腰型孔另一端算已定）；孔要有孔标注或 Ø、圆弧要有 R（同尺寸有一个标了就算），孔标注的 N x 要等于这种孔在这个视图的个数（含对面可以是两倍）；斜边要连着尺寸或两端都定了（C1 小倒角不查）。查完在 SolidWorks 里选中（高亮）漏标的边，并列出，手动点时弹窗、AI 调用不弹；不加、不删任何尺寸。",
         Run: Run);
 
 
@@ -56,6 +56,8 @@ internal static class DimensionCheck
         }
 
         api.Redraw(document);
+        var counts = scans.Select(scan => CalloutEdit.CountFaults(api, scan)).ToList();
+        var countFaults = counts.Sum(view => view.Count);
         var lines = new List<string>();
         if (axonometric.Count > 0)
             lines.Add($"轴测图不查：{string.Join("、", axonometric.Select(name => $"「{name}」"))}。");
@@ -64,6 +66,7 @@ internal static class DimensionCheck
             var here = missing.Where(item => item.View == v).ToList();
             lines.Add(here.Count == 0 ? $"视图「{checks[v].Name}」：没有漏标。" : $"视图「{checks[v].Name}」：{here.Count} 处漏标——");
             lines.AddRange(here.Select(item => "  · " + item.Text + Ids(scans[v], item)));
+            lines.AddRange(counts[v].Select(fault => "  · " + fault));
         }
 
         var unnoted = chamfer is null && fillet is null
@@ -71,10 +74,12 @@ internal static class DimensionCheck
             : $"（按技术要求：{string.Join("、", new[] { chamfer is { } c ? $"未注倒角 C{DimensionCheckPlanner.Mm(c - 0.00005)}" : null, fillet is { } f ? $"未注圆角 R{DimensionCheckPlanner.Mm(f - 0.00005)}" : null }.OfType<string>())} 不查）";
         if (unnoted.Length > 0)
             lines.Insert(0, unnoted.Trim('（', '）') + "。");
-        var head = missing.Count == 0
+        var head = missing.Count + countFaults == 0
             ? $"未标尺寸：当前图纸页 {checks.Count} 个视图都没有查出漏标。"
-            : $"未标尺寸：当前图纸页 {checks.Count} 个视图共 {missing.Count} 处漏标，已在 SolidWorks 里选中（高亮）漏标的边。";
-        if (missing.Count > 0)
+            : $"未标尺寸：当前图纸页 {checks.Count} 个视图共 {missing.Count} 处漏标"
+              + (countFaults > 0 ? $"、{countFaults} 处孔标注数量不对" : string.Empty)
+              + (missing.Count > 0 ? "，已在 SolidWorks 里选中（高亮）漏标的边。" : "。");
+        if (missing.Count + countFaults > 0)
             Popup(context, "未标尺寸", head, lines);
         return QuickOutcome.Ok(head + Environment.NewLine + string.Join(Environment.NewLine, lines));
     }

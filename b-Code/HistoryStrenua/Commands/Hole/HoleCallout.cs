@@ -8,7 +8,7 @@ namespace HistoryStrenua;
 /// </summary>
 /// <remarks>
 /// 选视图与认孔见 <see cref="HoleScan"/>。每种孔（同一特征、同一孔径）只标一个：SolidWorks 的孔标注
-/// 自己会写上「N×」，每个都标就是同一行字重复 N 遍。某种孔里已经有一个带标注，整种跳过，连点两次不会出双份。
+/// 写「N×」（导入特征不写，<see cref="CalloutEdit.MarkSuffixes"/> 按这一组的孔数补上），每个都标就是同一行字重复 N 遍。某种孔里已经有一个带标注，整种跳过，连点两次不会出双份。
 /// 腰型孔选它一端的圆弧加孔标注，与圆孔同一个 <c>AddHoleCallout2</c>，规格由 SolidWorks 一次写全。
 /// 最后做标注避障（1.6.0，<see cref="Clearance.ClearCallouts"/>）：视图里孔标注的文字压在别的孔相关注解上就换角位，
 /// 已有的孔标注也算。1.7.0 起受页面「避障」开关控制（默认开）。
@@ -23,7 +23,7 @@ internal static class HoleCallout
         CommandName: StrenuaIdentity.Domain + ".hole.callout",
         Title: "孔标注",
         Summary: "点一个工程图视图，视图里每种孔（含腰型孔）各标一次孔标注，已有标注的种跳过。",
-        Usage: "在工程图里点一个视图（先点后按、先按后点都行，60 秒内），该视图里每种孔（含腰型孔）标一次（数量由 SolidWorks 的 N× 带出）；已有标注的种跳过，同一页上别的视图（如顶视图对底视图）已标过的种也跳过。柱形沉头孔的沉孔在这个视图背面时，这一页有看得见沉孔的视图就留给那个视图标，没有才标在这里、后面写「(反面)」。零件对面（背面）的同种孔与这一面位置一一相同时，这种的孔标注后面写「(含对面)」（SolidWorks 的 N× 把两面都数进去了，视图只看得到这一面）；对面位置不同时回执提示要从对面再开一个视图。「避障」开关开着时最后避障：孔标注文字压在别的孔的尺寸、中心符号线等线条上就换到孔的另一个角。",
+        Usage: "在工程图里点一个视图（先点后按、先按后点都行，60 秒内），该视图里每种孔（含腰型孔）标一次（N x 写这种孔在这个视图的个数；导入件的沉头孔补上沉孔那一行）；已有标注的种跳过，同一页上别的视图（如顶视图对底视图）已标过的种也跳过。柱形沉头孔的沉孔在这个视图背面时，这一页有看得见沉孔的视图就留给那个视图标，没有才标在这里、后面写「(反面)」。零件对面（背面）的同种孔与这一面位置一一相同时，这种的孔标注后面写「(含对面)」（SolidWorks 的 N× 把两面都数进去了，视图只看得到这一面）；对面位置不同时回执提示要从对面再开一个视图。「避障」开关开着时最后避障：孔标注文字压在别的孔的尺寸、中心符号线等线条上就换到孔的另一个角。",
         Run: context => Run(context, null));
 
     /// <summary>
@@ -66,24 +66,6 @@ internal static class HoleCallout
         DimensionEdit.Discard(api, scan, probe);
         return text.Contains("贯穿", StringComparison.Ordinal);
     }
-
-    /// <summary>盲孔的深度（通孔为 null）与沉孔深度，从零件圆柱面算；读不到零件都是 null。</summary>
-    private static (double? Depth, double? Counterbore) SplitDepths(PartGeometry? part, HoleEdge hole, double scale, double? wider)
-    {
-        if (part is null || hole.Axis is not { } axis || part.Holes.FirstOrDefault(axis.Matches) is not { } partHole
-            || partHole.RangeAlong(partHole.Axis) is not { } range)
-            return (null, null);
-        double? depth = range.Max - range.Min;
-        if (wider is null)
-            return (depth, null);
-        var probe = new PartCylinder(partHole.Axis, partHole.Point, wider.Value / scale, true, true, string.Empty, []);
-        var wall = SplitHole.Whole(part.Cylinders).FirstOrDefault(cylinder => cylinder.Concave && cylinder.Full
-            && Math.Abs(cylinder.Radius - probe.Radius) <= probe.Radius * HoleCalloutPlanner.RadiusTolerance && PartHole.SameAxis(probe, cylinder));
-        return (depth, wall is null ? null : wall.AxialMax - wall.AxialMin);
-    }
-
-    // swDimensionTextParts_e：孔标注下面一行。
-    private const int TextCalloutBelow = 4;
 
     /// <param name="context">快捷指令上下文。</param>
     /// <param name="view">直接处理这个视图（全流程用）；null 时取选中的或等用户点选。</param>

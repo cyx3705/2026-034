@@ -173,6 +173,11 @@ internal sealed record DrawingSheet(
         var bounds = new List<SheetRect>();
         foreach (var annotation in context.Api.CallArray(view, "IView", "GetAnnotations"))
         {
+            // 孔标注最后才排，不为它现在的位置留地方。
+            if (context.Api.CallInt(annotation, "IAnnotation", "GetType") == SwConst.AnnotationDimension
+                && context.Api.Call(annotation, "IAnnotation", "GetSpecificAnnotation") is { } display
+                && context.Api.CallBool(display, "IDisplayDimension", "IsHoleCallout"))
+                continue;
             var (lines, texts) = Clearance.DisplayGeometry(context.Api, annotation);
             var points = texts.SelectMany(t => t.Corners()).Concat(lines.SelectMany(l => new[] { new SheetPoint(l.X1, l.Y1), new SheetPoint(l.X2, l.Y2) })).ToList();
             if (points.Count == 0) continue;

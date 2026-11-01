@@ -17,10 +17,10 @@ internal readonly record struct ClearanceResult(int Moved, int Stuck)
 /// 压在别的孔相关注解的线条或文字上，就挪开。几何判定见 <see cref="ClearancePlanner"/>。
 /// </summary>
 /// <remarks>
-/// <para>只看孔相关的注解（用户定「本视图仅孔相关」）：孔标注、连着孔的线性尺寸、标在孔上的中心符号线、
+/// <para>孔标注不在这里（用户定）：别的标注都排好后由 <see cref="CalloutPlacer"/> 最后统一排，之前谁都不躲它、不挪它。</para>
+/// <para>只看孔相关的注解（用户定「本视图仅孔相关」）：连着孔的线性尺寸、标在孔上的中心符号线、
 /// 销钉符号、穿过孔心的中心线。外形尺寸、注释、别的视图都不看、也不动。</para>
-/// <para>孔位尺寸的数字只沿尺寸线滑；孔标注换角位（右上、左下、右下，再放远），折点仍按下划线对准。
-/// 挪完回读核对，还压着就算找不到空位。</para>
+/// <para>孔位尺寸的数字只沿尺寸线滑。挪完回读核对，还压着就算找不到空位。</para>
 /// <para>1.11.0 起「避障」开关管所有往图上加东西的指令（用户定）：外轮廓也走这里（<see cref="ClearOutline"/>，障碍多了不连孔的线性尺寸）；
 /// 圆角、倒角在规划文字位置时躲 <see cref="ViewObstacles"/>；技术要求、轴测图、投影视图在出图类各自的放法里躲。
 /// 销钉符号、中心符号线长在孔上，没有可挪的，不受开关影响。</para>
@@ -30,7 +30,6 @@ internal static class Clearance
 
     private enum Role
     {
-        Callout,
         Dimension,
         Other,
     }
@@ -70,7 +69,7 @@ internal static class Clearance
     }
 
     /// <summary>
-    /// 视图里全部注解（不论孔相关与否）的线条与文字（1.11.0）：圆角、倒角找文字位置时躲开它们。读不了的注解跳过。
+    /// 视图里孔标注以外全部注解的线条与文字（1.11.0）：圆角、倒角找文字位置时躲开它们。读不了的注解跳过。
     /// </summary>
     public static Obstacles ViewObstacles(SolidWorksApi api, object view)
     {
@@ -82,6 +81,10 @@ internal static class Clearance
                 continue;
             try
             {
+                if (api.CallInt(annotation, "IAnnotation", "GetType") == SwConst.AnnotationDimension
+                    && api.Call(annotation, "IAnnotation", "GetSpecificAnnotation") is { } display
+                    && api.CallBool(display, "IDisplayDimension", "IsHoleCallout"))
+                    continue;
                 var (annotationLines, annotationTexts) = DisplayGeometry(api, annotation);
                 lines.AddRange(annotationLines);
                 texts.AddRange(annotationTexts);
@@ -93,24 +96,6 @@ internal static class Clearance
 
         return new Obstacles(lines, texts);
     }
-
-    /// <summary>孔标注的文字压线就换角位。</summary>
-    public static ClearanceResult ClearCallouts(QuickCommandContext context, ScannedView scan, IReadOnlyList<HoleEdge> holes)
-        => Clear(context, scan, holes, shape => shape.Role == Role.Callout, (api, shapes, index, obstacles, hits) =>
-        {
-            var shape = shapes[index];
-            if (shape.Centers.Count == 0
-                || holes.Where(hole => HoleCalloutPlanner.SameCenter(shape.Centers[0], new SheetPoint(hole.X, hole.Y)))
-                    .Cast<HoleEdge?>().FirstOrDefault() is not { } hole
-                || CalloutEdit.Shoulder(api, shape.Annotation, textLeft: true) is not { } shoulder
-                || ClearancePlanner.ChooseCallout(shape.Texts, shoulder.Y, hole, obstacles, hits) is not { } spot)
-                return false;
-            var (dx, dy) = ClearancePlanner.CalloutShift(shape.Texts, shoulder.Y, spot);
-            if (!MoveBy(api, shape.Annotation, dx, dy))
-                return false;
-            CalloutEdit.AlignShoulder(api, shape.Annotation, spot.Shoulder, spot.TextLeft);
-            return true;
-        });
 
     /// <summary>
     /// 逐个检查 <paramref name="target"/> 挑中的注解：压着就交给 <paramref name="move"/> 挪，挪完重读它、核对。
@@ -232,8 +217,9 @@ internal static class Clearance
                 if (api.Call(annotation, "IAnnotation", "GetSpecificAnnotation") is not { } dimension)
                     return null;
                 var centers = CalloutEdit.AttachedCircleCenters(api, scan.Geometry, annotation).ToList();
+                // 孔标注最后由孔标注选位排，这里既不挪它也不躲它。
                 if (api.CallBool(dimension, "IDisplayDimension", "IsHoleCallout"))
-                    return centers.Any(OnHole) ? Read(Role.Callout, centers) : null;
+                    return null;
                 if (!HolePositionPlanner.IsLinear(api.CallInt(dimension, "IDisplayDimension", "get_Type2")))
                     return null;
                 var related = centers.Any(OnHole)

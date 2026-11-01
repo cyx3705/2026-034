@@ -28,7 +28,7 @@ internal static class DrawingFinish
             last = Clear(context, drawing);
         }
 
-        var message = $"整理标注：避让移动 {first.Moved + last.Moved} 次，剩余 {last.Stuck.Count} 个文字冲突（孔标注不挪，引线交叉、过长见「注解重叠」）。"
+        var message = $"整理标注：避让移动 {first.Moved + last.Moved} 次，剩余 {last.Stuck.Count} 个文字冲突（孔标注最后由选位排）。"
             + (last.Stuck.Count > 0 ? "\n· " + string.Join("、", last.Stuck) : string.Empty)
             + (last.Outside.Count > 0 ? "\n· 还在图框外：" + string.Join("、", last.Outside) : string.Empty)
             + "\n" + arranged.Message;
@@ -64,12 +64,14 @@ internal static class DrawingFinish
                 var annotationType = api.CallInt(annotation, "IAnnotation", "GetType");
                 var display = annotationType == 4
                     ? api.Call(annotation, "IAnnotation", "GetSpecificAnnotation") : null;
-                var callout = display is not null && api.CallBool(display, "IDisplayDimension", "IsHoleCallout");
+                // 孔标注最后由孔标注选位排（用户定）：这里不读它，也就不躲它、不挪它。
+                if (display is not null && api.CallBool(display, "IDisplayDimension", "IsHoleCallout"))
+                    continue;
+                var callout = false;
                 var noteText = annotationType == 6 && api.Call(annotation, "IAnnotation", "GetSpecificAnnotation") is { } note
                     ? api.CallString(note, "INote", "GetText") : string.Empty;
                 // 框架一键的“采用 xx 铝型材”是普通注释，不能留在轴测图边线上；它与尺寸一样可沿图纸移动，
                 // 引线会跟随注释。其他用户普通注释保持原位。
-                // 1.24.0（用户定）：孔标注不挪——整页逐个候选试挪又慢又会把它推到远处、引线交叉；交错就留着，由人或 AI 用「挪标注」修。
                 var movable = display is not null && !callout && HolePositionPlanner.IsLinear(api.CallInt(display, "IDisplayDimension", "get_Type2"))
                     || noteText.Contains("铝型材", StringComparison.Ordinal);
                 if (movable && !callout && display is not null && api.Call(display, "IDisplayDimension", "GetDimension2", 0) is { } dimension)

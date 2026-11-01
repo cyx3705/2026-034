@@ -24,7 +24,14 @@ internal static class HoleFlow
         Title: "孔标注全流程",
         Summary: "当前图纸页全部视图（轴测图除外）依次加销钉符号、中心符号线、孔位尺寸、方形槽、孔标注、销孔标注（照页面开关），全部做完才结束。",
         Usage: "不用点视图：当前图纸页上的全部视图（轴测图跳过）逐个做一遍「销钉符号 → 中心符号线 → 孔位尺寸 → 方形槽 → 孔标注 → 销孔标注」，照页面开关走（「避障」开着时文字压在别的孔的标注线条上就挪开，「尺寸链」开着时孔位尺寸与方形槽用坐标尺寸）；外轮廓不在这里，在一键类「外轮廓」「全图外轮廓」。某一步失败不中断，最后汇总。",
-        Run: Run);
+        Run: context =>
+        {
+            var outcome = Run(context);
+            if (!context.Options.Clearance)
+                return outcome;
+            var placed = CalloutPlacer.Run(context, DrawingAccess.ActiveDrawing(context));
+            return placed.Idle ? outcome : outcome with { Message = outcome.Message + Environment.NewLine + placed.Message, Success = outcome.Success && placed.Success };
+        });
 
     private static readonly (string Title, Func<QuickCommandContext, object, QuickOutcome> Run)[] Steps =
     [
@@ -32,7 +39,7 @@ internal static class HoleFlow
         ("中心符号线", CenterMark.Run),
         ("孔位尺寸", HolePosition.Run),
         ("方形槽", SquareSlot.Run),
-        ("孔标注", HoleCallout.Run),
+        ("孔标注", (context, view) => HoleCallout.Run(context, view)),
         ("销孔标注", DowelFit.Run),
     ];
 

@@ -426,28 +426,6 @@ internal static class ClearancePlanner
     }
 
     /// <summary>
-    /// 给压着线的孔标注挑角位：第一个一样都不压的；都压就挑压得最少、且比现在 <paramref name="currentHits"/> 少的；
-    /// 再没有就 null（不挪）。
-    /// </summary>
-    public static CalloutSpot? ChooseCallout(
-        IReadOnlyList<TextBox> texts, double shoulderY, HoleEdge hole, Obstacles obstacles, int currentHits)
-    {
-        CalloutSpot? best = null;
-        var bestHits = currentHits;
-        foreach (var spot in CalloutSpots(hole))
-        {
-            var (dx, dy) = CalloutShift(texts, shoulderY, spot);
-            var hits = Hits(Shift(texts, dx, dy), obstacles);
-            if (hits == 0)
-                return spot;
-            if (hits < bestHits)
-                (best, bestHits) = (spot, hits);
-        }
-
-        return best;
-    }
-
-    /// <summary>
     /// 与文字方向不平行的线：尺寸自己的尺寸界线。尺寸线（与文字平行，字本来就站在上面）不在内。
     /// </summary>
     public static IEnumerable<SheetSegment> CrossingLines(IEnumerable<SheetSegment> lines, double angle)

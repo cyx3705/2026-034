@@ -214,36 +214,6 @@ internal static partial class Tests
         True(!DimensionSides.PreferFar(0, 0.018, 2, 0, 0.018, 2), "层数也一样放上方 / 左侧");
     }
 
-    static void TestClearanceCallout()
-    {
-        // 真机：孔标注「2 x Ø5.50 完全贯穿」在左时下划线 32.5–65.44，右端（折点）= 文字右缘 64.19 + 1.25；
-        // 整块右移 50 mm 后 SolidWorks 把引线换到左侧，下划线左端 81.25 = 文字左缘 82.5 - 1.25。
-        static double M(double mm) => mm / 1000;
-        TextBox[] texts = [new(M(32.5), M(68.82), M(6.13), M(3.5)), new(M(42.74), M(68.82), M(21.45), M(3.5)), new(M(36.06), M(64.49), M(7.36), M(3.5))];
-        var (dx, dy) = ClearancePlanner.CalloutShift(texts, M(68.84), new CalloutSpot(new SheetPoint(M(65.44), M(68.84)), TextLeft: true));
-        True(Math.Abs(dx) < 1e-5 && Math.Abs(dy) < 1e-9, "原位折点不该挪");
-        (dx, _) = ClearancePlanner.CalloutShift(texts, M(68.84), new CalloutSpot(new SheetPoint(M(81.25), M(68.84)), TextLeft: false));
-        True(Math.Abs(dx - M(50)) < 1e-5, $"换到右侧应平移 50 mm，实际 {dx * 1000:0.###}");
-
-        // 孔在 (100,100) mm、半径 2 mm；左下优先，左下压线后向上找位。
-        var hole = new HoleEdge(0, M(100), M(100), M(2));
-        var spots = ClearancePlanner.CalloutSpots(hole).ToList();
-        Equal(12, spots.Count);
-        True(spots[0].TextLeft && spots[0].Shoulder.X < hole.X && spots[0].Shoulder.Y < hole.Y, "第一个是左下（默认）");
-        True(spots[1].TextLeft && spots[1].Shoulder.X < hole.X && spots[1].Shoulder.Y > hole.Y, "左下空间不够时向上");
-        var first = ClearancePlanner.CalloutShift(texts, M(68.84), spots[0]);
-        var block = ClearancePlanner.Shift(texts, first.Dx, first.Dy);
-        var top = block.SelectMany(text => text.Corners()).Max(p => p.Y);
-        var obstacles = new Obstacles([new SheetSegment(M(40), top - M(1), M(99), top - M(1))], []);
-        var hits = ClearancePlanner.Hits(block, obstacles);
-        Equal(1, hits);
-        var chosen = ClearancePlanner.ChooseCallout(texts, M(68.84), hole, obstacles, hits);
-        Equal(spots[1], chosen!.Value);
-        // 四面八方都压且不比现在少：不挪。
-        var everywhere = new Obstacles(Enumerable.Range(0, 40).Select(i => new SheetSegment(0, M(50 + i * 2), M(300), M(50 + i * 2))).ToList(), []);
-        True(ClearancePlanner.ChooseCallout(texts, M(68.84), hole, everywhere, 1) is null, "没有更好的角位就不挪");
-    }
-
     static void TestDimensionAxes()
     {
         // 比例 1:2：两孔心横向差 0.02（图纸）→ 模型 0.04。

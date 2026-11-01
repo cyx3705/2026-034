@@ -4,8 +4,8 @@ namespace HistoryStrenua;
 /// 快捷指令「孔标注选位」：整页标完以后，给每个孔标注重新挑位置，必要时换挂到同种里更合适的孔上。规划见 <see cref="CalloutPlacePlanner"/>。
 /// </summary>
 /// <remarks>
-/// 放在一键流程最后：孔标注比外轮廓、圆弧、倒角先标，当时看不到它们，这也是真机上引线总穿尺寸堆的原因。
-/// 「整理标注」仍不挪孔标注（用户定）；这里读一遍、算好、每个只写一次，不做真挪试错。
+/// 孔标注只在这里排一次（用户定）：放在一键流程最后，视图和别的标注都已定、不再动，障碍是整页所有视图的所有标注；在此之前别的避障都不看孔标注。
+/// 这里读一遍、算好、每个只写一次，不做真挪试错。
 /// </remarks>
 internal static class CalloutPlacer
 {
@@ -33,9 +33,13 @@ internal static class CalloutPlacer
         public SheetPoint? Center { get; set; }
         public List<SheetSegment> Lines { get; set; } = [];
         public List<TextBox> Texts { get; set; } = [];
+        public bool Pending { get; set; }
     }
 
-    internal static QuickOutcome Run(QuickCommandContext context, object drawing)
+    /// <param name="context">快捷指令上下文。</param>
+    /// <param name="drawing">工程图。</param>
+    /// <param name="onlyView">只排这个视图的孔标注（单独按「孔标注」时）；障碍仍是整页。null 排整页。</param>
+    internal static QuickOutcome Run(QuickCommandContext context, object drawing, string? onlyView = null)
     {
         var api = context.Api;
         context.SetState("孔标注选位");
@@ -64,15 +68,19 @@ internal static class CalloutPlacer
 
         if (DrawingSheet.FrameRect(api, drawing) is not { } frame)
             return QuickOutcome.Fail("孔标注选位：读不到图纸大小。");
-        var targets = items.Where(item => item.Target).OrderByDescending(item => item.Texts.Sum(text => text.Width)).ToList();
+        var targets = items.Where(item => item.Target && (onlyView is null || item.Scan.ViewName == onlyView)).OrderByDescending(item => item.Texts.Sum(text => text.Width)).ToList();
         if (targets.Count == 0)
             return QuickOutcome.Nothing("孔标注选位：当前图纸页没有孔标注。");
 
         int moved = 0, rehung = 0, stayed = 0, refused = 0;
-        var changedScans = new HashSet<ScannedView>();
+        var parts = new Dictionary<ScannedView, PartGeometry?>();
+        // 还没排到的孔标注不算障碍，否则先排的要躲它们马上就要离开的位置。
+        foreach (var item in targets)
+            item.Pending = true;
         foreach (var item in targets)
         {
             context.Cancellation.ThrowIfCancellationRequested();
+            item.Pending = false;
             var field = Field(items, item, viewLines, blocks, frame) with { Holes = allHoles };
             var holes = KindOf(item);
             if (holes.Count == 0 || CalloutEdit.Shoulder(api, item.Annotation, textLeft: true) is not { } shoulder)
@@ -117,17 +125,23 @@ internal static class CalloutPlacer
                 item.Annotation = fresh;
                 item.Display = api.Call(fresh, "IAnnotation", "GetSpecificAnnotation");
                 item.Center = center;
-                changedScans.Add(item.Scan);
+                // 新标注回到 SolidWorks 默认文字，马上补回数量、沉孔与后缀，后面的标注才躲得准。
+                if (!parts.TryGetValue(item.Scan, out var part))
+                    parts[item.Scan] = part = CalloutEdit.ReadPart(context, item.Scan);
+                CalloutEdit.MarkSuffixes(context, item.Scan, part);
+                CalloutEdit.AlignShoulder(api, fresh, pick.Spot.Shoulder, pick.Spot.TextLeft);
                 rehung++;
             }
 
             (item.Lines, item.Texts) = Clearance.DisplayGeometry(api, item.Annotation);
         }
 
-        foreach (var scan in changedScans)
-            CalloutEdit.MarkSuffixes(context, scan, CalloutEdit.ReadPart(context, scan));
         api.ClearSelection(drawing);
         api.Redraw(drawing);
+        var outside = targets.Where(item => !AnnotationPlacementPlanner.Within(item.Texts, frame)).ToList();
+        if (outside.Count > 0)
+            return QuickOutcome.Fail($"孔标注选位：{targets.Count} 个孔标注，挪了 {moved} 个，换挂 {rehung} 个，但 {outside.Count} 个找不到位置、还在图框外："
+                + string.Join("、", outside.Select(item => api.CallString(item.Annotation, "IAnnotation", "GetName"))) + "。");
         return moved + rehung + refused == 0
             ? QuickOutcome.Nothing($"孔标注选位：{targets.Count} 个孔标注都已在合适的位置。")
             : QuickOutcome.Ok($"孔标注选位：{targets.Count} 个孔标注，挪了 {moved} 个，换挂到同种别的孔 {rehung} 个，{stayed} 个原地不动"
@@ -194,7 +208,7 @@ internal static class CalloutPlacer
         var dimensions = new List<SheetSegment>();
         var leaders = new List<SheetSegment>();
         var texts = new List<TextBox>();
-        foreach (var other in items.Where(other => !ReferenceEquals(other, self)))
+        foreach (var other in items.Where(other => !ReferenceEquals(other, self) && !other.Pending))
         {
             texts.AddRange(other.Texts);
             if (other.Type is SwConst.AnnotationCenterMark or SwConst.AnnotationCenterLine)

@@ -47,6 +47,7 @@ internal static partial class Tests
         Equal("8 / 10", MymoooRules.Choices(m));
 
         Equal("螺栓长度L：6~260mm；主体材质：SUS304", MymoooRules.Description("螺栓长度L：6~260mm<br />主体材质：SUS304"));
+        Equal("全长L：12~192mm；外径D:8~80mm", MymoooRules.Description("全长L：12~192mm；\n外径D:8~80mm"));
     }
 
     static void TestMymoooBadArguments()

@@ -102,9 +102,9 @@ internal static partial class MymoooRules
     public static string Text(JsonNode? node, string field)
         => node?[field] is JsonValue value ? value.ToString() : string.Empty;
 
-    /// <summary>商品说明里的 &lt;br /&gt; 换成「；」。</summary>
+    /// <summary>商品说明里的 &lt;br /&gt; 与换行换成「；」，并成一行。</summary>
     public static string Description(string text)
-        => BreakTag().Replace(text, "；").Trim('；', ' ');
+        => Separators().Replace(BreakTag().Replace(text, "；"), "；").Trim('；', ' ');
 
     private static double? Number(string text)
         => double.TryParse(text.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out var value) ? value : null;
@@ -114,4 +114,7 @@ internal static partial class MymoooRules
 
     [GeneratedRegex(@"<br\s*/?>", RegexOptions.IgnoreCase)]
     private static partial Regex BreakTag();
+
+    [GeneratedRegex(@"\s*[；\r\n]+\s*(?:[；\r\n]+\s*)*")]
+    private static partial Regex Separators();
 }

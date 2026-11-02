@@ -166,8 +166,9 @@ internal static class ToleranceEdit
             var points = api.CallDoubles(annotation, "IAnnotation", "GetLeaderPointsAtIndex", index);
             for (var i = 0; i + 5 < points.Length; i += 3)
                 lines.Add(new SheetSegment(points[i], points[i + 1], points[i + 3], points[i + 4]));
+            // 真机：第一个点在框上，最后一个才是落点。
             if (points.Length >= 3)
-                tips.Add(new SheetPoint(points[0], points[1]));
+                tips.Add(new SheetPoint(points[^3], points[^2]));
         }
 
         return lines;

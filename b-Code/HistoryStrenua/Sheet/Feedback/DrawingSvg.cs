@@ -210,6 +210,10 @@ internal static class DrawingSvg
                 text = type == SwConst.AnnotationGtol ? ToleranceEdit.GtolText(api, specific) : api.CallString(specific, "IDatumTag", "GetLabel");
                 // 引线不画：读的是文字，data-measures 写明指向就够了。
                 _ = ToleranceEdit.Leaders(api, annotation, out var tips);
+                // 真机：基准符号没有引线（GetLeaderCount 是 0），它竖线的一头就落在几何上。
+                if (tips.Count == 0)
+                    tips = lines.SelectMany(line => new[] { new SheetPoint(line.X1, line.Y1), new SheetPoint(line.X2, line.Y2) })
+                        .Where(point => ToleranceSpec.Locate(point, viewLines ?? [], viewHoles ?? []).Length > 0).Take(1).ToList();
                 measures = ToleranceEdit.AttachedDimension(api, annotation) is { } dimension
                     ? "尺寸 " + dimension
                     : string.Join(" ", tips.Select(tip => (ToleranceSpec.Locate(tip, viewLines ?? [], viewHoles ?? []) + $" ({DrawingSvgWriter.Mm(tip.X)},{DrawingSvgWriter.Mm(tip.Y)})").Trim()));

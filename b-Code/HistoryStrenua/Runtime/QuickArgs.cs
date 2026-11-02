@@ -113,6 +113,24 @@ internal static class QuickArgs
             : throw new QuickArgumentException($"tol={text} 写不对：对称公差写正数 mm（如 0.02），去掉写 none");
     }
 
+    /// <summary>必填的 <c>x= y=</c>（图纸 mm）→ 米。</summary>
+    public static SheetPoint Sheet(CommandContext context)
+    {
+        var x = Millimeters(context.GetString("x"), "x") ?? throw new QuickArgumentException("缺参数 x=（位置，图纸 mm）");
+        var y = Millimeters(context.GetString("y"), "y") ?? throw new QuickArgumentException("缺参数 y=（位置，图纸 mm）");
+        return new SheetPoint(x * Mm, y * Mm);
+    }
+
+    /// <summary>可省的指向：<c>on=</c> 几何编号或 <c>dim=</c> 尺寸名，两个不能同用。</summary>
+    public static (GeometryRef? On, string? Dim) Pointing(CommandContext context)
+    {
+        var on = Optional(context, "on");
+        var dim = Optional(context, "dim");
+        if (on is not null && dim is not null)
+            throw new QuickArgumentException("on=（几何）和 dim=（尺寸）只能给一个。");
+        return (on is null ? null : GeometryRef.Parse(on, "on"), dim);
+    }
+
     /// <summary>米 → 回执里的 mm 文字（最多 3 位小数）。</summary>
     public static string Format(double meters) => (meters / Mm).ToString("0.###", CultureInfo.InvariantCulture);
 

@@ -69,7 +69,7 @@ internal static class DimAdd
 
         _ = api.Call(drawing, "IDrawingDoc", "ActivateView", viewName);
         api.ClearSelection(drawing);
-        var selected = Select(api, scan, from, false) && Select(api, scan, to, true);
+        var selected = DimensionEdit.SelectGeometry(api, scan, from, false) && DimensionEdit.SelectGeometry(api, scan, to, true);
         var created = selected
             ? api.Call(drawing, "IModelDoc2", horizontal ? "AddHorizontalDimension2" : "AddVerticalDimension2", at.X, at.Y, 0.0)
             : null;
@@ -94,19 +94,6 @@ internal static class DimAdd
     }
 
     private const double ValueTolerance = 0.00002;
-
-    /// <summary>选孔边（量到圆心）、直边，或直边的端点（SelectEntity 也收顶点）。</summary>
-    private static bool Select(SolidWorksApi api, ScannedView scan, GeometryRef item, bool append)
-    {
-        if (item.Hole)
-            return DimensionEdit.SelectEdge(api, scan, scan.Edges[item.Index], append);
-        var edge = item.Curve ? scan.CurveEdges![item.Index] : scan.LineEdges[item.Index];
-        if (item.End == 0)
-            return DimensionEdit.SelectEdge(api, scan, edge, append);
-        // TryReadLine 的 X1,Y1 就是起点顶点。
-        return api.Call(edge, "IEdge", item.End == 1 ? "GetStartVertex" : "GetEndVertex") is { } vertex
-               && api.CallBool(scan.View, "IView", "SelectEntity", vertex, append);
-    }
 
     /// <summary>几何算出的模型距离（米）；编号不存在或方向不对回 null。</summary>
     private static double? Expected(ScannedView scan, GeometryRef from, GeometryRef to, bool horizontal, double scale)

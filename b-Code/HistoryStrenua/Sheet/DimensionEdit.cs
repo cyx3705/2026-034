@@ -68,6 +68,22 @@ internal static class DimensionEdit
     internal static bool SelectEdge(SolidWorksApi api, ScannedView scan, object edge, bool append)
         => api.CallBool(scan.View, "IView", "SelectEntity", edge, append);
 
+    /// <summary>按图纸 SVG 的编号选：孔边（量到圆心）、直边或曲线，或它们的端点（SelectEntity 也收顶点）。编号不存在回 false。</summary>
+    internal static bool SelectGeometry(SolidWorksApi api, ScannedView scan, GeometryRef item, bool append)
+    {
+        if (item.Hole)
+            return item.Index < scan.Edges.Count && SelectEdge(api, scan, scan.Edges[item.Index], append);
+        var edges = item.Curve ? scan.CurveEdges : scan.LineEdges;
+        if (edges is null || item.Index >= edges.Count)
+            return false;
+        var edge = edges[item.Index];
+        if (item.End == 0)
+            return SelectEdge(api, scan, edge, append);
+        // TryReadLine 的 X1,Y1 就是起点顶点。
+        return api.Call(edge, "IEdge", item.End == 1 ? "GetStartVertex" : "GetEndVertex") is { } vertex
+               && api.CallBool(scan.View, "IView", "SelectEntity", vertex, append);
+    }
+
     /// <summary>删掉一组刚建错的尺寸。</summary>
     internal static void Discard(SolidWorksApi api, ScannedView scan, IReadOnlyList<object> displayDimensions)
     {

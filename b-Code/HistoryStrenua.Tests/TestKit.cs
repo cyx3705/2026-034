@@ -18,6 +18,7 @@ internal static partial class Tests
         ("parameters: input boxes on the page, actions and list rows (1.20.0)", TestParameterPage),
         ("parameters: move, tolerance, text and flag arguments (1.20.0)", TestParameterArguments),
         ("parameters: bad arguments fail before touching SolidWorks (1.20.0)", TestParameterBadArguments),
+        ("tolerance: dimension types and gtol frames parse, bad input refused (1.36.0)", TestToleranceSpec),
         ("REQ-DQ-02/03: whole-sheet placement and measured annotation bounds", TestDrawingQuality),
         ("REQ-DQ-04: counted chamfers constrain endpoints", TestCountedChamfers),
         ("page owner follows domain", TestPageOwner),

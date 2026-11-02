@@ -39,6 +39,8 @@ internal static class AnnotationRows
     {
         foreach (var (code, symbol) in Symbols)
             text = text.Replace(code, symbol, StringComparison.Ordinal);
+        foreach (var (code, symbol) in ToleranceSpec.DisplaySymbols())
+            text = text.Replace(code, symbol, StringComparison.Ordinal);
         // 1.22.0 真机：显示数据各段之间、符号前后带空格，拼起来是「4 x  Ø  11」——同一行里的连续空格压成一个。
         return System.Text.RegularExpressions.Regex.Replace(text, "[ \t]{2,}", " ");
     }

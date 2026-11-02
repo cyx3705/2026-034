@@ -91,9 +91,7 @@ internal static class MymoooRemove
                 continue;
             }
 
-            // 删了零部件，文档可能还在内存里，先关掉再删。
-            if (api.Call(context.Session.Application, "ISldWorks", "GetOpenDocumentByName", path) is { } document)
-                api.Call(context.Session.Application, "ISldWorks", "CloseDoc", api.CallString(document, "IModelDoc2", "GetTitle"));
+            Release(context, path);
             try
             {
                 File.Delete(path);
@@ -107,6 +105,21 @@ internal static class MymoooRemove
 
         return $"删文件：删了 {deleted.Count} 个{(deleted.Count > 0 ? "（" + string.Join("、", deleted) + "）" : string.Empty)}"
                + (kept.Count > 0 ? "；留着：" + string.Join("、", kept) : string.Empty) + "。";
+    }
+
+    /// <summary>
+    /// 让 SolidWorks 放开文件：删了零部件，零件仍在内存里、带着写锁（真机：CloseDoc 后 ~$ 锁文件还在，File.Delete 报占用）。
+    /// 先关，还在内存里就放掉文件锁（文档留在内存，没人引用）。
+    /// </summary>
+    private static void Release(QuickCommandContext context, string path)
+    {
+        var api = context.Api;
+        var application = context.Session.Application;
+        if (api.Call(application, "ISldWorks", "GetOpenDocumentByName", path) is not { } document)
+            return;
+        api.Call(application, "ISldWorks", "CloseDoc", api.CallString(document, "IModelDoc2", "GetTitle"));
+        if (api.Call(application, "ISldWorks", "GetOpenDocumentByName", path) is { } still)
+            api.Call(still, "IModelDoc2", "ForceReleaseLocks");
     }
 
     private static Dictionary<string, object> TopComponents(QuickCommandContext context, object assembly)

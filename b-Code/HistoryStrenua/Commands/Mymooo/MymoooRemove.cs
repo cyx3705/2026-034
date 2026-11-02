@@ -96,12 +96,28 @@ internal static class MymoooRemove
             {
                 File.Delete(path);
                 deleted.Add(Path.GetFileName(path));
+                // 放掉锁后 SolidWorks 留下的 ~$ 锁文件（隐藏）一并清掉，删不掉不算失败。
+                var stub = Path.Combine(Path.GetDirectoryName(path)!, "~$" + Path.GetFileName(path));
+                if (File.Exists(stub))
+                {
+                    File.SetAttributes(stub, FileAttributes.Normal);
+                    File.Delete(stub);
+                }
+            }
+            catch (Exception ex) when ((ex is IOException or UnauthorizedAccessException) && !File.Exists(path))
+            {
+                // 正文件已删、只是锁文件删不掉：照算删了。
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
                 kept.Add($"{Path.GetFileName(path)}（删不掉：{ex.Message}）");
             }
         }
+
+        // 外购件空了就连文件夹删掉（测试插了又删，不留空文件夹）。
+        var root = folder.TrimEnd(Path.DirectorySeparatorChar);
+        if (deleted.Count > 0 && Directory.Exists(root) && !Directory.EnumerateFileSystemEntries(root).Any())
+            Directory.Delete(root);
 
         return $"删文件：删了 {deleted.Count} 个{(deleted.Count > 0 ? "（" + string.Join("、", deleted) + "）" : string.Empty)}"
                + (kept.Count > 0 ? "；留着：" + string.Join("、", kept) : string.Empty) + "。";

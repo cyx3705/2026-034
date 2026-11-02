@@ -59,6 +59,6 @@ internal static class TolDatum
         api.Call(annotation, "IAnnotation", "SetPosition2", at.X, at.Y, 0.0);
         api.Redraw(drawing);
         var target = dim is not null ? $"尺寸「{dim}」" : on.ToString();
-        return QuickOutcome.Ok($"基准符号：视图「{viewName}」加了「{api.CallString(annotation, "IAnnotation", "GetName")}」= {label}，指向 {target}，位置 {QuickArgs.Format(at)}。");
+        return QuickOutcome.Ok($"基准符号：视图「{viewName}」加了「{api.CallString(annotation, "IAnnotation", "GetName")}」= {label}，指向 {target}，位置 {QuickArgs.Format(ToleranceEdit.Actual(api, annotation, at))}。");
     }
 }

@@ -89,6 +89,6 @@ internal static class TolGtol
 
         var name = api.CallString(annotation, "IAnnotation", "GetName");
         var target = dim is not null ? $"指向尺寸「{dim}」" : on is { } item ? $"指向 {item}" : "不带引线";
-        return QuickOutcome.Ok($"形位公差：视图「{viewName}」加了「{name}」，{target}，显示「{AnnotationRows.Shown(api, annotation)}」，位置 {QuickArgs.Format(at)}。");
+        return QuickOutcome.Ok($"形位公差：视图「{viewName}」加了「{name}」，{target}，显示「{AnnotationRows.Shown(api, annotation)}」，位置 {QuickArgs.Format(ToleranceEdit.Actual(api, annotation, at))}。");
     }
 }

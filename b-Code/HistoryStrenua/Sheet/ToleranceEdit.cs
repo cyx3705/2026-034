@@ -90,11 +90,28 @@ internal static class ToleranceEdit
         var api = context.Api;
         api.ClearSelection(drawing);
         if (dimension is not null)
-            return api.CallBool(SheetLookup.Annotation(api, view, dimension), "IAnnotation", "Select3", false, null) ? null : $"选不上尺寸「{dimension}」";
+            return SelectDimension(api, drawing, view, dimension) ? null : $"选不上尺寸「{dimension}」";
         if (on is not { } item)
             return null;
         var scan = HoleScan.Scan(context, title, withLines: true, view: view, quiet: true);
         return DimensionEdit.SelectGeometry(api, scan, item, false) ? null : $"视图里选不上 {item}（编号不存在或对象已变，重读 strenua.check.svg）";
+    }
+
+    // 真机：Select3 选尺寸没有点选位置，基准符号的落点跑到图纸原点（X 还被锁死）；按文字位置 SelectByID2 才有。
+    private static bool SelectDimension(SolidWorksApi api, object drawing, object view, string name)
+    {
+        var annotation = SheetLookup.Annotation(api, view, name);
+        var position = api.CallDoubles(annotation, "IAnnotation", "GetPosition");
+        return position.Length >= 2
+            && api.Call(drawing, "IModelDoc2", "get_Extension") is { } extension
+            && api.CallBool(extension, "IModelDocExtension", "SelectByID2", $"{name}@{DrawingSheet.Name(api, view)}", "DIMENSION", position[0], position[1], 0.0, false, 0, null, 0);
+    }
+
+    /// <summary>注解现在的位置（回执用，指向尺寸时 SolidWorks 不一定放在要的地方）；读不到回要的位置。</summary>
+    public static SheetPoint Actual(SolidWorksApi api, object annotation, SheetPoint wanted)
+    {
+        var position = api.CallDoubles(annotation, "IAnnotation", "GetPosition");
+        return position.Length >= 2 ? new SheetPoint(position[0], position[1]) : wanted;
     }
 
     /// <summary>删掉建到一半的注解。</summary>

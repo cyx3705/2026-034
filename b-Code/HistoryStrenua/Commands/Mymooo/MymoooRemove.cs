@@ -75,6 +75,9 @@ internal static class MymoooRemove
         var used = api.CallArray(assembly, "IAssemblyDoc", "GetComponents", false)
             .Select(component => api.CallString(component, "IComponent2", "GetPathName"))
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        // 撤销记录还引用着删掉的零部件，零件文档就卸不掉：要删文件只能放弃这几步的撤销（用户要删文件，撤销回来也没文件了）。
+        api.Call(assembly, "IModelDoc2", "ClearUndoList");
+        api.Call(assembly, "IModelDoc2", "EditRebuild3");
         var deleted = new List<string>();
         var kept = new List<string>();
         foreach (var path in paths)
@@ -124,18 +127,20 @@ internal static class MymoooRemove
     }
 
     /// <summary>
-    /// 让 SolidWorks 放开文件：删了零部件，零件仍在内存里、带着写锁（真机：CloseDoc 后 ~$ 锁文件还在，File.Delete 报占用）。
-    /// 先关，还在内存里就放掉文件锁（文档留在内存，没人引用）。
+    /// 让 SolidWorks 放开文件：删了零部件，零件仍被总装的撤销记录引用、留在内存里带着写锁（真机：CloseDoc 后 ~$ 锁文件还在，File.Delete 报占用）。
+    /// 关掉这个路径的每一份（同一路径可能有几份：上一轮放锁留下的旧份）；还关不掉的放掉文件锁，作最后的退路。
     /// </summary>
     private static void Release(QuickCommandContext context, string path)
     {
         var api = context.Api;
         var application = context.Session.Application;
-        if (api.Call(application, "ISldWorks", "GetOpenDocumentByName", path) is not { } document)
-            return;
-        api.Call(application, "ISldWorks", "CloseDoc", api.CallString(document, "IModelDoc2", "GetTitle"));
-        if (api.Call(application, "ISldWorks", "GetOpenDocumentByName", path) is { } still)
-            api.Call(still, "IModelDoc2", "ForceReleaseLocks");
+        List<object> Loaded() => api.CallArray(application, "ISldWorks", "GetDocuments")
+            .Where(document => string.Equals(api.CallString(document, "IModelDoc2", "GetPathName"), path, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        foreach (var document in Loaded())
+            api.Call(application, "ISldWorks", "CloseDoc", api.CallString(document, "IModelDoc2", "GetTitle"));
+        foreach (var document in Loaded())
+            api.Call(document, "IModelDoc2", "ForceReleaseLocks");
     }
 
     private static Dictionary<string, object> TopComponents(QuickCommandContext context, object assembly)

@@ -35,6 +35,12 @@ internal static partial class Tests
         Throws(() => ToleranceSpec.Frames("圆满度 0.02"), "符号写错");
         Throws(() => ToleranceSpec.Frames("位置度 abc"), "公差值写错");
         Throws(() => ToleranceSpec.Frames("位置度 0.1(X)"), "修饰符写错");
+        Equal("双向 +0.02/-0.01", ToleranceSpec.Describe(2, 0.02, -0.01, "", ""));
+        Equal("配合 H7/g6", ToleranceSpec.Describe(7, 0, 0, "H7", "g6"));
+        Equal("", ToleranceSpec.Describe(0, 0, 0, "", ""));
+        Equal("E0", ToleranceSpec.Locate(new SheetPoint(0.1, 0.1002), [new SheetSegment(0, 0.1, 0.2, 0.1)], []));
+        Equal("", ToleranceSpec.Locate(new SheetPoint(0.1, 0.11), [new SheetSegment(0, 0.1, 0.2, 0.1)], []));
+        Equal("40 +0.02/-0.01", AnnotationRows.Readable("40 + - 0.02 0.01"));
         Equal("A", ToleranceSpec.DatumLabel("a"));
         Throws(() => ToleranceSpec.DatumLabel("A1"), "基准字母写错");
     }

@@ -34,7 +34,7 @@ internal sealed record SvgView(string Name, string Kind, string Parent, string S
 /// 竖直尺寸的字按 <paramref name="Angle"/>（弧度，逆时针）转过来。差异里 <paramref name="Change"/> 是 added / removed / changed。
 /// </summary>
 internal sealed record SvgAnnotation(string Name, string Kind, string Text, string Value, SheetRect? Box, SheetPoint? TextAt,
-    double TextHeight, string Measures, IReadOnlyList<SheetSegment> Lines, SheetRect? TextBox = null, double Angle = 0, string Change = "");
+    double TextHeight, string Measures, IReadOnlyList<SheetSegment> Lines, SheetRect? TextBox = null, double Angle = 0, string Change = "", string Tolerance = "");
 
 /// <summary>
 /// 写多细（1.21.0，用户定：回执超过 1 万字就不如一张截图，按预算一级级降）。
@@ -112,7 +112,7 @@ internal static class DrawingSvgWriter
     private static void WriteHeader(StringBuilder svg)
     {
         svg.Append("<!-- PowerSW 图纸 SVG：坐标为图纸 mm、左下角为原点（与 strenua.view.* / dim.* 的 x、y 相同）。id 形如视图组内的「E3」（直边）、「C2」（曲线，圆弧带 data-center、data-r）、「H0」（孔）、「RD1」（注解名），视图组 id 是视图名。"
-              + "标注只画方框与显示的字，data-measures 是尺寸量的两头；标题栏等图框格子整块一个方框，字在 data-text。"
+              + "标注只画方框与显示的字，data-measures 是尺寸量的两头（形位公差、基准符号是它指向的几何或尺寸），data-tol 是尺寸公差；标题栏等图框格子整块一个方框，字在 data-text。"
               + "改图指令经 MCP 调用时回执只给本步差异（data-delta，data-change=added/removed/changed（字变了）/moved（只挪了，只给新方框）/rescaled，几何只在新建、换比例的视图里给）。 -->\n");
         svg.Append("<style>")
             .Append(".frame{fill:none;stroke:#000;stroke-width:.5}.block{fill:none;stroke:#888;stroke-width:.25}")
@@ -220,6 +220,8 @@ internal static class DrawingSvgWriter
 
         if (annotation.Value.Length > 0)
             svg.Append($" data-value=\"{Escape(annotation.Value)}\"");
+        if (annotation.Tolerance.Length > 0)
+            svg.Append($" data-tol=\"{Escape(annotation.Tolerance)}\"");
         if (annotation.Measures.Length > 0)
             svg.Append($" data-measures=\"{Escape(annotation.Measures)}\"");
         if (!detail.Compact && annotation.Box is { } box)

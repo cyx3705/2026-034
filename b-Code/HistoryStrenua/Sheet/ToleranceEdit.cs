@@ -5,7 +5,7 @@ namespace HistoryStrenua;
 /// <summary>公差标注的共用动作（1.36.0）：写尺寸公差、选形位公差和基准符号指向的对象。</summary>
 internal static class ToleranceEdit
 {
-    private const int FitWithTolerance = 8, FitLinear = 3, FitDigits = 3;
+    private const int FitWithTolerance = 8, FitLinear = 3, FitDigits = 3, TextAbove = 3, TextBelow = 4;
 
     /// <summary>写线性 / 直径等普通尺寸的公差，读回核对类型。</summary>
     public static bool WriteDimension(SolidWorksApi api, object display, DimensionToleranceSpec spec)
@@ -112,6 +112,84 @@ internal static class ToleranceEdit
     {
         var position = api.CallDoubles(annotation, "IAnnotation", "GetPosition");
         return position.Length >= 2 ? new SheetPoint(position[0], position[1]) : wanted;
+    }
+
+    /// <summary>尺寸公差写成一句；孔标注、没有公差、读不到为空串。</summary>
+    public static string DescribeDimension(SolidWorksApi api, object display)
+    {
+        if (api.CallBool(display, "IDisplayDimension", "IsHoleCallout")
+            || api.Call(display, "IDisplayDimension", "GetDimension2", 0) is not { } dimension
+            || api.Call(dimension, "IDimension", "get_Tolerance") is not { } tolerance)
+            return string.Empty;
+        return ToleranceSpec.Describe(api.CallInt(tolerance, "IDimensionTolerance", "get_Type"),
+            Convert.ToDouble(api.Call(tolerance, "IDimensionTolerance", "GetMaxValue")) / QuickArgs.Mm,
+            Convert.ToDouble(api.Call(tolerance, "IDimensionTolerance", "GetMinValue")) / QuickArgs.Mm,
+            api.CallString(tolerance, "IDimensionTolerance", "GetHoleFitValue"),
+            api.CallString(tolerance, "IDimensionTolerance", "GetShaftFitValue"));
+    }
+
+    /// <summary>公差框一行一行的字（符号 公差 基准），框上、框下文字各占一行。</summary>
+    public static string GtolText(SolidWorksApi api, object gtol)
+    {
+        var rows = new List<string>();
+        void Add(string text)
+        {
+            if (text.Length > 0)
+                rows.Add(text);
+        }
+
+        Add(api.CallString(gtol, "IGtol", "GetText", TextAbove));
+        var count = api.CallInt(gtol, "IGtol", "GetFrameCount");
+        for (short frame = 1; frame <= count; frame++)
+        {
+            var symbols = api.CallArray(gtol, "IGtol", "GetFrameSymbols2", frame).Select(item => item?.ToString() ?? string.Empty).ToList();
+            var values = api.CallArray(gtol, "IGtol", "GetFrameValues", frame).Select(item => item?.ToString() ?? string.Empty).ToList();
+            var diameter = api.CallArray(gtol, "IGtol", "GetFrameDiameterSymbols", frame).FirstOrDefault() is true;
+            var symbol = symbols.Count > 0 ? symbols[0] : string.Empty;
+            var modifier = symbols.Count > 1 ? symbols[1] : string.Empty;
+            var cells = new[] { symbol, (diameter ? "Ø" : string.Empty) + (values.Count > 0 ? values[0] : string.Empty) + modifier }.Concat(values.Skip(2));
+            Add(AnnotationRows.Readable(string.Join(" ", cells.Where(cell => cell.Length > 0))));
+        }
+
+        Add(api.CallString(gtol, "IGtol", "GetText", TextBelow));
+        return string.Join("\n", rows);
+    }
+
+    /// <summary>注解的引线（图纸坐标）：每条从框到落点；<paramref name="tips"/> 是每条的落点。</summary>
+    public static List<SheetSegment> Leaders(SolidWorksApi api, object annotation, out List<SheetPoint> tips)
+    {
+        var lines = new List<SheetSegment>();
+        tips = [];
+        var count = api.CallInt(annotation, "IAnnotation", "GetLeaderCount");
+        for (var index = 0; index < count; index++)
+        {
+            var points = api.CallDoubles(annotation, "IAnnotation", "GetLeaderPointsAtIndex", index);
+            for (var i = 0; i + 5 < points.Length; i += 3)
+                lines.Add(new SheetSegment(points[i], points[i + 1], points[i + 3], points[i + 4]));
+            if (points.Length >= 3)
+                tips.Add(new SheetPoint(points[0], points[1]));
+        }
+
+        return lines;
+    }
+
+    /// <summary>公差框、基准符号指向的尺寸名；不指尺寸为 null。</summary>
+    public static string? AttachedDimension(SolidWorksApi api, object annotation)
+    {
+        foreach (var entity in api.CallArray(annotation, "IAnnotation", "GetAttachedEntities3"))
+        {
+            try
+            {
+                if (entity is not null && api.Call(entity, "IDisplayDimension", "GetAnnotation") is { } attached)
+                    return api.CallString(attached, "IAnnotation", "GetName");
+            }
+            catch (Exception ex) when (ex is System.Runtime.InteropServices.COMException or InvalidCastException or System.Reflection.TargetException)
+            {
+                // 不是尺寸（边、顶点）：看下一个。
+            }
+        }
+
+        return null;
     }
 
     /// <summary>删掉建到一半的注解。</summary>

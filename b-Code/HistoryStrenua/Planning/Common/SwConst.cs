@@ -9,6 +9,10 @@ internal static class SwConst
     public const int DocumentAssembly = 2;
     public const int DocumentDrawing = 3;
 
+    public const int AnnotationDatum = 2;
+
+    public const int AnnotationGtol = 5;
+
     public const int AnnotationDimension = 4;
     public const int AnnotationNote = 6;
     public const int AnnotationDowel = 10;

@@ -75,10 +75,52 @@ internal static class ToleranceSpec
         return Regex.IsMatch(label, "^[A-Z]{1,2}$") ? label : throw new QuickArgumentException($"label={text} 写不对：基准字母，如 A。");
     }
 
-    /// <summary>显示数据里形位公差的符号代码 → 图上的符号。</summary>
+    /// <summary>尺寸公差写成一句（SVG 的 data-tol）：种类 + 上下偏差（mm）或配合；没有公差为空串。</summary>
+    public static string Describe(int type, double upper, double lower, string hole, string shaft)
+    {
+        static string Plain(double value) => value.ToString("0.####", CultureInfo.InvariantCulture);
+        static string Signed(double value) => value > 0 ? "+" + Plain(value) : Plain(value);
+        var fit = string.Join("/", new[] { hole, shaft }.Where(item => item.Length > 0));
+        return type switch
+        {
+            Basic => "基本",
+            Bilateral => $"双向 {Signed(upper)}/{Signed(lower)}",
+            Limit => $"极限 {Signed(upper)}/{Signed(lower)}",
+            Symmetric => $"对称 ±{Plain(upper)}",
+            Min => "最小",
+            Max => "最大",
+            Fit => $"配合 {fit}",
+            FitWithTolerance => $"配合带偏差 {fit}",
+            FitToleranceOnly => $"配合偏差 {fit}",
+            _ => string.Empty,
+        };
+    }
+
+    /// <summary>引线落点在哪个几何上：先孔（落在孔内或孔边 0.5 mm 内），后直边（0.5 mm 内）；都不是为空串。单位米。</summary>
+    public static string Locate(SheetPoint point, IReadOnlyList<SheetSegment> lines, IReadOnlyList<HoleEdge> holes)
+    {
+        const double reach = 0.0005;
+        foreach (var hole in holes)
+            if (Math.Sqrt(Math.Pow(point.X - hole.X, 2) + Math.Pow(point.Y - hole.Y, 2)) <= hole.Radius + reach)
+                return "H" + hole.Index.ToString(CultureInfo.InvariantCulture);
+        for (var i = 0; i < lines.Count; i++)
+            if (Distance(point, lines[i]) <= reach)
+                return "E" + i.ToString(CultureInfo.InvariantCulture);
+        return string.Empty;
+    }
+
+    private static double Distance(SheetPoint p, SheetSegment line)
+    {
+        var (dx, dy) = (line.X2 - line.X1, line.Y2 - line.Y1);
+        var length = dx * dx + dy * dy;
+        var t = length <= 0 ? 0 : Math.Clamp(((p.X - line.X1) * dx + (p.Y - line.Y1) * dy) / length, 0, 1);
+        return Math.Sqrt(Math.Pow(p.X - line.X1 - t * dx, 2) + Math.Pow(p.Y - line.Y1 - t * dy, 2));
+    }
+
+    /// <summary>显示数据里形位公差的符号代码 → 文字（读的是 AI，写中文名，和 frame= 的输入同一种写法）。</summary>
     public static IEnumerable<(string Code, string Symbol)> DisplaySymbols()
     {
-        foreach (var (code, symbol) in Symbols.Select(item => (item.Code, item.Mark)))
+        foreach (var (code, symbol) in Symbols.Select(item => (item.Code, item.Names[0])))
             yield return (code, symbol);
         yield return ("<MOD-MMC>", "(M)");
         yield return ("<MOD-LMC>", "(L)");
@@ -145,22 +187,22 @@ internal static class ToleranceSpec
     }
 
     // 符号代码取自 SolidWorks 的 gtol97.sym。线、面轮廓度与位置度有基准没基准都合法。
-    private static readonly (string[] Names, string Code, string Mark, DatumRule Datum)[] Symbols =
+    private static readonly (string[] Names, string Code, DatumRule Datum)[] Symbols =
     [
-        (["直线度", "straight"], "<IGTOL-STRAIGHT>", "⏤", DatumRule.Forbidden),
-        (["平面度", "flat"], "<IGTOL-FLAT>", "⏥", DatumRule.Forbidden),
-        (["圆度", "circular"], "<IGTOL-CIRC>", "○", DatumRule.Forbidden),
-        (["圆柱度", "cylindricity"], "<IGTOL-CYL>", "⌭", DatumRule.Forbidden),
-        (["线轮廓度", "lineprofile"], "<IGTOL-LPROF>", "⌒", DatumRule.Optional),
-        (["面轮廓度", "surfaceprofile"], "<IGTOL-SPROF>", "⌓", DatumRule.Optional),
-        (["平行度", "parallel"], "<IGTOL-PARA>", "∥", DatumRule.Required),
-        (["垂直度", "perpendicular"], "<IGTOL-PERP>", "⟂", DatumRule.Required),
-        (["倾斜度", "angular"], "<IGTOL-ANGULAR>", "∠", DatumRule.Required),
-        (["位置度", "position"], "<IGTOL-POSI>", "⌖", DatumRule.Optional),
-        (["同轴度", "同心度", "concentric"], "<IGTOL-CONC>", "◎", DatumRule.Required),
-        (["对称度", "symmetry"], "<IGTOL-SYMMETRY>", "⌯", DatumRule.Required),
-        (["圆跳动", "runout"], "<IGTOL-SRUN>", "↗", DatumRule.Required),
-        (["全跳动", "totalrunout"], "<IGTOL-TRUN>", "⌰", DatumRule.Required),
+        (["直线度", "straight"], "<IGTOL-STRAIGHT>", DatumRule.Forbidden),
+        (["平面度", "flat"], "<IGTOL-FLAT>", DatumRule.Forbidden),
+        (["圆度", "circular"], "<IGTOL-CIRC>", DatumRule.Forbidden),
+        (["圆柱度", "cylindricity"], "<IGTOL-CYL>", DatumRule.Forbidden),
+        (["线轮廓度", "lineprofile"], "<IGTOL-LPROF>", DatumRule.Optional),
+        (["面轮廓度", "surfaceprofile"], "<IGTOL-SPROF>", DatumRule.Optional),
+        (["平行度", "parallel"], "<IGTOL-PARA>", DatumRule.Required),
+        (["垂直度", "perpendicular"], "<IGTOL-PERP>", DatumRule.Required),
+        (["倾斜度", "angular"], "<IGTOL-ANGULAR>", DatumRule.Required),
+        (["位置度", "position"], "<IGTOL-POSI>", DatumRule.Optional),
+        (["同轴度", "同心度", "concentric"], "<IGTOL-CONC>", DatumRule.Required),
+        (["对称度", "symmetry"], "<IGTOL-SYMMETRY>", DatumRule.Required),
+        (["圆跳动", "runout"], "<IGTOL-SRUN>", DatumRule.Required),
+        (["全跳动", "totalrunout"], "<IGTOL-TRUN>", DatumRule.Required),
     ];
 
     private static readonly Regex FitPattern = new("^[A-Za-z]{1,3}[0-9]{1,2}$", RegexOptions.CultureInvariant);

@@ -169,13 +169,13 @@ internal static class DrawingSvg
         }
 
         var annotations = SheetLookup.Annotations(api, view)
-            .Select(item => Annotation(api, name, item.Name, item.Annotation, measures.GetValueOrDefault(item.Name)))
+            .Select(item => Annotation(api, name, item.Name, item.Annotation, measures.GetValueOrDefault(item.Name), lines, holes))
             .ToList();
         return new SvgView(name, row["kind"], row["parent"], row["scale"], DrawingSheet.Outline(api, view), lines, curves, holes, annotations, note, Numbered: numbered);
     }
 
     /// <summary>一个注解：种类、字、值沿用 <see cref="AnnotationRows.Row"/>；注释的字取全文（多行）；中心符号线、中心线取显示数据里的线。</summary>
-    private static SvgAnnotation Annotation(SolidWorksApi api, string view, string name, object annotation, string? measures)
+    private static SvgAnnotation Annotation(SolidWorksApi api, string view, string name, object annotation, string? measures, IReadOnlyList<SheetSegment>? viewLines = null, IReadOnlyList<HoleEdge>? viewHoles = null)
     {
         var row = AnnotationRows.Row(api, view, name, annotation);
         var type = api.CallInt(annotation, "IAnnotation", "GetType");
@@ -198,6 +198,28 @@ internal static class DrawingSvg
             return new SvgAnnotation(name, row["kind"], string.Empty, string.Empty, null, null, 0, string.Empty, lines);
         // 1.24.0：孔标注带上引线（真机：只画字框时引线拉了 45 mm、互相交叉，SVG 里看不出来）。
         var leaders = row["kind"] == AnnotationCheckPlanner.CalloutKind ? LeaderPlanner.Leaders(lines) : [];
+        var tolerance = string.Empty;
+        try
+        {
+            var specific = api.Call(annotation, "IAnnotation", "GetSpecificAnnotation");
+            if (type == SwConst.AnnotationDimension && specific is not null)
+                tolerance = ToleranceEdit.DescribeDimension(api, specific);
+            else if (type is SwConst.AnnotationGtol or SwConst.AnnotationDatum && specific is not null)
+            {
+                // 1.36.0：框和基准符号要知道写了什么、指着谁，只有方框和连在一起的字 AI 用不了。
+                text = type == SwConst.AnnotationGtol ? ToleranceEdit.GtolText(api, specific) : api.CallString(specific, "IDatumTag", "GetLabel");
+                // 引线不画：读的是文字，data-measures 写明指向就够了。
+                _ = ToleranceEdit.Leaders(api, annotation, out var tips);
+                measures = ToleranceEdit.AttachedDimension(api, annotation) is { } dimension
+                    ? "尺寸 " + dimension
+                    : string.Join(" ", tips.Select(tip => (ToleranceSpec.Locate(tip, viewLines ?? [], viewHoles ?? []) + $" ({DrawingSvgWriter.Mm(tip.X)},{DrawingSvgWriter.Mm(tip.Y)})").Trim()));
+            }
+        }
+        catch (Exception ex) when (ex is COMException or InvalidCastException or System.Reflection.TargetException)
+        {
+            // 读到一半失效：已读到的照出。
+        }
+
         var box = Rect(row);
         var first = texts.Count > 0 ? texts[0] : (TextBox?)null;
         // 真机第一版方框取整个外框（连尺寸界线、引线），一大片虚线框互相叠着，看着像标注占满了视图；方框改画字占的地方，整个外框留在 data-box。
@@ -207,7 +229,7 @@ internal static class DrawingSvg
             : new SheetRect(corners.Min(p => p.X), corners.Min(p => p.Y), corners.Max(p => p.X), corners.Max(p => p.Y));
         return new SvgAnnotation(name, row["kind"], text, row["value"], box,
             first is { } t ? new SheetPoint(t.X, t.Y) : null, first?.Height ?? 0, measures ?? string.Empty, leaders,
-            textBox, first?.Angle ?? 0);
+            textBox, first?.Angle ?? 0, Tolerance: tolerance);
     }
 
     private static SheetRect? Rect(IReadOnlyDictionary<string, string> row)

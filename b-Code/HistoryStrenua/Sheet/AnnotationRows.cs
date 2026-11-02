@@ -41,6 +41,9 @@ internal static class AnnotationRows
             text = text.Replace(code, symbol, StringComparison.Ordinal);
         foreach (var (code, symbol) in ToleranceSpec.DisplaySymbols())
             text = text.Replace(code, symbol, StringComparison.Ordinal);
+        // 1.36.0 真机：叠着的上下偏差读出来是「+ - 0.02 0.01」「+ 0.1 0」，写成一段。
+        text = System.Text.RegularExpressions.Regex.Replace(text, @"\+ - ([\d.]+) ([\d.]+)", "+$1/-$2");
+        text = System.Text.RegularExpressions.Regex.Replace(text, @"\+ ([\d.]+) ([\d.]+)", "+$1/$2");
         // 1.22.0 真机：显示数据各段之间、符号前后带空格，拼起来是「4 x  Ø  11」——同一行里的连续空格压成一个。
         return System.Text.RegularExpressions.Regex.Replace(text, "[ \t]{2,}", " ");
     }

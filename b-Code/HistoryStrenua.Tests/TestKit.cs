@@ -19,6 +19,8 @@ internal static partial class Tests
         ("parameters: move, tolerance, text and flag arguments (1.20.0)", TestParameterArguments),
         ("parameters: bad arguments fail before touching SolidWorks (1.20.0)", TestParameterBadArguments),
         ("tolerance: dimension types and gtol frames parse, bad input refused (1.36.0)", TestToleranceSpec),
+        ("mymooo: part number, parameter pairs and option matching (1.37.0)", TestMymoooRules),
+        ("mymooo: bad arguments fail before going online (1.37.0)", TestMymoooBadArguments),
         ("REQ-DQ-02/03: whole-sheet placement and measured annotation bounds", TestDrawingQuality),
         ("REQ-DQ-04: counted chamfers constrain endpoints", TestCountedChamfers),
         ("page owner follows domain", TestPageOwner),

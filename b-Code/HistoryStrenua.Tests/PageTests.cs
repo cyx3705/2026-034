@@ -84,6 +84,10 @@ internal static partial class Tests
             "strenua.prop.read",
             "strenua.prop.write",
             "strenua.prop.default",
+            "strenua.mymooo.category",
+            "strenua.mymooo.product",
+            "strenua.mymooo.insert",
+            "strenua.mymooo.remove",
         ];
         foreach (var name in expected)
         {

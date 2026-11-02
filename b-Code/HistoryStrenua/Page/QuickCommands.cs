@@ -63,5 +63,7 @@ internal static class QuickCommands
         DocSave.CloseCommand,
         PartProperties.ReadCommand,
         PartProperties.WriteCommand,
+        MymoooInsert.Command,
+        MymoooRemove.Command,
     ];
 }

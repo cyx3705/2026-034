@@ -92,13 +92,16 @@ internal static class AsmMate
     /// <summary>读回位置差多少算被配合拉动（mm / °）。</summary>
     private const double Moved = 0.01;
 
-    private static QuickOutcome Add(QuickCommandContext context, int type, string typeName, MateTarget a, MateTarget b, double value, int align, bool flip, bool move)
+    /// <summary>
+    /// 加一条配合（双同心、贴合树也走这里）。a 那边所属的<b>顶层</b>零部件是要动的那个（子装配里的面也是整个子装配动）。
+    /// </summary>
+    internal static QuickOutcome Add(QuickCommandContext context, int type, string typeName, MateTarget a, MateTarget b, double value, int align, bool flip, bool move)
     {
         var api = context.Api;
         var assembly = ModelAccess.ActiveAssembly(context);
         var componentA = a.Component is null ? null : AssemblyGeometry.Component(api, assembly, a.Component);
         var componentB = b.Component is null ? null : AssemblyGeometry.Component(api, assembly, b.Component);
-        var moving = componentA ?? componentB ?? throw new QuickArgumentException("a、b 至少一边要是零部件的几何。");
+        var moving = AssemblyContacts.TopOf(api, componentA ?? componentB ?? throw new QuickArgumentException("a、b 至少一边要是零部件的几何。"));
         var movingName = api.CallString(moving, "IComponent2", "get_Name2");
         var (origin, axes) = ModelAccess.Frame(api, moving);
         var wasFixed = ModelAccess.Fixed(api, moving);
@@ -206,7 +209,7 @@ internal static class AsmMate
     }
 
     /// <summary>总装「配合」文件夹下的全部配合特征。</summary>
-    private static List<object> Mates(SolidWorksApi api, object assembly)
+    internal static List<object> Mates(SolidWorksApi api, object assembly)
     {
         var mates = new List<object>();
         for (var feature = api.Call(assembly, "IModelDoc2", "FirstFeature"); feature is not null; feature = api.Call(feature, "IFeature", "GetNextFeature"))

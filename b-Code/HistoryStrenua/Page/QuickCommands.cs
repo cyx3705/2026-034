@@ -81,5 +81,8 @@ internal static class QuickCommands
         AsmMate.MateCommand,
         AsmMate.ListCommand,
         AsmMate.DeleteCommand,
+        AsmDof.Command,
+        AsmConcentric.Command,
+        AsmMateTree.Command,
     ];
 }

@@ -104,6 +104,9 @@ internal static partial class Tests
             "strenua.asm.mate",
             "strenua.asm.matelist",
             "strenua.asm.matedelete",
+            "strenua.asm.dof",
+            "strenua.asm.concentric",
+            "strenua.asm.matetree",
         ];
         foreach (var name in expected)
         {

@@ -145,6 +145,48 @@ internal static class ContactPlanner
     }
 
     /// <summary>
+    /// 同轴（1.40.0 双同心用）：两个圆柱面轴线重合（偏不到 <paramref name="tol"/>）、不是两根轴，轴向挨着或重叠（相隔不到 <paramref name="near"/>）。
+    /// 孔对孔（螺钉孔对螺纹孔、销孔对销孔）也算，半径可以不同；<c>Amount</c> 是轴向重叠长度（隔开时为负的间隔）。
+    /// </summary>
+    public static ContactPair? Coaxial(ContactFace mine, ContactFace other, double near, double tol)
+    {
+        if (mine.Surface != ContactSurface.Cylinder || other.Surface != ContactSurface.Cylinder || (!mine.Hole && !other.Hole)
+            || Math.Abs(mine.Normal.Dot(other.Normal)) < Parallel)
+            return null;
+        var axis = mine.Normal.Normalized();
+        var w = other.Point - mine.Point;
+        var offset = (w - axis * w.Dot(axis)).Length;
+        if (offset > tol)
+            return null;
+        var (aFrom, aTo) = Span(mine.Triangles, axis);
+        var (bFrom, bTo) = Span(other.Triangles, axis);
+        var overlap = Math.Min(aTo, bTo) - Math.Max(aFrom, bFrom);
+        return overlap < -near ? null : new ContactPair(mine, other, other.Radius - mine.Radius, overlap, [], Math.Max(aFrom, bFrom), Math.Min(aTo, bTo), offset);
+    }
+
+    /// <summary>同一根轴线（偏不到 0.01 mm）上的同轴对只留一对（圆柱面常被 SolidWorks 拆成两半，一个孔会出两对）。按轴线位置去重后返回轴线点与方向。</summary>
+    public static IReadOnlyList<ContactPair> DistinctAxes(IEnumerable<ContactPair> pairs)
+    {
+        var kept = new List<ContactPair>();
+        foreach (var pair in pairs.OrderByDescending(pair => pair.Amount))
+        {
+            var axis = pair.Mine.Normal.Normalized();
+            if (kept.Any(k => Math.Abs(k.Mine.Normal.Normalized().Dot(axis)) > Parallel && Offset(k.Mine.Point, pair.Mine.Point, axis) < 0.01))
+                continue;
+            kept.Add(pair);
+        }
+
+        return kept;
+    }
+
+    /// <summary>两根轴线（过 <paramref name="a"/>、<paramref name="b"/>，同向 <paramref name="axis"/>）之间的距离。</summary>
+    public static double Offset(Vec3 a, Vec3 b, Vec3 axis)
+    {
+        var w = b - a;
+        return (w - axis * w.Dot(axis)).Length;
+    }
+
+    /// <summary>
     /// 按「我这边的面」分组：同一平面（法向、位置相同）或同一根轴同一半径的合成一个对象，平面在前，组内按重叠从大到小。
     /// 对方那个面已经和我贴合了的，它和我别的面「差一点没贴上」不再报（真机 2026-043：型材 T 槽口凹进 1 mm 的面对着脚杯连接板，全是这种）；
     /// 同一平面上已经和我贴合的零件，它别的面差一点也不报。

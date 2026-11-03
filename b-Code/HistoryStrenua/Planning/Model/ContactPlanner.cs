@@ -144,11 +144,16 @@ internal static class ContactPlanner
         return to - from <= tol ? null : new ContactPair(mine, other, gap, to - from, [], from, to, offset);
     }
 
-    /// <summary>按「我这边的面」分组：同一平面（法向、位置相同）或同一根轴同一半径的合成一个对象，平面在前，组内按重叠从大到小。</summary>
-    public static IReadOnlyList<ContactGroup> Group(IEnumerable<ContactPair> pairs)
+    /// <summary>
+    /// 按「我这边的面」分组：同一平面（法向、位置相同）或同一根轴同一半径的合成一个对象，平面在前，组内按重叠从大到小。
+    /// 对方那个面已经和我贴合了的，它和我别的面「差一点没贴上」不再报（真机 2026-043：型材 T 槽口凹进 1 mm 的面对着脚杯连接板，全是这种）。
+    /// </summary>
+    public static IReadOnlyList<ContactGroup> Group(IEnumerable<ContactPair> pairs, double tol)
     {
+        var all = pairs.ToList();
+        var touched = all.Where(pair => Math.Abs(pair.Gap) <= tol).Select(pair => pair.Other.Ref).ToHashSet(StringComparer.Ordinal);
         var groups = new List<(ContactSurface Surface, Vec3 Normal, Vec3 Point, double Radius, List<ContactPair> Pairs)>();
-        foreach (var pair in pairs)
+        foreach (var pair in all.Where(pair => Math.Abs(pair.Gap) <= tol || !touched.Contains(pair.Other.Ref)))
         {
             var face = pair.Mine;
             var index = groups.FindIndex(group => group.Surface == face.Surface && Same(group.Surface, group.Normal, group.Point, group.Radius, face));
@@ -372,8 +377,21 @@ internal static class ContactPlanner
         return pair.Offset > tol ? state + $"、偏心 {F(pair.Offset, "0.###")}" : state;
     }
 
+    /// <summary>一个对象下按对方的面合并成行（我这边的面被槽、孔切成几块时，同一个对方面只写一行，面编号并列）。</summary>
+    public static IReadOnlyList<string> Lines(ContactGroup group, double tol)
+        => group.Pairs.GroupBy(pair => (pair.Other.Ref, State(pair, tol)))
+            .Select(same => same.ToList())
+            .Select(same => Line(same.Count == 1 ? same[0] : same[0] with
+            {
+                Amount = group.Surface == ContactSurface.Plane ? same.Sum(pair => pair.Amount) : same.Max(pair => pair.Amount),
+                Pieces = same.SelectMany(pair => pair.Pieces).ToList(),
+                From = same.Min(pair => pair.From),
+                To = same.Max(pair => pair.To),
+            }, tol, same.Select(pair => pair.Mine.Index).Distinct().Order()))
+            .ToList();
+
     /// <summary>一对面写成一行：对方、状态、重叠多大在哪、两边的面编号。</summary>
-    public static string Line(ContactPair pair, double tol)
+    public static string Line(ContactPair pair, double tol, IEnumerable<int>? mine = null)
     {
         var (_, _, un, vn) = Frame(pair.Mine.Normal);
         string where;
@@ -393,7 +411,7 @@ internal static class ContactPlanner
         }
 
         var shape = pair.Other.Surface == ContactSurface.Cylinder ? $" {(pair.Other.Hole ? "孔" : "轴")} Ø{F(pair.Other.Radius * 2)}" : string.Empty;
-        return $"↔ {pair.Other.Owner}{shape}：{State(pair, tol)}，{where}  [F{pair.Mine.Index} ↔ {pair.Other.Ref}]";
+        return $"↔ {pair.Other.Owner}{shape}：{State(pair, tol)}，{where}  [{string.Join(",", (mine ?? [pair.Mine.Index]).Select(index => "F" + index))} ↔ {pair.Other.Ref}]";
     }
 
     private static Vec3 Axis(char name) => name switch

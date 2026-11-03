@@ -95,12 +95,12 @@ internal static class AsmContact
 
         context.SetState("干涉检查");
         var (interferences, touching) = AsmInterference.Scan(context, assembly, names => !names.Any(mineNames.Contains) || !names.Where(n => !mineNames.Contains(n)).Any(Wanted));
-        var groups = ContactPlanner.Group(pairs);
+        var groups = ContactPlanner.Group(pairs, tol);
         var title = api.CallString(assembly, "IModelDoc2", "GetTitle");
         var svg = ContactPlanner.Svg($"{title} · {name}", groups, tol);
         var file = DrawingSvg.Save(context, name + "-接触面", svg);
 
-        var touchingParts = pairs.Select(pair => pair.Other.Owner).Distinct().ToList();
+        var touchingParts = groups.SelectMany(group => group.Pairs).Select(pair => pair.Other.Owner).Distinct().ToList();
         var text = new StringBuilder($"接触面检测：「{name}」与 {touchingParts.Count} 个零部件有接触面（{groups.Count(g => g.Surface == ContactSurface.Plane)} 个平面、{groups.Count(g => g.Surface == ContactSurface.Cylinder)} 个孔 / 轴），"
                                      + $"干涉 {interferences.Count} 对{(touching > 0 ? $"（另有 {touching} 处零厚度贴合）" : string.Empty)}；总装 mm，范围 {ModelSpec.Format(near)}、允差 {ModelSpec.Format(tol)}。").AppendLine();
         if (interferences.Count > 0)
@@ -118,10 +118,11 @@ internal static class AsmContact
         foreach (var group in groups.Take(ShownGroups))
         {
             text.AppendLine($"{group.Id} {ContactPlanner.Describe(group)}");
-            foreach (var pair in group.Pairs.Take(ShownPairs))
-                text.AppendLine("  " + ContactPlanner.Line(pair, tol));
-            if (group.Pairs.Count > ShownPairs)
-                text.AppendLine($"  …另有 {group.Pairs.Count - ShownPairs} 对。");
+            var lines = ContactPlanner.Lines(group, tol);
+            foreach (var line in lines.Take(ShownPairs))
+                text.AppendLine("  " + line);
+            if (lines.Count > ShownPairs)
+                text.AppendLine($"  …另有 {lines.Count - ShownPairs} 对。");
         }
 
         if (groups.Count > ShownGroups)

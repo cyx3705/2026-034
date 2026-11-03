@@ -44,7 +44,7 @@ internal static partial class Tests
         var second = ContactPlanner.Match(top, Square("立柱-1", 0, new Vec3(0, -1, 0), 145, -20, -20, -10, 20), 1, 0.05)!;
         var side = Square("型材-1", 2, new Vec3(1, 0, 0), 20, 145, -20, 185, 20);
         var end = ContactPlanner.Match(side, Square("挡块-1", 1, new Vec3(-1, 0, 0), 20, 150, -10, 160, 10), 1, 0.05)!;
-        var groups = ContactPlanner.Group([pair, second, end]);
+        var groups = ContactPlanner.Group([pair, second, end], 0.05);
         Equal(2, groups.Count);
         Equal("P1", groups[0].Id);
         Equal(2, groups[0].Pairs.Count);
@@ -52,6 +52,16 @@ internal static partial class Tests
         Equal("平面 X=20 朝 +X", ContactPlanner.Describe(groups[1]));
         True(ContactPlanner.Line(pair, 0.05).Contains("[F7 ↔ 底板-1@F3]"), ContactPlanner.Line(pair, 0.05));
         True(ContactPlanner.Line(pair, 0.05).Contains("X 0~20"), ContactPlanner.Line(pair, 0.05));
+
+        // 对方的面已和我贴合，它和我凹进去 1 mm 的面不再报；我这边两块面对同一个对方面合成一行。
+        var recess = ContactPlanner.Match(Square("型材-1", 9, new Vec3(0, 1, 0), 144, 30, -20, 40, 20), plate, 2, 0.05)!;
+        var split = ContactPlanner.Match(Square("型材-1", 8, new Vec3(0, 1, 0), 145, 40, -20, 50, 20), plate, 2, 0.05)!;
+        var merged = ContactPlanner.Group([pair, recess, split], 0.05);
+        Equal(1, merged.Count);
+        var lines = ContactPlanner.Lines(merged[0], 0.05);
+        Equal(1, lines.Count);
+        True(lines[0].Contains("[F7,F8 ↔ 底板-1@F3]") && lines[0].Contains("重叠 1200 mm²"), lines[0]);
+        Equal(1, ContactPlanner.Group([recess], 0.05).Count);
     }
 
     static void TestContactCylinders()
@@ -64,7 +74,7 @@ internal static partial class Tests
         True(ContactPlanner.Match(hole, Tube("x", 0, 3.3, true, 0, 20), 1, 0.05) is null, "两个孔不算");
         True(ContactPlanner.Match(hole, Tube("x", 0, 3, false, 0, 20, 5), 1, 0.05) is null, "不同轴不算");
         Equal("同径", ContactPlanner.State(ContactPlanner.Match(hole, Tube("销-1", 0, 3.3, false, 0, 20), 1, 0.05)!, 0.05));
-        var group = ContactPlanner.Group([pair]).Single();
+        var group = ContactPlanner.Group([pair], 0.05).Single();
         Equal("A1", group.Id);
         Equal("孔 Ø6.6 轴线 Y 向，过 X0 Z0", ContactPlanner.Describe(group));
     }
@@ -85,7 +95,7 @@ internal static partial class Tests
 
         var top = Square("型材-1", 7, new Vec3(0, 1, 0), 145, -20, -20, 20, 20);
         var pair = ContactPlanner.Match(top, Square("底板-1", 3, new Vec3(0, -1, 0), 145, 0, -20, 60, 20), 1, 0.05)!;
-        var svg = ContactPlanner.Svg("总装 · 型材-1", ContactPlanner.Group([pair]), 0.05);
+        var svg = ContactPlanner.Svg("总装 · 型材-1", ContactPlanner.Group([pair], 0.05), 0.05);
         True(svg.StartsWith("<svg") && svg.EndsWith("</svg>"), "SVG 首尾");
         True(svg.Contains("id=\"P1\"") && svg.Contains("data-ref=\"底板-1@F3\"") && svg.Contains("data-state=\"贴合\""), svg);
         True(System.Xml.Linq.XDocument.Parse(svg).Root is not null, "SVG 是合法 XML");

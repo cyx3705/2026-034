@@ -18,19 +18,22 @@ internal static class AsmMateTree
         Title: "贴合树",
         Summary: "从固定块沿贴合面广度优先往外长成树，每个零部件配到它的父零部件上（最大贴合面重合、两同心、别的方向的贴合面），成环处断开最远的贴合；默认直接加配合。",
         Usage: "「根」填固定块的零部件名，省略我挑（固定着的、贴合关系最多的）。apply=否 只列树和打算加的配合、不动总装。"
-               + "子零部件固定着会先解除固定；加完位置动了就撤回那条（摆位为准）。总装里全是外购件时不上约束。子装配当一整块。",
+               + "子零部件固定着会先解除固定；加完位置动了就撤回那条（摆位为准），一个零部件有一条没加上就把它这一组全撤回、恢复固定。"
+               + "配完还定不死的（型材只靠一个面贴着、只有一个孔）默认保持固定、不加，partial=是 才照加。总装里全是外购件时不上约束。子装配当一整块。",
         Run: QuickCommand.Unbound,
         Parameters:
         [
             new QuickParameter("root", "根", "固定块的零部件名；省略自动挑", false),
             new QuickParameter("apply", "加配合", "是（默认）/ 否 = 只预览", false),
+            new QuickParameter("partial", "欠定义也加", "否（默认，定不死的保持固定）/ 是", false),
         ],
         Example: StrenuaIdentity.Domain + ".asm.matetree apply=否",
         Bind: arguments =>
         {
             var root = QuickArgs.Optional(arguments, "root");
             var apply = QuickArgs.Optional(arguments, "apply") is null || QuickArgs.Flag(arguments, "apply");
-            return context => Grow(context, root, apply);
+            var partial = QuickArgs.Optional(arguments, "partial") is not null && QuickArgs.Flag(arguments, "partial");
+            return context => Grow(context, root, apply, partial);
         },
         SelfReport: true);
 
@@ -40,7 +43,7 @@ internal static class AsmMateTree
     /// <summary>同轴孔轴向隔开多少 mm 以内也算（螺钉孔对模组上的螺纹孔，中间常隔着沉头）。</summary>
     internal const double Near = 1;
 
-    private static QuickOutcome Grow(QuickCommandContext context, string? rootName, bool apply)
+    private static QuickOutcome Grow(QuickCommandContext context, string? rootName, bool apply, bool partial)
     {
         var api = context.Api;
         var assembly = ModelAccess.ActiveAssembly(context);
@@ -60,7 +63,7 @@ internal static class AsmMateTree
         var hooks = AsmDof.Hooks(api, assembly);
         var text = new StringBuilder($"贴合树：根「{root}」{(fixedNodes.Contains(root) ? "（固定）" : "（没固定，建议先 asm.move fix=是）")}，{tree.Count} 条树边、成环断开 {broken.Count} 条、连不上 {unreached.Count} 个{(apply ? string.Empty : "；只预览，没加配合")}。").AppendLine();
         var rows = new List<Dictionary<string, string>>();
-        var (added, failed) = (0, 0);
+        var (added, failed, kept) = (0, 0, 0);
         foreach (var edge in tree)
         {
             context.Cancellation.ThrowIfCancellationRequested();
@@ -69,19 +72,47 @@ internal static class AsmMateTree
             var at = new Vec3(origin.X, origin.Y, origin.Z);
             var existing = (hooks.GetValueOrDefault(edge.Child) ?? []).Select(hook => hook.Constraint).ToList();
             var chosen = MateTreePlanner.Choose(link.Planes, link.Axes, link.A == edge.Child, existing, at);
-            var (lines, ok) = Apply(context, chosen, apply);
-            added += ok;
-            failed += chosen.Count - (apply ? ok : chosen.Count);
-            var (dof, free) = MateTreePlanner.Freedom(existing.Concat(chosen.Take(apply ? ok : chosen.Count).Select(c => c.Constraint)).ToList(), at);
-            text.AppendLine($"{new string(' ', Math.Min(edge.Depth, 6) * 2)}{edge.Depth}. {AsmInterference.Short(edge.Child)} ← {AsmInterference.Short(edge.Parent)}（贴合 {ModelSpec.Format(edge.Area, "0")} mm²）："
-                            + (chosen.Count == 0 ? "已有配合定死，不加" : string.Join("；", lines))
-                            + (dof > 0 ? $"；剩 {dof} 个自由度（{string.Join("、", free)}）" : "；定死"));
+            var (dof, free) = MateTreePlanner.Freedom(existing.Concat(chosen.Select(c => c.Constraint)).ToList(), at);
+            var head = $"{new string(' ', Math.Min(edge.Depth, 6) * 2)}{edge.Depth}. {AsmInterference.Short(edge.Child)} ← {AsmInterference.Short(edge.Parent)}（贴合 {ModelSpec.Format(edge.Area, "0")} mm²）：";
+            var rest = dof > 0 ? $"剩 {dof} 个自由度（{string.Join("、", free)}）" : "定死";
+            string line;
+            if (chosen.Count == 0)
+            {
+                line = "已有配合，不加";
+            }
+            else if (dof > 0 && !partial)
+            {
+                kept++;
+                line = $"定不死，保持固定不加（能加的只有 {string.Join("；", Apply(context, chosen, false).Lines)}，{rest}）";
+            }
+            else
+            {
+                var child = tops[edge.Child];
+                var (axes, wasFixed) = (ModelAccess.Frame(api, child).Axes, ModelAccess.Fixed(api, child));
+                var before = AsmMate.Mates(api, assembly).Select(feature => api.CallString(feature, "IFeature", "get_Name")).ToHashSet(StringComparer.Ordinal);
+                var (lines, ok) = Apply(context, chosen, apply);
+                if (apply && ok < chosen.Count)
+                {
+                    // 一组没加全就整组撤回、恢复原来的固定，免得留下一个半配半飘的零部件。
+                    AsmMate.DeleteNew(api, assembly, before);
+                    AsmMate.Restore(context, assembly, child, axes, origin, wasFixed);
+                    failed++;
+                    line = string.Join("；", lines) + "；有一条没加上，这一组已撤回、恢复原样";
+                }
+                else
+                {
+                    added += ok;
+                    line = string.Join("；", lines) + "；" + rest;
+                }
+            }
+
+            text.AppendLine(head + line);
             rows.Add(new Dictionary<string, string>
             {
                 ["depth"] = edge.Depth.ToString(System.Globalization.CultureInfo.InvariantCulture),
                 ["child"] = edge.Child,
                 ["parent"] = edge.Parent,
-                ["mates"] = string.Join("；", lines),
+                ["mates"] = line,
                 ["dof"] = dof.ToString(System.Globalization.CultureInfo.InvariantCulture),
             });
         }
@@ -91,7 +122,7 @@ internal static class AsmMateTree
         if (unreached.Count > 0)
             text.AppendLine($"连不上根（没有贴合面通到它，保持原样）：{string.Join("、", unreached.Select(AsmInterference.Short))}");
         if (apply)
-            text.Append($"共加 {added} 条配合{(failed > 0 ? $"，{failed} 条没加上（见上）" : string.Empty)}；总装没存，strenua.asm.dof 看自由度。");
+            text.Append($"共加 {added} 条配合{(failed > 0 ? $"，{failed} 个零部件没配上已撤回（见上）" : string.Empty)}{(kept > 0 ? $"，{kept} 个定不死保持固定" : string.Empty)}；总装没存，strenua.asm.dof 看自由度。");
         var outcome = text.ToString().TrimEnd();
         return failed > 0 ? QuickOutcome.Fail(outcome) : QuickOutcome.Ok(outcome, rows);
     }

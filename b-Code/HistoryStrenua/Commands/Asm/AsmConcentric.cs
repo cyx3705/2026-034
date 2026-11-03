@@ -8,7 +8,7 @@ namespace HistoryStrenua;
 /// </summary>
 /// <remarks>
 /// 只看互相贴合的两块（有贴合平面），它们之间同轴的孔对孔 / 孔对轴（<see cref="ContactPlanner.Coaxial"/>，同一根轴线只算一组）有两组以上时，
-/// 取相距最远的两组各加一个同轴心（<see cref="MateTreePlanner.Choose"/>，能去掉自由度的才加）。动的一边：一边固定一边不固定就动不固定的，
+/// 取相距最远的两组各加一个同轴心，最大贴合面没配过就一起加重合（<see cref="MateTreePlanner.Choose"/>，能去掉自由度的才加）。动的一边：一边固定一边不固定就动不固定的，
 /// 都固定就动包围盒小的。有加工件的装配体才上约束。
 /// </remarks>
 internal static class AsmConcentric
@@ -61,7 +61,8 @@ internal static class AsmConcentric
             var child = childIsA ? link.A : link.B;
             var (origin, _) = ModelAccess.Frame(api, childIsA ? a : b);
             var existing = (hooks.GetValueOrDefault(child) ?? []).Select(hook => hook.Constraint).ToList();
-            var chosen = MateTreePlanner.Choose([], link.Axes, childIsA, existing, new Vec3(origin.X, origin.Y, origin.Z), concentricOnly: true);
+            // 只上两同心零部件会沿孔轴向飘：贴合面没配过就连最大贴合面的重合一起加（能去掉自由度的才加）。
+            var chosen = MateTreePlanner.Choose(link.Planes, link.Axes, childIsA, existing, new Vec3(origin.X, origin.Y, origin.Z));
             var (lines, ok) = AsmMateTree.Apply(context, chosen, apply);
             added += ok;
             failed += apply ? chosen.Count - ok : 0;

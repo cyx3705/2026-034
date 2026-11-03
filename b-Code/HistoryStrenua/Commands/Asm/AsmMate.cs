@@ -178,7 +178,7 @@ internal static class AsmMate
     }
 
     /// <summary>把零部件放回原来的变换与固定状态。</summary>
-    private static void Restore(QuickCommandContext context, object assembly, object component, double[,] axes, (double X, double Y, double Z) origin, bool fix)
+    internal static void Restore(QuickCommandContext context, object assembly, object component, double[,] axes, (double X, double Y, double Z) origin, bool fix)
     {
         ModelAccess.Place(context, assembly, component, axes, origin, fix);
         context.Api.Call(assembly, "IModelDoc2", "EditRebuild3");
@@ -194,7 +194,7 @@ internal static class AsmMate
     }
 
     /// <summary>删掉配合文件夹里不在 <paramref name="existing"/> 里的配合（AddMate5 回的对象选不中，按特征树找）。</summary>
-    private static void DeleteNew(SolidWorksApi api, object assembly, IReadOnlySet<string> existing)
+    internal static void DeleteNew(SolidWorksApi api, object assembly, IReadOnlySet<string> existing)
     {
         foreach (var feature in Mates(api, assembly).Where(feature => !existing.Contains(api.CallString(feature, "IFeature", "get_Name"))))
             DeleteMate(api, assembly, feature);

@@ -427,39 +427,27 @@ internal static class ContactPlanner
 
     /// <summary>
     /// 每个接触对象一块截面（平面：沿法向看，画我的面轮廓、对方的面轮廓、重叠区；圆柱：沿轴剖开，横向轴向、竖向半径）。
-    /// 坐标是截面 mm（平面沿坐标轴时就是总装 mm），每块按重叠区取景（四周留 15% 或 20 mm）、内层翻 Y。重叠区橙色贴合、灰色没贴上、红色压进 / 过盈。
+    /// 坐标是截面 mm（平面沿坐标轴时就是总装 mm），每块按重叠区取景（四周留 15% 或 20 mm）。重叠区橙色贴合、灰色没贴上、红色压进 / 过盈。
+    /// 轮廓先化简（去共线点、0.1 mm 取整），SVG 与 PNG 都从这里画。
     /// </summary>
-    public static string Svg(string title, IReadOnlyList<ContactGroup> groups, double tol)
+    public static IReadOnlyList<SectionPanel> Panels(IReadOnlyList<ContactGroup> groups, double tol)
     {
-        const int Width = 300, Height = 280, Header = 34, Columns = 3;
-        var rows = Math.Max(1, (groups.Count + Columns - 1) / Columns);
-        var svg = new StringBuilder();
-        svg.Append($"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{Columns * Width}\" height=\"{rows * Height}\" font-family=\"sans-serif\" font-size=\"11\" data-title=\"{Escape(title)}\">");
-        svg.Append("<rect width=\"100%\" height=\"100%\" fill=\"#FBFAF7\"/>");
-        for (var i = 0; i < groups.Count; i++)
+        var panels = new List<SectionPanel>();
+        foreach (var group in groups)
         {
-            var group = groups[i];
             var plane = group.Surface == ContactSurface.Plane;
             var (u, v, un, vn) = Frame(group.Normal);
-            svg.Append($"<g id=\"{group.Id}\" data-face=\"{Escape(Describe(group))}\" data-u=\"{(plane ? un : "轴向")}\" data-v=\"{(plane ? vn : "半径")}\" transform=\"translate({i % Columns * Width},{i / Columns * Height})\">");
-            svg.Append($"<rect x=\"2\" y=\"2\" width=\"{Width - 4}\" height=\"{Height - 4}\" fill=\"none\" stroke=\"#D6D2C8\"/>");
-            svg.Append($"<text x=\"8\" y=\"16\" font-weight=\"bold\">{group.Id} {Escape(Describe(group))}</text>");
-            svg.Append($"<text x=\"8\" y=\"29\" fill=\"#6B675E\">横 {(plane ? un : "轴向")} → 竖 {(plane ? vn : "半径")} ↑（mm）</text>");
-            var body = new StringBuilder();
+            var shapes = new List<SectionShape>();
             var extent = new List<(double U, double V)>();
             if (plane)
             {
                 foreach (var face in group.Pairs.Select(pair => pair.Mine).DistinctBy(face => face.Index))
-                {
-                    var loops = Outline(face.Triangles, u, v);
-                    body.Append($"<path data-ref=\"{Escape(face.Ref)}\" d=\"{Path(loops)}\" fill=\"none\" stroke=\"#38352F\" stroke-width=\"1.6\" vector-effect=\"non-scaling-stroke\"/>");
-                }
-
+                    shapes.Add(new SectionShape(face.Ref, null, Simplify(Outline(face.Triangles, u, v)), Ink, 1.6, null, 0));
                 foreach (var pair in group.Pairs)
                 {
-                    body.Append($"<path data-ref=\"{Escape(pair.Other.Ref)}\" d=\"{Path(Outline(pair.Other.Triangles, u, v))}\" fill=\"none\" stroke=\"#2F6FB0\" stroke-width=\"1\" vector-effect=\"non-scaling-stroke\"/>");
+                    shapes.Add(new SectionShape(pair.Other.Ref, null, Simplify(Outline(pair.Other.Triangles, u, v)), Blue, 1, null, 0));
                     extent.AddRange(pair.Pieces.SelectMany(piece => piece));
-                    body.Append($"<path data-ref=\"{Escape(pair.Other.Ref)}\" data-state=\"{Escape(State(pair, tol))}\" data-area=\"{F(pair.Amount, "0.#")}\" d=\"{Path(pair.Pieces)}\" fill=\"{Fill(pair, tol)}\" fill-opacity=\"0.55\"/>");
+                    shapes.Add(new SectionShape(pair.Other.Ref, State(pair, tol), pair.Pieces, null, 0, Fill(pair, tol), pair.Amount));
                 }
             }
             else
@@ -470,7 +458,7 @@ internal static class ContactPlanner
                     var (from, to) = Span(face.Triangles, axis);
                     extent.Add((from, -face.Radius));
                     extent.Add((to, face.Radius));
-                    body.Append($"<rect data-ref=\"{Escape(face.Ref)}\" x=\"{F(from)}\" y=\"{F(-face.Radius)}\" width=\"{F(to - from)}\" height=\"{F(face.Radius * 2)}\" fill=\"none\" stroke=\"#38352F\" stroke-width=\"1.6\" vector-effect=\"non-scaling-stroke\"/>");
+                    shapes.Add(new SectionShape(face.Ref, null, [Box(from, -face.Radius, to, face.Radius)], Ink, 1.6, null, 0));
                 }
 
                 foreach (var pair in group.Pairs)
@@ -478,29 +466,118 @@ internal static class ContactPlanner
                     var (from, to) = Span(pair.Other.Triangles, axis);
                     var r = pair.Other.Radius;
                     var inner = Math.Min(r, pair.Mine.Radius);
-                    body.Append($"<rect data-ref=\"{Escape(pair.Other.Ref)}\" x=\"{F(from)}\" y=\"{F(-r)}\" width=\"{F(to - from)}\" height=\"{F(r * 2)}\" fill=\"none\" stroke=\"#2F6FB0\" stroke-width=\"1\" vector-effect=\"non-scaling-stroke\"/>");
-                    body.Append($"<rect data-ref=\"{Escape(pair.Other.Ref)}\" data-state=\"{Escape(State(pair, tol))}\" x=\"{F(pair.From)}\" y=\"{F(-inner)}\" width=\"{F(pair.To - pair.From)}\" height=\"{F(inner * 2)}\" fill=\"{Fill(pair, tol)}\" fill-opacity=\"0.55\"/>");
+                    shapes.Add(new SectionShape(pair.Other.Ref, null, [Box(from, -r, to, r)], Blue, 1, null, 0));
+                    shapes.Add(new SectionShape(pair.Other.Ref, State(pair, tol), [Box(pair.From, -inner, pair.To, inner)], null, 0, Fill(pair, tol), pair.Amount));
                 }
             }
 
-            if (extent.Count > 0)
+            if (extent.Count == 0)
+                continue;
+            var (minU, maxU) = (extent.Min(p => p.U), extent.Max(p => p.U));
+            var (minV, maxV) = (extent.Min(p => p.V), extent.Max(p => p.V));
+            var pad = Math.Max(Math.Max(maxU - minU, maxV - minV) * 0.15, 20);
+            panels.Add(new SectionPanel(group.Id, Describe(group), plane ? un : "轴向", plane ? vn : "半径",
+                (minU - pad, minV - pad, maxU + pad, maxV + pad), shapes));
+        }
+
+        return panels;
+    }
+
+    /// <summary>截面图的版式（SVG 与 PNG 同一套）：每块宽、高、标题区高，一行几块。</summary>
+    public const int PanelWidth = 300, PanelHeight = 280, PanelHeader = 34, PanelColumns = 3;
+
+    /// <summary>整张截面图的像素尺寸。</summary>
+    public static (int Width, int Height) SheetSize(int panels)
+        => (PanelColumns * PanelWidth, Math.Max(1, (panels + PanelColumns - 1) / PanelColumns) * PanelHeight);
+
+    public static string Svg(string title, IReadOnlyList<SectionPanel> panels)
+    {
+        var (width, height) = SheetSize(panels.Count);
+        var svg = new StringBuilder();
+        svg.Append($"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{width}\" height=\"{height}\" font-family=\"sans-serif\" font-size=\"11\" data-title=\"{Escape(title)}\">");
+        svg.Append("<rect width=\"100%\" height=\"100%\" fill=\"#FBFAF7\"/>");
+        for (var i = 0; i < panels.Count; i++)
+        {
+            var panel = panels[i];
+            var (minU, minV, maxU, maxV) = panel.View;
+            svg.Append($"<g id=\"{panel.Id}\" data-face=\"{Escape(panel.Title)}\" data-u=\"{panel.UName}\" data-v=\"{panel.VName}\" transform=\"translate({i % PanelColumns * PanelWidth},{i / PanelColumns * PanelHeight})\">");
+            svg.Append($"<text x=\"8\" y=\"16\" font-weight=\"bold\">{panel.Id} {Escape(panel.Title)}</text>");
+            svg.Append($"<text x=\"8\" y=\"29\" fill=\"#6B675E\">横 {panel.UName} → 竖 {panel.VName} ↑（mm）</text>");
+            svg.Append($"<svg x=\"6\" y=\"{PanelHeader + 2}\" width=\"{PanelWidth - 12}\" height=\"{PanelHeight - PanelHeader - 8}\" viewBox=\"{F(minU, "0.#")} {F(-maxV, "0.#")} {F(maxU - minU, "0.#")} {F(maxV - minV, "0.#")}\"><g transform=\"scale(1,-1)\">");
+            foreach (var shape in panel.Shapes)
             {
-                // 按重叠区取景（长型材上的接触区否则缩成一个点），零件轮廓超出的部分裁掉。
-                var (minU, maxU) = (extent.Min(p => p.U), extent.Max(p => p.U));
-                var (minV, maxV) = (extent.Min(p => p.V), extent.Max(p => p.V));
-                var pad = Math.Max(Math.Max(maxU - minU, maxV - minV) * 0.15, 20);
-                svg.Append($"<svg x=\"6\" y=\"{Header + 2}\" width=\"{Width - 12}\" height=\"{Height - Header - 8}\" viewBox=\"{F(minU - pad)} {F(-maxV - pad)} {F(maxU - minU + 2 * pad)} {F(maxV - minV + 2 * pad)}\">");
-                svg.Append("<g transform=\"scale(1,-1)\">").Append(body).Append("</g></svg>");
+                if (shape.Fill is null)
+                {
+                    svg.Append($"<path data-ref=\"{Escape(shape.Ref)}\" d=\"{Path(shape.Loops)}\" fill=\"none\" stroke=\"{shape.Stroke}\" stroke-width=\"{F(shape.Width, "0.#")}\" vector-effect=\"non-scaling-stroke\"/>");
+                    continue;
+                }
+
+                // 重叠区在文字版里只写外接框（碎三角形写出来又长又没用），面积与状态写在属性里；PNG 照实填色。
+                var points = shape.Loops.SelectMany(loop => loop).ToList();
+                if (points.Count == 0)
+                    continue;
+                var (u0, v0, u1, v1) = (points.Min(p => p.U), points.Min(p => p.V), points.Max(p => p.U), points.Max(p => p.V));
+                svg.Append($"<rect data-ref=\"{Escape(shape.Ref)}\" data-state=\"{Escape(shape.State ?? string.Empty)}\" data-area=\"{F(shape.Area, "0.#")}\" data-box=\"外接框\" x=\"{F(u0, "0.#")}\" y=\"{F(v0, "0.#")}\" width=\"{F(u1 - u0, "0.#")}\" height=\"{F(v1 - v0, "0.#")}\" fill=\"{shape.Fill}\" fill-opacity=\"0.45\"/>");
             }
 
-            svg.Append("</g>");
+            svg.Append("</g></svg></g>");
         }
 
         return svg.Append("</svg>").ToString();
     }
 
+    /// <summary>
+    /// 回执里放文字还是放图（用户定：截面一般放进回执，文字比 PNG 省就只给文字）。
+    /// 文字按 token 估：ASCII 约 3 字符一个（坐标数字切得碎），其余一字一个；PNG 按图片计费 宽 × 高 / 750。
+    /// </summary>
+    public static (int Text, int Image) Cost(string svg, int panels)
+    {
+        var ascii = svg.Count(c => c < 128);
+        var (width, height) = SheetSize(panels);
+        return ((ascii + 2) / 3 + (svg.Length - ascii), width * height / 750);
+    }
+
+    public const string Ink = "#38352F", Blue = "#2F6FB0";
+
     private static string Fill(ContactPair pair, double tol)
         => Math.Abs(pair.Gap) <= tol ? "#D9822B" : pair.Gap > 0 ? "#8C8C8C" : "#C0392B";
+
+    private static IReadOnlyList<(double U, double V)> Box(double u0, double v0, double u1, double v1)
+        => [(u0, v0), (u1, v0), (u1, v1), (u0, v1)];
+
+    /// <summary>轮廓去共线点（偏离不到 0.05 mm）、坐标取 0.1 mm，三角面片的直边上常有一串中间点。</summary>
+    public static IReadOnlyList<IReadOnlyList<(double U, double V)>> Simplify(IReadOnlyList<IReadOnlyList<(double U, double V)>> loops)
+    {
+        var result = new List<IReadOnlyList<(double U, double V)>>();
+        foreach (var loop in loops)
+        {
+            var points = loop.Select(p => (U: Math.Round(p.U, 1), V: Math.Round(p.V, 1))).ToList();
+            var changed = true;
+            while (changed && points.Count > 3)
+            {
+                changed = false;
+                for (var i = 0; i < points.Count && points.Count > 3; i++)
+                {
+                    var a = points[(i + points.Count - 1) % points.Count];
+                    var b = points[i];
+                    var c = points[(i + 1) % points.Count];
+                    var length = Math.Sqrt((c.U - a.U) * (c.U - a.U) + (c.V - a.V) * (c.V - a.V));
+                    var off = length < 1e-9 ? 0 : Math.Abs(Side(a, c, b)) / length;
+                    if (off < 0.05 || (b.U == a.U && b.V == a.V))
+                    {
+                        points.RemoveAt(i);
+                        changed = true;
+                        i--;
+                    }
+                }
+            }
+
+            if (points.Count >= 2)
+                result.Add(points);
+        }
+
+        return result;
+    }
 
     private static string Path(IEnumerable<IReadOnlyList<(double U, double V)>> loops)
     {
@@ -508,11 +585,11 @@ internal static class ContactPlanner
         foreach (var loop in loops)
         {
             for (var i = 0; i < loop.Count; i++)
-                d.Append(i == 0 ? 'M' : 'L').Append(F(loop[i].U)).Append(',').Append(F(loop[i].V)).Append(' ');
-            d.Append("Z ");
+                d.Append(i == 0 ? 'M' : 'L').Append(F(loop[i].U, "0.#")).Append(',').Append(F(loop[i].V, "0.#"));
+            d.Append('Z');
         }
 
-        return d.ToString().TrimEnd();
+        return d.ToString();
     }
 
     private static string Escape(string text) => text.Replace("&", "&amp;").Replace("<", "&lt;").Replace("\"", "&quot;");
@@ -523,3 +600,9 @@ internal static class ContactPlanner
         return text == "-0" ? "0" : text;
     }
 }
+
+/// <summary>截面里的一个图形：线框（<see cref="Stroke"/>）或填色的重叠区（<see cref="Fill"/>，带面积），坐标是截面 mm。</summary>
+internal sealed record SectionShape(string Ref, string? State, IReadOnlyList<IReadOnlyList<(double U, double V)>> Loops, string? Stroke, double Width, string? Fill, double Area);
+
+/// <summary>一个接触对象的截面块：标题、横竖轴名、取景范围（截面 mm）、图形。</summary>
+internal sealed record SectionPanel(string Id, string Title, string UName, string VName, (double MinU, double MinV, double MaxU, double MaxV) View, IReadOnlyList<SectionShape> Shapes);

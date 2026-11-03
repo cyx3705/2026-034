@@ -9,7 +9,7 @@ namespace HistoryStrenua;
 /// <remarks>
 /// 接触判定在 <see cref="ContactPlanner"/>（平面对平面、孔对轴，按三角面片求重叠）；干涉沿用 <see cref="AsmInterference.Scan"/>。
 /// 差一点没贴上的（<c>near</c> 内）也报，摆位错 0.5 mm 这种最常见的问题靠它看出来；包围盒挨着却一个接触面都没有的零部件单列。
-/// 回执的 [F序号 ↔ 零部件@F序号] 直接给 <c>strenua.asm.mate</c>。截面 SVG 存模块数据目录 snapshots，<c>svg=是</c> 才接在回执后面。
+/// 回执的 [F序号 ↔ 零部件@F序号] 直接给 <c>strenua.asm.mate</c>。截面一律进回执（用户定）：化简后的 SVG 文字比 PNG 省就接 SVG 原文，否则画 PNG 给路径（<see cref="ContactPlanner.Cost"/>）。
 /// </remarks>
 internal static class AsmContact
 {
@@ -20,7 +20,7 @@ internal static class AsmContact
         Summary: "查活动总装里一个零部件和别的零部件的干涉区与接触面：每个接触面一个对象（平面 / 孔轴），写清贴合、差多少没贴上、重叠多大在哪，附截面 SVG。",
         Usage: "「零部件」填零部件列表的 name（子装配里的写「子装配-1/零件-1」，填子装配就查它整体）。「对象」写名字片段只看这些对方；"
                + "「范围」差多少 mm 以内的也报（默认 1）；「允差」以内算贴合（默认 0.05）。回执里的 [F12 ↔ 型材-1@F3] 是两边的面，直接给 strenua.asm.mate。"
-               + "截面 SVG 存到模块数据目录 snapshots，svg=是 时接在回执后面。只读，不改总装。",
+               + "截面随回执给：文字版（SVG）比图省就直接接在回执后面，否则给 PNG 路径（模块数据目录 snapshots），SVG 文件也一并存着。只读，不改总装。",
         Run: QuickCommand.Unbound,
         Parameters:
         [
@@ -28,7 +28,6 @@ internal static class AsmContact
             new QuickParameter("with", "对象", "对方名字片段，逗号分开；省略看全部", false, 1),
             new QuickParameter("near", "范围", "差多少 mm 以内也报，默认 1", false, 1),
             new QuickParameter("tol", "允差", "多少 mm 以内算贴合，默认 0.05", false, 1),
-            new QuickParameter("svg", "截面", "是 / 否（默认）：SVG 接在回执后面", false, 1),
         ],
         Example: StrenuaIdentity.Domain + ".asm.contact name=AHS10-H4040-L700-1 near=2",
         Bind: arguments =>
@@ -39,8 +38,7 @@ internal static class AsmContact
             var tol = Positive(arguments, "tol", 0.05);
             if (tol > near)
                 throw new QuickArgumentException($"tol={tol} 比 near={near} 还大。");
-            var svg = QuickArgs.Optional(arguments, "svg") is not null && QuickArgs.Flag(arguments, "svg");
-            return context => Check(context, name, with, near, tol, svg);
+            return context => Check(context, name, with, near, tol);
         },
         Readonly: true,
         SelfReport: true);
@@ -57,7 +55,7 @@ internal static class AsmContact
             : throw new QuickArgumentException($"{parameter}={text} 要写大于 0 的数（mm）。");
     }
 
-    private static QuickOutcome Check(QuickCommandContext context, string name, IReadOnlyList<string> with, double near, double tol, bool withSvg)
+    private static QuickOutcome Check(QuickCommandContext context, string name, IReadOnlyList<string> with, double near, double tol)
     {
         var api = context.Api;
         var assembly = ModelAccess.ActiveAssembly(context);
@@ -97,7 +95,8 @@ internal static class AsmContact
         var (interferences, touching) = AsmInterference.Scan(context, assembly, names => !names.Any(mineNames.Contains) || !names.Where(n => !mineNames.Contains(n)).Any(Wanted));
         var groups = ContactPlanner.Group(pairs, tol);
         var title = api.CallString(assembly, "IModelDoc2", "GetTitle");
-        var svg = ContactPlanner.Svg($"{title} · {name}", groups, tol);
+        var panels = ContactPlanner.Panels(groups, tol);
+        var svg = ContactPlanner.Svg($"{title} · {name}", panels);
         var file = DrawingSvg.Save(context, name + "-接触面", svg);
 
         var touchingParts = groups.SelectMany(group => group.Pairs).Select(pair => pair.Other.Owner).Distinct().ToList();
@@ -132,9 +131,14 @@ internal static class AsmContact
             text.AppendLine($"包围盒挨着、却没有接触面也不干涉：{string.Join("、", lonely.Take(20).Select(AsmInterference.Short))}{(lonely.Count > 20 ? "…" : string.Empty)}");
         if (groups.Count == 0 && interferences.Count == 0)
             text.AppendLine($"「{name}」{ModelSpec.Format(near)} mm 内没有挨着任何零部件的面：悬空，或只靠别的曲面接触。");
-        text.Append($"截面 SVG：{file}");
-        if (withSvg)
-            text.AppendLine().Append(svg);
+        if (panels.Count > 0)
+        {
+            var (textCost, imageCost) = ContactPlanner.Cost(svg, panels.Count);
+            if (textCost <= imageCost)
+                text.AppendLine($"截面（SVG 文字约 {textCost} token，比图省；重叠区只画外接框，实际面积见 data-area）：").Append(svg);
+            else
+                text.Append($"截面图（PNG，文字版约 {textCost} token 比图的约 {imageCost} 贵，给图）：{SectionPng.Save(context, name + "-接触面", panels)}；SVG：{file}");
+        }
 
         var rows = groups.SelectMany(group => group.Pairs.Select(pair => new Dictionary<string, string>
         {

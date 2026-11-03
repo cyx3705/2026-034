@@ -98,10 +98,20 @@ internal static partial class Tests
 
         var top = Square("型材-1", 7, new Vec3(0, 1, 0), 145, -20, -20, 20, 20);
         var pair = ContactPlanner.Match(top, Square("底板-1", 3, new Vec3(0, -1, 0), 145, 0, -20, 60, 20), 1, 0.05)!;
-        var svg = ContactPlanner.Svg("总装 · 型材-1", ContactPlanner.Group([pair], 0.05), 0.05);
+        var panels = ContactPlanner.Panels(ContactPlanner.Group([pair], 0.05), 0.05);
+        var svg = ContactPlanner.Svg("总装 · 型材-1", panels);
         True(svg.StartsWith("<svg") && svg.EndsWith("</svg>"), "SVG 首尾");
-        True(svg.Contains("id=\"P1\"") && svg.Contains("data-ref=\"底板-1@F3\"") && svg.Contains("data-state=\"贴合\""), svg);
+        True(svg.Contains("id=\"P1\"") && svg.Contains("data-ref=\"底板-1@F3\"") && svg.Contains("data-state=\"贴合\"") && svg.Contains("data-area=\"800\""), svg);
         True(System.Xml.Linq.XDocument.Parse(svg).Root is not null, "SVG 是合法 XML");
+
+        // 化简：直边上的中间点去掉；简单截面文字比图省，PNG 尺寸与版式一致。
+        var simple = ContactPlanner.Simplify([[(0, 0), (5, 0), (10, 0), (10, 10), (5, 10.01), (0, 10)]]);
+        Equal(4, simple[0].Count);
+        var (text, image) = ContactPlanner.Cost(svg, panels.Count);
+        True(text < image, $"一块简单截面文字 {text} 应比图 {image} 省");
+        True(ContactPlanner.Cost(new string('1', 30000), 1).Text > image, "很长的文字比图贵");
+        using var png = SectionPng.Draw(panels);
+        Equal((900, 280), (png.Width, png.Height));
     }
 
     static void TestMateSpec()

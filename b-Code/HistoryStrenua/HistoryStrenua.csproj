@@ -30,6 +30,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- 接触面截面出 PNG 用系统 GDI+（宿主本来就跑在 WindowsDesktop 运行时上，不带任何包；不开 UseWindowsForms，免得隐式 using 撞名）。 -->
+    <FrameworkReference Include="Microsoft.WindowsDesktop.App.WindowsForms" />
+  </ItemGroup>
+
+  <ItemGroup>
     <None Update="module.manifest.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

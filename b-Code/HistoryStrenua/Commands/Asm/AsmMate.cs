@@ -112,7 +112,10 @@ internal static class AsmMate
         api.ClearSelection(assembly);
         Select(api, assembly, a, componentA, false);
         Select(api, assembly, b, componentB, true);
-        object?[] args = [type, align, flip, type == 5 ? value / 1000 : 0.0, 0.0, 0.0, 1.0, 1.0, type == 6 ? value * Math.PI / 180 : 0.0, 0.0, 0.0, false, false, 0, 0];
+        // 普通（非限位）距离 / 角度配合：上下限都填同一个值，填 0 会被当成限位、报过定义（真机）。
+        var distance = type == 5 ? value / 1000 : 0.0;
+        var angle = type == 6 ? value * Math.PI / 180 : 0.0;
+        object?[] args = [type, align, flip, distance, distance, distance, 1.0, 1.0, angle, angle, angle, false, false, 0, 0];
         var mate = api.Call(assembly, "IAssemblyDoc", "AddMate5", args);
         var error = Convert.ToInt32(args[14]);
         api.ClearSelection(assembly);

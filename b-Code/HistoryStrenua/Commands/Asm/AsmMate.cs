@@ -119,6 +119,9 @@ internal static class AsmMate
         var what = $"{typeName} {a} ↔ {b}{(type is 5 or 6 ? $" = {ModelSpec.Format(value)}{(type == 5 ? " mm" : "°")}" : string.Empty)}";
         if (mate is null || error != 1)
         {
+            // 真机：过定义时 AddMate5 报错码 5，却照样在配合文件夹里留下一个出错的配合，要删掉。
+            if (mate is not null)
+                DeleteMate(api, assembly, mate);
             Restore(context, assembly, moving, axes, origin, wasFixed);
             return QuickOutcome.Fail($"加配合：{what} 没加上——{MateSpec.Error(error)}。「{movingName}」已退回原样。");
         }

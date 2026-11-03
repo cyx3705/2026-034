@@ -11,7 +11,7 @@ namespace HistoryStrenua;
 /// 两条同时跑，一条的 ClearSelection 会把另一条正在等的视图选择清掉。
 /// </remarks>
 /// <param name="options">页面开关与默认技术要求。</param>
-/// <param name="bus">命令总线：指令经它调别的模块（如 HistoryApollo）；离线测试为 null。</param>
+/// <param name="bus">命令总线：指令经它调别的模块（如 Ratio）；离线测试为 null。</param>
 /// <param name="stepFeedback">AI 调用的改图指令外面包的回执反馈（模块入口给 <see cref="StepFeedback.Wrap"/>）；离线测试为 null。</param>
 internal sealed class QuickCommandRunner(StrenuaOptions options, ICommandBus? bus = null,
     Func<Func<QuickCommandContext, QuickOutcome>, Func<QuickCommandContext, QuickOutcome>>? stepFeedback = null)

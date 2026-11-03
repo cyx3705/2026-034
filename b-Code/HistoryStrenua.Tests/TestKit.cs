@@ -134,7 +134,7 @@ internal static partial class Tests
         ("prop: slots from the file name", TestPropertySlots),
         ("prop: date and material inputs", TestPropertyInputs),
         ("prop: defaults persist and show on the page", TestPropertyDefaults),
-        ("tech ai: apollo command line and receipt", TestTechAiCommand),
+        ("tech ai: ratio command line and receipt", TestTechAiCommand),
         ("feedback: errors name the SolidWorks call and the step (1.24.0)", TestQuickError),
         ("feedback: callout leaders too long or crossing (1.24.0)", TestLeaders),
         ("feedback: svg leaders and center mark boxes (1.24.0)", TestSvgLeaders),

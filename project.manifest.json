@@ -15,7 +15,7 @@
       "appshell-module"
     ],
     "status": "active",
-    "version": "1.38.0",
+    "version": "1.38.1",
     "branch": "main"
   },
   "paths": {
@@ -62,7 +62,7 @@
     ".NET 8 SDK 与 Windows Desktop Runtime（目标框架 net8.0-windows）",
     "SolidWorks 2025 SP5 COM 自动化（运行时从安装目录 api\\redist 加载官方 Interop；构建不需要）",
     "HistoryAurora（可选）：PowerSW 页面由它按描述协议渲染；没有它指令照样能在控制台执行",
-    "HistoryApollo 0.5.0+（可选）：「AI 填写技术要求」经总线调 apollo.chat.ask images=（识图供应商要配密钥）；没有它这一条失败、其余照常"
+    "Ratio 0.6.0+（可选）：「AI 填写技术要求」经总线调 ratio.chat.ask images=（识图供应商要配密钥）；没有它这一条失败、其余照常"
   ],
   "contextExclusions": [
     "z-Publish/**",

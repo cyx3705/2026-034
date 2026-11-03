@@ -42,7 +42,7 @@ internal sealed class QuickCommandContext(
     public void SetState(string state) => setState(state);
 
     /// <summary>
-    /// 经命令总线安静执行一条别的模块的指令（1.14.0，调 HistoryApollo）并等它回来。在 SolidWorks 的 STA 线程上阻塞等待：
+    /// 经命令总线安静执行一条别的模块的指令（1.14.0，调 Ratio）并等它回来。在 SolidWorks 的 STA 线程上阻塞等待：
     /// 这条线程没有同步上下文，总线的续体落在线程池，不会互等；等待期间不碰 SolidWorks。没有总线（离线测试）时回失败回执。
     /// </summary>
     public CommandResult Invoke(string commandText)

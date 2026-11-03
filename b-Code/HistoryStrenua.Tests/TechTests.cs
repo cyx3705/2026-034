@@ -86,16 +86,16 @@ internal static partial class Tests
         Equal(4, guarded.Dropped);
         foreach (var unsupported in new[] { "未注倒角C0.5；", "所有孔位为冲压成型，不得钻削加工；", "材料去应力退火；" })
             Equal(1, TechAiEdit.Apply(TechItems.Empty, [], [(0, unsupported)]).Dropped);
-        // 经总线发给 Apollo 的那一行：解析回来参数原样（引号、换行、等号都编码过），带图片走识图供应商。
+        // 经总线发给 Ratio 的那一行：解析回来参数原样（引号、换行、等号都编码过），带图片走识图供应商。
         var system = "只输出 JSON：{\"base\": \"…\"}";
         var prompt = "候选：[\"机加件-钢材\"]。\n图纸信息 JSON：{\"图纸\":{\"比例\":\"1:2\"}}";
         var image = @"C:\Users\x\AppData\Roaming\HistoryVulcan\ModuleData\HistoryStrenua\snapshots\零件 1-20261006.png";
         var parsed = CommandParser.Parse(TechAi.BuildCommand(system, prompt, image));
-        Equal("apollo.chat.ask", parsed.Name);
+        Equal("ratio.chat.ask", parsed.Name);
         Equal(image, parsed.Named["images"]);
         Equal(system, parsed.Named["system"]);
         Equal(prompt.Replace("\n", " "), parsed.Named["prompt"]);
-        True(!parsed.Named.ContainsKey("provider"), "不写 provider：带图片时 Apollo 自己走识图供应商");
+        True(!parsed.Named.ContainsKey("provider"), "不写 provider：带图片时 Ratio 自己走识图供应商");
         Equal("module:HistoryStrenua", StrenuaIdentity.CommandSource);
 
         // 回执说明：选择的基础与删除项。

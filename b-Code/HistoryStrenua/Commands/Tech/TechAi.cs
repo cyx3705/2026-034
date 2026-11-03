@@ -8,14 +8,14 @@ namespace HistoryStrenua;
 /// 快捷指令「AI 填写技术要求」：AI 看当前图纸，从「通用技术要求」里选一份，只删除不适用的条目后插进图框。
 /// </summary>
 /// <remarks>
-/// <para>两问，都经命令总线调 HistoryApollo 的 <c>apollo.chat.ask</c>（模块统一接口，本模块不引用 Apollo 的程序集）：</para>
+/// <para>两问，都经命令总线调 Ratio 的 <c>ratio.chat.ask</c>（模块统一接口，本模块不引用 Ratio 的程序集）：</para>
 /// <list type="number">
 /// <item>选基础——输入：图纸截图、候选模板标题、图纸基本信息 JSON（<see cref="TechAiInfo"/>）；输出：哪份模板，或 null。</item>
 /// <item>删减——输入：截图、基础的各条（带编号）、同一份 JSON；输出：删除哪些条目（<see cref="TechAiEdit"/>，有上限）。</item>
 /// </list>
-/// <para>截图附在 <c>images=</c> 上：Apollo 0.5.0 起带图片的请求自动走识图供应商（DeepSeek 看不到图，见 Apollo 的现行约定）。
+/// <para>截图附在 <c>images=</c> 上：Apollo（Ratio 前身）0.5.0 起带图片的请求自动走识图供应商（DeepSeek 看不到图，见 Ratio 的现行约定）。
 /// 用 <c>InvokeAsync</c>（安静执行）而不是 <c>ExecuteAsync</c>：提示词里整段 JSON 回显进控制台没人看得下去；
-/// 模型怎么答的由 Apollo 自己逐轮写进控制台（它的进度通道在嵌套调用里也有），这里不复述。</para>
+/// 模型怎么答的由 Ratio 自己逐轮写进控制台（它的进度通道在嵌套调用里也有），这里不复述。</para>
 /// <para>页面「AI 填写技术要求」开关开着时，别处插技术要求也走这里：模板表格点哪一份都由 AI 重新选基础（用户选的），
 /// 「一键出图」的技术要求一步也是。那两处 AI 没成（没配密钥、断网、答非所问）就退回原来那份模板，回执里说明——
 /// 按钮本身没有可退的，直接失败。</para>
@@ -28,9 +28,9 @@ internal static class TechAi
         // 按钮上的字（用户定「写入」）；做的事见 Summary：AI 填写技术要求。
         Title: "写入",
         Summary: "AI 填写技术要求：看当前工程图选择一份「通用技术要求」，只删除不适用的条目，插到标题栏上方或左侧（换掉原有的）。",
-        Usage: "切到要加技术要求的工程图再按：先把当前图纸页截一张图，连同图纸信息（材料、属性、特征类型、图幅比例）和模板标题交给 AI（经 HistoryApollo 的识图供应商）选基础；"
+        Usage: "切到要加技术要求的工程图再按：先把当前图纸页截一张图，连同图纸信息（材料、属性、特征类型、图幅比例）和模板标题交给 AI（经 Ratio 的识图供应商）选基础；"
             + $"再让 AI 按这张图最多删除 {TechAiEdit.MaxDelete} 条；不能添加或修改条目。"
-            + "插的位置与换法同模板表格：标题栏上方或左侧，图框里已有技术要求就删掉换上。AI 的思考与答复逐轮进控制台。需要先在 HistoryApollo 配好识图供应商密钥（apollo.key.set provider=qwen token=…）。"
+            + "插的位置与换法同模板表格：标题栏上方或左侧，图框里已有技术要求就删掉换上。AI 的思考与答复逐轮进控制台。需要先在 Ratio 配好识图供应商密钥（ratio.key.set provider=qwen token=…）。"
             + "下面开关「AI 填写技术要求」开着时，模板表格与一键类插技术要求也走这条。",
         Run: context => Run(context));
 
@@ -108,7 +108,7 @@ internal static class TechAi
         var names = templates.Select(template => template.Name).ToList();
         var choose = Ask(context, ChooseSystem, $"候选技术要求标题：{JsonSerializer.Serialize(names, Json)}。图纸基本信息 JSON：{info}", image);
         if (!choose.Success)
-            return (null, "选基础时 Apollo 失败：" + FirstLine(choose.Message));
+            return (null, "选基础时 Ratio 失败：" + FirstLine(choose.Message));
         var (valid, baseName, chooseReason) = TechAiEdit.ReadChoice(choose.Message, names);
         if (!valid)
             return (null, baseName is null ? "AI 选基础的答复读不出 {\"base\": …}：" + Clip(choose.Message) : $"AI 选的「{baseName}」不在模板里");
@@ -123,7 +123,7 @@ internal static class TechAi
         context.SetState("AI 删减");
         var edit = Ask(context, EditSystem, $"基础技术要求「{template.Name}」（编号：正文）：{JsonSerializer.Serialize(TechAiEdit.Numbered(based), Json)}。图纸基本信息 JSON：{info}", image);
         if (!edit.Success)
-            return (null, "删减时 Apollo 失败：" + FirstLine(edit.Message));
+            return (null, "删减时 Ratio 失败：" + FirstLine(edit.Message));
         if (TechAiEdit.ReadEdit(edit.Message, based) is not { } read)
             return (null, "AI 删减的答复读不出 JSON：" + Clip(edit.Message));
 
@@ -157,7 +157,7 @@ internal static class TechAi
 
     /// <summary>发给总线的那一行：参数值一律经 <see cref="CommandParser.QuoteArg"/> 编码。</summary>
     internal static string BuildCommand(string system, string prompt, string image)
-        => $"apollo.chat.ask maxtokens=1500 temperature=0.2 timeout={TimeoutSeconds}"
+        => $"ratio.chat.ask maxtokens=1500 temperature=0.2 timeout={TimeoutSeconds}"
            + " images=" + CommandParser.QuoteArg(image)
            + " system=" + CommandParser.QuoteArg(system)
            + " prompt=" + CommandParser.QuoteArg(prompt.Replace("\r", " ").Replace("\n", " "));

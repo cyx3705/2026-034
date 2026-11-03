@@ -39,7 +39,8 @@ internal static class DimEdit
         var view = QuickArgs.Name(arguments, "view");
         var name = QuickArgs.Name(arguments, "name");
         var prefix = QuickArgs.Text(arguments, "prefix");
-        var suffix = QuickArgs.Text(arguments, "suffix");
+        // 参数会被修剪，后缀前补回一个空格（SolidWorks 自己写的是「 贯穿」），否则接在数值后面粘成「6.60贯穿」。
+        var suffix = QuickArgs.Text(arguments, "suffix") is { Length: > 0 } text ? " " + text : QuickArgs.Text(arguments, "suffix");
         var below = QuickArgs.Text(arguments, "below");
         var tolText = QuickArgs.Optional(arguments, "tol");
         var tolerance = tolText is not null;

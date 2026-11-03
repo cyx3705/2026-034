@@ -123,9 +123,30 @@ internal static class ModelSketch
 
         var sketch = api.Call(part, "IModelDoc2", "FeatureByPositionReverse", 0);
         var name = sketch is null ? "?" : api.CallString(sketch, "IFeature", "get_Name");
+        if (face is not null && sketch is not null && SketchAxes(api, sketch) is { } axes)
+            where = $"表面 {ModelAccess.Format(face.Value)}（{axes}）";
         api.ClearSelection(part);
         var message = $"画草图：在{where}上画了 {drawn}/{shapes.Count} 个图形，草图「{name}」。下一步 strenua.model.extrude sketch={name}。";
         return drawn == shapes.Count ? QuickOutcome.Ok(message) : QuickOutcome.Fail(message + " 有图形没画上（尺寸太小或重叠）。");
+    }
+
+    /// <summary>
+    /// 表面草图的坐标轴在零件里朝哪、原点在哪：草图的 <c>ModelToSketchTransform</c> 取逆，前 9 个数是草图 x、y、z 轴的方向，接着是原点（米）。
+    /// </summary>
+    private static string? SketchAxes(SolidWorksApi api, object feature)
+    {
+        if (api.Call(feature, "IFeature", "GetSpecificFeature2") is not { } sketch
+            || api.Call(sketch, "ISketch", "get_ModelToSketchTransform") is not { } transform
+            || api.Call(transform, "IMathTransform", "Inverse") is not { } inverse
+            || api.CallDoubles(inverse, "IMathTransform", "get_ArrayData") is not { Length: >= 12 } data)
+            return null;
+        var rows = new double[3, 3];
+        for (var i = 0; i < 9; i++)
+            rows[i / 3, i % 3] = Math.Round(data[i], 6);
+        var names = ModelSpec.AxesText(rows).Split(',');
+        return names.Length == 3
+            ? $"草图 x = 零件 {names[0]}，草图 y = 零件 {names[1]}，拉伸朝 {names[2]}，草图原点在零件 {ModelAccess.Format((data[9] * 1000, data[10] * 1000, data[11] * 1000))}"
+            : null;
     }
 
     /// <summary>基准面特征：标准三面按特征树里前三个基准面认（不认名字，中英文 SolidWorks 都行），其余按名字。</summary>

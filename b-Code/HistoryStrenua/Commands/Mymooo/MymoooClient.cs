@@ -9,6 +9,8 @@ namespace HistoryStrenua;
 /// <remarks>
 /// 回包多数是 <c>{code, isSuccess, message, data}</c>，<c>api/product/search</c> 直接是分页对象。
 /// 分类树一小时内只取一次（7 万字、很少变）。网络错与业务失败都抛 <see cref="QuickCommandException"/>，回执里写清是哪一步。
+/// <para>1.38.0：<b>不走系统代理</b>。蚂蚁工场是国内站，真机经本机代理（127.0.0.1:7890）转发时 CONNECT 通了却一直不回，
+/// 「选型」一步卡了两分多钟（直连 0.4 秒）。查询类请求每次最多等 <see cref="QueryTimeout"/>、超时重试一次；只有下载 3D 用总的长超时。</para>
 /// </remarks>
 internal static class MymoooClient
 {
@@ -21,7 +23,8 @@ internal static class MymoooClient
 
     private static HttpClient CreateClient()
     {
-        var client = new HttpClient { BaseAddress = new Uri(Base), Timeout = TimeSpan.FromMinutes(12) };
+        var handler = new SocketsHttpHandler { UseProxy = false, ConnectTimeout = TimeSpan.FromSeconds(15) };
+        var client = new HttpClient(handler) { BaseAddress = new Uri(Base), Timeout = TimeSpan.FromMinutes(12) };
         // 插件的请求头；服务器不认登录，但按它的样子来最稳。
         client.DefaultRequestHeaders.UserAgent.ParseAdd("SolidWorksPlug");
         return client;
@@ -88,7 +91,28 @@ internal static class MymoooClient
     private static Task<JsonNode> PostAsync(string path, JsonNode? body, string step, CancellationToken cancellation, bool envelope = true)
         => SendAsync(HttpMethod.Post, path, body, step, cancellation, envelope);
 
+    /// <summary>查询类请求（选型、分类、取 3D 订单）一次最多等多久。</summary>
+    internal static readonly TimeSpan QueryTimeout = TimeSpan.FromSeconds(30);
+
     private static async Task<JsonNode> SendAsync(HttpMethod method, string path, JsonNode? body, string step, CancellationToken cancellation, bool envelope)
+    {
+        for (var attempt = 1; ; attempt++)
+        {
+            using var limit = CancellationTokenSource.CreateLinkedTokenSource(cancellation);
+            limit.CancelAfter(QueryTimeout);
+            try
+            {
+                return await SendOnceAsync(method, path, body, step, limit.Token, envelope).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (!cancellation.IsCancellationRequested)
+            {
+                if (attempt >= 2)
+                    throw new QuickCommandException($"蚂蚁工场{step}：连续两次 {QueryTimeout.TotalSeconds:0} 秒没回（网络不通？）。");
+            }
+        }
+    }
+
+    private static async Task<JsonNode> SendOnceAsync(HttpMethod method, string path, JsonNode? body, string step, CancellationToken cancellation, bool envelope)
     {
         using var request = new HttpRequestMessage(method, path)
         {
@@ -107,10 +131,6 @@ internal static class MymoooClient
         catch (HttpRequestException ex)
         {
             throw new QuickCommandException($"蚂蚁工场{step}：连不上 {Base}（{ex.Message}）。");
-        }
-        catch (TaskCanceledException) when (!cancellation.IsCancellationRequested)
-        {
-            throw new QuickCommandException($"蚂蚁工场{step}：超时。");
         }
 
         var node = JsonNode.Parse(text) ?? throw new QuickCommandException($"蚂蚁工场{step}：回包是空的。");

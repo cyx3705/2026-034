@@ -117,6 +117,29 @@ internal static class AsmComponents
         },
         SelfReport: true);
 
+    public static QuickCommand SaveCommand { get; } = new(
+        Key: "asm-save",
+        CommandName: StrenuaIdentity.Domain + ".asm.save",
+        Title: "保存总装",
+        Summary: "把活动总装存回原处（不另存、不存它引用的零件）；读回核对未保存标记已清。",
+        Usage: "不带参数。只存装配类指令改过的总装（doc.save 只存工程图，零件和总装不替用户存——这条是明说要存时用的）。新建没存过的总装存不了，先在 SolidWorks 里另存。",
+        Run: Save,
+        SelfReport: true);
+
+    private static QuickOutcome Save(QuickCommandContext context)
+    {
+        var api = context.Api;
+        var assembly = ModelAccess.ActiveAssembly(context);
+        var path = api.CallString(assembly, "IModelDoc2", "GetPathName");
+        if (path.Length == 0)
+            return QuickOutcome.Fail($"保存总装：「{api.CallString(assembly, "IModelDoc2", "GetTitle")}」还没存过，没有原处可存，先在 SolidWorks 里另存。");
+        object?[] args = [SwConst.SaveSilent, 0, 0];
+        var saved = api.CallBool(assembly, "IModelDoc2", "Save3", args);
+        return saved && !api.CallBool(assembly, "IModelDoc2", "GetSaveFlag")
+            ? QuickOutcome.Ok($"保存总装：已存 {path}。")
+            : QuickOutcome.Fail($"保存总装：没存上 {path}（错误码 {args[1]}、警告 {args[2]}）。");
+    }
+
     private const int OpenSilent = 1;
 
     private static QuickOutcome List(QuickCommandContext context)

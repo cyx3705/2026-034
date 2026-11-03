@@ -99,6 +99,7 @@ internal static partial class Tests
             "strenua.asm.insert",
             "strenua.asm.move",
             "strenua.asm.delete",
+            "strenua.asm.save",
             "strenua.asm.interference",
             "strenua.asm.contact",
             "strenua.asm.mate",

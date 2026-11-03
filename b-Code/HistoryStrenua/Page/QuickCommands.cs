@@ -76,6 +76,7 @@ internal static class QuickCommands
         AsmComponents.InsertCommand,
         AsmComponents.MoveCommand,
         AsmComponents.DeleteCommand,
+        AsmComponents.SaveCommand,
         AsmInterference.Command,
         AsmContact.Command,
         AsmMate.MateCommand,

@@ -7,7 +7,7 @@ namespace HistoryStrenua;
 /// </summary>
 /// <remarks>
 /// 贴合面不算干涉（<c>TreatCoincidenceAsInterference=false</c>）；子装配拆到零件比（模组内部的问题也会报，厂家模型常有，回执按体积排序，
-/// 用 <c>ignore=</c> 排除名字含某段的）。干涉区某一向厚度不到 0.01 mm 的是贴合面（真机 2026-043：型材顶面压模组底面，SolidWorks 仍报 516 mm³），
+/// 用 <c>ignore=</c> 排除名字含某段的）。干涉区某一向厚度不到 0.1 mm 的是贴合面（真机 2026-043：型材顶面压模组底面，导入模型差 0.03 mm，SolidWorks 报 516 mm³），
 /// 只计数不列。螺纹件（脚杯、螺钉）在模型里常是实体螺杆插进底孔，也会报，属正常。
 /// </remarks>
 internal static class AsmInterference
@@ -32,7 +32,7 @@ internal static class AsmInterference
     private const int Shown = 40;
 
     /// <summary>干涉区某一向厚度小于它（mm）就是贴合面。</summary>
-    private const double Flat = 0.01;
+    private const double Flat = 0.1;
 
     private static QuickOutcome Check(QuickCommandContext context, IReadOnlyList<string> ignore)
     {

@@ -6,8 +6,12 @@ using HistoryVulcan.Core.Commands;
 namespace HistoryStrenua;
 
 /// <summary>
-/// 笔记区（1.28.0，用户定）：AI 出图时的细节调整与反思，按页面上的类分区记下来，经 MCP 的每条回执最上面都带「通用 + 本类」两区，下次干活先看到。
+/// 笔记区（1.28.0，用户定）：按页面上的类分区记下来，经 MCP 的每条回执最上面都带「通用 + 本类」两区，下次干活先看到。
 /// </summary>
+/// <remarks>
+/// 1.38.0（用户定：笔记只记指令本身很少的注意点，不记项目内容）：每条不超过 <see cref="NoteLimit"/> 字、每区不超过 <see cref="AreaLimit"/> 条，超了直接拒，
+/// 逼着写成「哪条指令、什么情况、怎么做」一句话；某个零件、某张图的事写进项目自己的文档，不进这里。
+/// </remarks>
 /// <remarks>
 /// 写入走 <c>strenua.note.write</c>，存模块数据目录的 <see cref="FileName"/>，不碰 SolidWorks（没开 SW 也能记）。
 /// 人点按钮的回执不带笔记：笔记是写给 AI 的，控制台里每条都带只是噪声。
@@ -20,8 +24,11 @@ internal sealed class WorkNotes(string? directory)
     /// <summary>不属于哪一类的笔记。</summary>
     public const string Common = "common";
 
-    /// <summary>回执上方笔记超过这么多字，写入时提醒合并（只提醒，不拦）。</summary>
-    internal const int SectionBudget = 3000;
+    /// <summary>一条笔记最多几个字。</summary>
+    internal const int NoteLimit = 100;
+
+    /// <summary>一个分区最多几条。</summary>
+    internal const int AreaLimit = 6;
 
     private static readonly JsonSerializerOptions Format = new()
     {
@@ -62,6 +69,10 @@ internal sealed class WorkNotes(string? directory)
             var notes = Load();
             if (!notes.TryGetValue(area, out var list))
                 notes[area] = list = [];
+            if (!text.Equals(QuickArgs.None, StringComparison.OrdinalIgnoreCase) && text.Length > NoteLimit)
+                return $"一条笔记不超过 {NoteLimit} 字（这条 {text.Length} 字）：只写哪条指令、什么情况、怎么做；项目和图纸的细节不记在这里。";
+            if (replace is null && list.Count >= AreaLimit)
+                return $"{Title(area)}区已有 {list.Count} 条（上限 {AreaLimit}）：先用 replace= 合并或删掉旧的。";
             if (replace is { } number)
             {
                 if (number < 1 || number > list.Count)

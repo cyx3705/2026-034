@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json.Nodes;
+using HistoryStrenua.SolidWorks;
 
 namespace HistoryStrenua;
 
@@ -9,7 +10,7 @@ namespace HistoryStrenua;
 /// <remarks>
 /// 文件放总装目录下的「外购件」子文件夹（用户定，同 HistoryMinerva 外购件的去处），以料号命名；同料号已有就直接复用、不重下。
 /// STP 用 <c>LoadFile4</c> 导入后另存为 SolidWorks 文件（导入出零件存 .SLDPRT、出装配体存 .SLDASM），STP 本身下在临时目录、用完删。
-/// 插在总装原点，不加配合；不存总装（同模块「不替用户保存」）。
+/// 1.38.0：按零件原点插（AddComponent5 给的是包围盒中心），可给 at / axes 直接摆好并固定；不加配合；不存总装（同模块「不替用户保存」）。
 /// </remarks>
 internal static class MymoooInsert
 {
@@ -27,6 +28,11 @@ internal static class MymoooInsert
             new QuickParameter("params", "参数", "参数码或参数名=值，逗号分开，如 M=8,L=20；区间参数直接填数；省略只看要选哪些参数", false, 2),
             new QuickParameter("type", "型式", "型式代号（商品有多个型式时必填，回执会列出）", false, 2),
             new QuickParameter("number", "料号", "完整料号（如 SBH1-M8-L20-S11），给了就按料号直选、不看 params", false, 2),
+            new QuickParameter("at", "位置", "零件原点放在总装哪（x,y,z mm）；省略为总装原点", false, 3),
+            new QuickParameter("axes", "朝向", "零件 x,y,z 轴朝总装哪根轴，如 X,-Z,Y；省略不转", false, 3),
+            new QuickParameter("fix", "固定", "是（默认）/ 否", false, 3),
+            new QuickParameter("insert", "插入", "否 = 只下载存进外购件、不插进总装；省略为是", false, 3),
+            new QuickParameter("refresh", "重下", "是 = 外购件里已有也重新下载覆盖（旧版导入引用了临时目录时用）", false, 3),
         ],
         Example: StrenuaIdentity.Domain + ".mymooo.insert product=302121 params=M=8,L=20,XN=S11",
         Bind: arguments =>
@@ -37,13 +43,22 @@ internal static class MymoooInsert
             var pairs = MymoooRules.Pairs(QuickArgs.Optional(arguments, "params"), "params");
             var type = QuickArgs.Optional(arguments, "type");
             var number = QuickArgs.Optional(arguments, "number");
-            return context => Insert(context, productId, pairs, type, number);
+            var placing = new Placing(
+                QuickArgs.Optional(arguments, "at") is { } at ? ModelSpec.Point(at, "at") : (0, 0, 0),
+                ModelSpec.Axes(QuickArgs.Optional(arguments, "axes") ?? "X,Y,Z"),
+                QuickArgs.Optional(arguments, "fix") is null || QuickArgs.Flag(arguments, "fix"),
+                QuickArgs.Optional(arguments, "insert") is null || QuickArgs.Flag(arguments, "insert"),
+                QuickArgs.Flag(arguments, "refresh"));
+            return context => Insert(context, productId, pairs, type, number, placing);
         },
         SelfReport: true);
 
     private const int OpenSilent = 1;
 
-    private static QuickOutcome Insert(QuickCommandContext context, long productId, IReadOnlyList<KeyValuePair<string, string>> pairs, string? type, string? number)
+    /// <summary>摆法：零件原点落点、三根轴朝向、固定、要不要插、要不要重下。</summary>
+    private sealed record Placing((double X, double Y, double Z) At, double[,] Axes, bool Fix, bool Insert, bool Refresh);
+
+    private static QuickOutcome Insert(QuickCommandContext context, long productId, IReadOnlyList<KeyValuePair<string, string>> pairs, string? type, string? number, Placing placing)
     {
         var cancellation = context.Cancellation;
         context.Report("选型");
@@ -102,7 +117,7 @@ internal static class MymoooInsert
 
         var final = MymoooRules.Text(numbers[0], "number") is { Length: > 0 } listed ? listed : shown;
         var orderProduct = long.TryParse(MymoooRules.Text(numbers[0]?["querys"], "productId"), out var queried) ? queried : productId;
-        return Place(context, orderProduct, final, notes);
+        return Place(context, orderProduct, final, notes, placing);
     }
 
     /// <summary>没选全：当前料号 + 每个还没定的编码参数和它剩下的可选值。</summary>
@@ -133,8 +148,8 @@ internal static class MymoooInsert
     private static string TypeList(JsonArray types)
         => string.Join("、", types.Select(t => MymoooRules.Text(t, "typeCode") is var code && MymoooRules.Text(t, "typeDesc") is var desc && desc.Length > 0 && desc != code ? $"{code}（{desc}）" : code));
 
-    /// <summary>料号定了：找或下载文件，插进当前总装原点。</summary>
-    private static QuickOutcome Place(QuickCommandContext context, long productId, string number, List<string> notes)
+    /// <summary>料号定了：找或下载文件，按零件原点插进当前总装。</summary>
+    private static QuickOutcome Place(QuickCommandContext context, long productId, string number, List<string> notes, Placing placing)
     {
         var api = context.Api;
         var application = context.Session.Application;
@@ -148,8 +163,28 @@ internal static class MymoooInsert
         var folder = Path.Combine(Path.GetDirectoryName(assemblyPath)!, MymoooRules.Folder);
         var name = MymoooRules.FileName(number);
 
-        var reused = Existing(folder, name);
-        var path = reused ?? Fetch(context, productId, number, folder, name);
+        var existing = Existing(folder, name);
+        var broken = existing is not null && Broken(api, application, existing);
+        string path;
+        string source;
+        if (existing is not null && (placing.Refresh || broken))
+        {
+            if (api.Call(application, "ISldWorks", "GetOpenDocumentByName", existing) is not null)
+                throw new QuickCommandException(
+                    $"外购件 {existing} {(broken ? "是旧版导入的，引用的是 SolidWorks 临时目录（重启或清临时文件就丢）" : "要重新下载")}，但它正被 SolidWorks 打开（多半在总装里），覆盖不了："
+                    + "先关掉引用它的总装，在别的已存总装里用 insert=否 refresh=是 重下，再回原总装。");
+            path = Fetch(context, productId, number, folder, name);
+            source = broken ? "（旧版导入引用临时目录，已重新下载覆盖）" : "（重新下载覆盖）";
+        }
+        else
+        {
+            path = existing ?? Fetch(context, productId, number, folder, name);
+            source = existing is null ? "（新下载）" : "（外购件里已有，复用）";
+        }
+
+        if (!placing.Insert)
+            return QuickOutcome.Ok($"下载标准件：{number} 已存进外购件，没插入。{Environment.NewLine}文件：{path}{source}",
+                new Dictionary<string, string> { ["number"] = number, ["path"] = path });
 
         context.Report("插入总装");
         // AddComponent5 要求零件已在内存里：先开（已开着就是切过去），再切回总装插。
@@ -164,10 +199,15 @@ internal static class MymoooInsert
         api.Call(application, "ISldWorks", "ActivateDoc3", assemblyTitle, false, 1, 0);
         if (component is null)
             return QuickOutcome.Fail($"插入标准件：SolidWorks 没把 {path} 插进「{assemblyTitle}」。");
+        // AddComponent5 给的是包围盒中心（1.37.0 真机：模组插在原点却偏了半个长度），按零件原点重摆。
+        ModelAccess.Place(context, assembly, component, placing.Axes, placing.At, placing.Fix);
+        api.Call(assembly, "IModelDoc2", "EditRebuild3");
 
         var componentName = api.CallString(component, "IComponent2", "get_Name2");
-        var text = new StringBuilder($"插入标准件：{number} 已插进「{assemblyTitle}」原点，零部件名 {componentName}（没加配合，总装没存）。")
-            .AppendLine().Append($"文件：{path}{(reused is null ? "（新下载）" : "（外购件里已有，复用）")}");
+        var origin = ModelAccess.Frame(api, component).Origin;
+        var text = new StringBuilder($"插入标准件：{number} 已插进「{assemblyTitle}」，零部件名 {componentName}，零件原点在 {ModelAccess.Format(origin)}、轴 {ModelSpec.AxesText(placing.Axes)}")
+            .Append(placing.Fix ? "，已固定" : "，浮动").Append("（没加配合，总装没存）。")
+            .AppendLine().Append($"文件：{path}{source}");
         foreach (var note in notes)
             text.AppendLine().Append("注意：" + note);
         return QuickOutcome.Ok(text.ToString(), new Dictionary<string, string> { ["component"] = componentName, ["number"] = number, ["path"] = path });
@@ -177,12 +217,39 @@ internal static class MymoooInsert
     private static string? Existing(string folder, string name)
         => new[] { ".SLDPRT", ".SLDASM" }.Select(extension => Path.Combine(folder, name + extension)).FirstOrDefault(File.Exists);
 
-    /// <summary>下载 STP 到临时目录，导入后另存进外购件。</summary>
+    /// <summary>
+    /// 1.37.0 导入的装配体：3D Interconnect 开着时导入件是「链接到 STP」的，另存出来的总装只引用 SolidWorks 临时目录 <c>swx&lt;进程号&gt;\IC~~</c> 里的缓存，
+    /// STP 又已删掉——临时目录一清就打不开。读文件的引用（不打开），引用落在临时目录就算坏的。
+    /// </summary>
+    private static bool Broken(SolidWorksApi api, object application, string path)
+    {
+        if (!path.EndsWith(".SLDASM", StringComparison.OrdinalIgnoreCase))
+            return false;
+        var temp = Path.GetFullPath(Path.GetTempPath());
+        return api.CallArray(application, "ISldWorks", "GetDocumentDependencies2", path, false, true, false)
+            .OfType<string>()
+            .Any(reference => reference.Contains(@"\IC~~\", StringComparison.OrdinalIgnoreCase)
+                              || (Path.IsPathRooted(reference) && Path.GetFullPath(reference).StartsWith(temp, StringComparison.OrdinalIgnoreCase)));
+    }
+
+    // swUserPreferenceToggle_e
+    private const int Enable3DInterconnect = 691;
+    private const int AlwaysUseDefaultTemplates = 111;
+
+    /// <summary>
+    /// 下载 STP 到临时目录，导入后另存进外购件。装配体的每个零件、子装配也另存成真文件，放「外购件\料号\」。
+    /// </summary>
+    /// <remarks>
+    /// 导入时临时关掉 3D Interconnect（开着时导入件只是链接，见 <see cref="Broken"/>）、打开「总是使用默认模板」
+    /// （用户反馈：选型完要人手点确认导入用的装配体模板，不点就卡住），用完恢复原值。
+    /// </remarks>
     private static string Fetch(QuickCommandContext context, long productId, string number, string folder, string name)
     {
         var api = context.Api;
         var application = context.Session.Application;
         var temp = Path.Combine(Path.GetTempPath(), "HistoryStrenua-mymooo", Guid.NewGuid().ToString("N"));
+        var interconnect = api.CallBool(application, "ISldWorks", "GetUserPreferenceToggle", Enable3DInterconnect);
+        var defaults = api.CallBool(application, "ISldWorks", "GetUserPreferenceToggle", AlwaysUseDefaultTemplates);
         try
         {
             context.Report("下载 3D");
@@ -191,19 +258,24 @@ internal static class MymoooInsert
                 throw new QuickCommandException($"蚂蚁工场给的 3D 是 {Path.GetFileName(step)}，这版只接 STP。");
 
             context.Report("导入 STP");
+            api.Call(application, "ISldWorks", "SetUserPreferenceToggle", Enable3DInterconnect, false);
+            api.Call(application, "ISldWorks", "SetUserPreferenceToggle", AlwaysUseDefaultTemplates, true);
             var importData = api.Call(application, "ISldWorks", "GetImportFileData", step);
             object?[] load = [step, "r", importData, 0];
             var document = api.Call(application, "ISldWorks", "LoadFile4", load)
                            ?? throw new QuickCommandException($"SolidWorks 导入 STP 没成（错误码 {load[3]}）。");
             try
             {
-                var extension = api.CallInt(document, "IModelDoc2", "GetType") == SwConst.DocumentAssembly ? ".SLDASM" : ".SLDPRT";
-                var path = Path.Combine(folder, name + extension);
                 Directory.CreateDirectory(folder);
-                object?[] save = [path, 0, SwConst.SaveSilent, null, 0, 0];
-                var documentExtension = api.Call(document, "IModelDoc2", "get_Extension")!;
-                if (!api.CallBool(documentExtension, "IModelDocExtension", "SaveAs", save) || !File.Exists(path))
-                    throw new QuickCommandException($"另存 {path} 没成（错误码 {save[4]}）。");
+                var isAssembly = api.CallInt(document, "IModelDoc2", "GetType") == SwConst.DocumentAssembly;
+                if (isAssembly)
+                {
+                    context.Report("另存零件");
+                    SaveChildren(context, document, Path.Combine(folder, name));
+                }
+
+                var path = Path.Combine(folder, name + (isAssembly ? ".SLDASM" : ".SLDPRT"));
+                SaveAs(api, document, path);
                 return path;
             }
             finally
@@ -214,6 +286,8 @@ internal static class MymoooInsert
         }
         finally
         {
+            api.CallForCleanup(application, "ISldWorks", "SetUserPreferenceToggle", Enable3DInterconnect, interconnect);
+            api.CallForCleanup(application, "ISldWorks", "SetUserPreferenceToggle", AlwaysUseDefaultTemplates, defaults);
             try
             {
                 Directory.Delete(temp, true);
@@ -223,5 +297,49 @@ internal static class MymoooInsert
                 // 临时目录删不掉不影响结果。
             }
         }
+    }
+
+    /// <summary>导入出来的零件、子装配逐个另存到 <paramref name="folder"/>：先最深的一层（零件），再往上，总装引用随之指到新文件。</summary>
+    private static void SaveChildren(QuickCommandContext context, object assembly, string folder)
+    {
+        var api = context.Api;
+        Directory.CreateDirectory(folder);
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var used = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var children = api.CallArray(assembly, "IAssemblyDoc", "GetComponents", false)
+            .Select(component => (Depth: api.CallString(component, "IComponent2", "get_Name2").Count(c => c == '/'), Model: api.Call(component, "IComponent2", "GetModelDoc2")))
+            .Where(child => child.Model is not null)
+            .OrderByDescending(child => child.Depth)
+            .ToList();
+        foreach (var (_, model) in children)
+        {
+            context.Cancellation.ThrowIfCancellationRequested();
+            var title = api.CallString(model!, "IModelDoc2", "GetTitle");
+            if (!seen.Add(title))
+                continue;
+            var extension = api.CallInt(model!, "IModelDoc2", "GetType") == SwConst.DocumentAssembly ? ".SLDASM" : ".SLDPRT";
+            var stem = MymoooRules.FileName(StripExtensions(title));
+            var file = stem;
+            for (var i = 2; !used.Add(file); i++)
+                file = $"{stem}-{i}";
+            SaveAs(api, model!, Path.Combine(folder, file + extension));
+        }
+    }
+
+    /// <summary>导入件标题常是「XX-PT.STP.SLDPRT」「XX.STEP」，去掉这些扩展名。</summary>
+    private static string StripExtensions(string title)
+    {
+        var stem = title;
+        while (Path.GetExtension(stem).ToUpperInvariant() is ".SLDPRT" or ".SLDASM" or ".STP" or ".STEP")
+            stem = Path.GetFileNameWithoutExtension(stem);
+        return stem.Length > 0 ? stem : title;
+    }
+
+    private static void SaveAs(SolidWorksApi api, object document, string path)
+    {
+        object?[] save = [path, 0, SwConst.SaveSilent, null, 0, 0];
+        var extension = api.Call(document, "IModelDoc2", "get_Extension")!;
+        if (!api.CallBool(extension, "IModelDocExtension", "SaveAs", save) || !File.Exists(path))
+            throw new QuickCommandException($"另存 {path} 没成（错误码 {save[4]}）。");
     }
 }

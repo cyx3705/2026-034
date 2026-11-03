@@ -88,6 +88,18 @@ internal static partial class Tests
             "strenua.mymooo.product",
             "strenua.mymooo.insert",
             "strenua.mymooo.remove",
+            "strenua.dim.thread",
+            "strenua.model.new",
+            "strenua.model.sketch",
+            "strenua.model.extrude",
+            "strenua.model.plane",
+            "strenua.model.delete",
+            "strenua.model.info",
+            "strenua.asm.list",
+            "strenua.asm.insert",
+            "strenua.asm.move",
+            "strenua.asm.delete",
+            "strenua.asm.interference",
         ];
         foreach (var name in expected)
         {

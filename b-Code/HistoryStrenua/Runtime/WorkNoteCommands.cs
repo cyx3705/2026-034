@@ -13,12 +13,12 @@ internal static class WorkNoteCommands
             Name = StrenuaIdentity.Domain + ".note.write",
             Domain = StrenuaIdentity.Domain,
             CommandClass = "note",
-            Summary = "往笔记区记一条出图的细节调整或反思（不用开 SolidWorks）；经 MCP 的每条回执最上面都带通用区和本类区。replace= 改或删一条",
-            Example = StrenuaIdentity.Domain + ".note.write area=onekey text=钣金先核对板厚有没有标",
+            Summary = $"记一条指令的注意点（≤{WorkNotes.NoteLimit} 字、每区 ≤{WorkNotes.AreaLimit} 条，只写指令怎么用、哪里会错，不写项目内容）；经 MCP 的回执最上面都带通用区和本类区。replace= 改或删",
+            Example = StrenuaIdentity.Domain + ".note.write area=dim text=dim.edit 改孔标注前缀会顶掉直径值，螺纹孔改用 dim.thread",
             Parameters =
             [
                 new ParameterSpec { Name = "area", Description = "分区：" + areas, Required = true, Position = 0 },
-                new ParameterSpec { Name = "text", Description = "笔记内容：写具体规律，不写流水账；配合 replace 写 none 是删除", Required = true, Position = 1 },
+                new ParameterSpec { Name = "text", Description = $"一句话：哪条指令、什么情况、怎么做（≤{WorkNotes.NoteLimit} 字）；配合 replace 写 none 是删除", Required = true, Position = 1 },
                 new ParameterSpec { Name = "replace", Description = "改第几条（从 1 起，回执里的序号）；省略是新记一条", Required = false, Position = 2 },
             ],
             Handler = CommandDescriptor.Sync(context => Write(notes, context)),
@@ -62,9 +62,7 @@ internal static class WorkNoteCommands
 
         if (notes.Write(area, text, replace) is { } failure)
             return CommandResult.Fail(failure);
-        var section = notes.Section(area);
-        var tail = section.Length > WorkNotes.SectionBudget ? $"笔记区已超过 {WorkNotes.SectionBudget} 字，每条回执都带，请合并旧笔记。" : string.Empty;
-        return CommandResult.Ok($"已记入「{WorkNotes.Title(area)}」区。{tail}{Environment.NewLine}{section}");
+        return CommandResult.Ok($"已记入「{WorkNotes.Title(area)}」区。{Environment.NewLine}{notes.Section(area)}");
     }
 
     /// <summary><c>strenua.note.read</c>。</summary>

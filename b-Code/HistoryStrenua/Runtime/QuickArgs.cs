@@ -94,10 +94,10 @@ internal static class QuickArgs
             ? new SheetPoint(request.X is { } x ? x * Mm : current.X, request.Y is { } y ? y * Mm : current.Y)
             : new SheetPoint(current.X + (request.X ?? 0) * Mm, current.Y + (request.Y ?? 0) * Mm);
 
-    /// <summary>前后缀：没给为 null（不改），<c>none</c> 为空串（清掉），否则原样。</summary>
+    /// <summary>前后缀：没给为 null（不改），<c>none</c> 为空串（清掉），否则把 Ø、↧ 等换成符号码（1.38.0，见 <see cref="SwText"/>）。</summary>
     public static string? Text(CommandContext context, string parameter)
         => Optional(context, parameter) is { } text
-            ? text.Equals(None, StringComparison.OrdinalIgnoreCase) ? string.Empty : text
+            ? text.Equals(None, StringComparison.OrdinalIgnoreCase) ? string.Empty : SwText.Tokens(text)
             : null;
 
     /// <summary>

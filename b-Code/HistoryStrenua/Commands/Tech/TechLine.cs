@@ -51,7 +51,7 @@ internal static class TechLine
         Example: StrenuaIdentity.Domain + ".tech.add text=表面喷砂",
         Bind: arguments =>
         {
-            var text = QuickArgs.Name(arguments, "text");
+            var text = SwText.Tokens(QuickArgs.Name(arguments, "text"));
             var after = QuickArgs.Optional(arguments, "after") is { } value ? Number(value, "after") : (int?)null;
             return context => Add(context, text, after);
         },

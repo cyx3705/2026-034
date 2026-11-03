@@ -4,12 +4,12 @@ namespace HistoryStrenua;
 internal static class QuickClasses
 {
     /// <summary>页面上类的顺序；登记表里出现了这里没有的类就排在最后。</summary>
-    public static IReadOnlyList<string> Order { get; } = ["onekey", "hole", "fillet", "view", "dim", "tol", "doc", "tech", "prop", "check", "mymooo"];
+    public static IReadOnlyList<string> Order { get; } = ["onekey", "hole", "fillet", "view", "dim", "tol", "doc", "tech", "prop", "check", "mymooo", "model", "asm"];
 
     /// <summary>
-    /// 不上页面的类（1.33.0，用户定：类太多，这几类是给 AI 用的；公差类 1.36.0、蚂蚁工场 1.37.0 同样）。指令照常注册，MCP 和控制台调用不变。
+    /// 不上页面的类（1.33.0，用户定：类太多，这几类是给 AI 用的；公差类 1.36.0、蚂蚁工场 1.37.0、建模与装配 1.38.0 同样）。指令照常注册，MCP 和控制台调用不变。
     /// </summary>
-    public static IReadOnlySet<string> Hidden { get; } = new HashSet<string>(StringComparer.Ordinal) { "view", "dim", "tol", "doc", "mymooo" };
+    public static IReadOnlySet<string> Hidden { get; } = new HashSet<string>(StringComparer.Ordinal) { "view", "dim", "tol", "doc", "mymooo", "model", "asm" };
 
     /// <summary>命令类 → 页面上的类名。新类不登记也能用，只是显示成英文类名。</summary>
     private static readonly IReadOnlyDictionary<string, string> Titles =
@@ -27,6 +27,8 @@ internal static class QuickClasses
             ["prop"] = "属性",
             ["check"] = "检查",
             ["mymooo"] = "蚂蚁工场",
+            ["model"] = "建模",
+            ["asm"] = "装配",
         };
 
     public static string Title(string commandClass)

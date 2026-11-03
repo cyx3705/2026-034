@@ -64,13 +64,16 @@ internal static class AsmMateTree
         var text = new StringBuilder($"贴合树：根「{root}」{(fixedNodes.Contains(root) ? "（固定）" : "（没固定，建议先 asm.move fix=是）")}，{tree.Count} 条树边、成环断开 {broken.Count} 条、连不上 {unreached.Count} 个{(apply ? string.Empty : "；只预览，没加配合")}。").AppendLine();
         var rows = new List<Dictionary<string, string>>();
         var (added, failed, kept) = (0, 0, 0);
+        // 已经放好的：根与前面配过的。子零部件已有的配合只算连到这些的（配到它身上的下游配合不算约束它）。
+        var placed = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { root, "总装" };
         foreach (var edge in tree)
         {
             context.Cancellation.ThrowIfCancellationRequested();
             var link = links.First(item => (item.A == edge.Parent && item.B == edge.Child) || (item.A == edge.Child && item.B == edge.Parent));
             var (origin, _) = ModelAccess.Frame(api, tops[edge.Child]);
             var at = new Vec3(origin.X, origin.Y, origin.Z);
-            var existing = (hooks.GetValueOrDefault(edge.Child) ?? []).Select(hook => hook.Constraint).ToList();
+            var existing = (hooks.GetValueOrDefault(edge.Child) ?? []).Where(hook => placed.Contains(hook.Partner)).Select(hook => hook.Constraint).ToList();
+            placed.Add(edge.Child);
             var chosen = MateTreePlanner.Choose(link.Planes, link.Axes, link.A == edge.Child, existing, at);
             var (dof, free) = MateTreePlanner.Freedom(existing.Concat(chosen.Select(c => c.Constraint)).ToList(), at);
             var head = $"{new string(' ', Math.Min(edge.Depth, 6) * 2)}{edge.Depth}. {AsmInterference.Short(edge.Child)} ← {AsmInterference.Short(edge.Parent)}（贴合 {ModelSpec.Format(edge.Area, "0")} mm²）：";

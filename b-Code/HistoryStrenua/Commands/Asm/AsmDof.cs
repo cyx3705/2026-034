@@ -69,6 +69,31 @@ internal static class AsmDof
         return hooks;
     }
 
+    /// <summary>
+    /// 已定住的零部件：固定的、总装自己，再逐轮把「只靠连到已定住零部件的配合就定死」的加进来，直到不再变。
+    /// 配合连到还能动的零部件不算约束（真机 043：子零部件配到立柱底板上，不能反过来算成立柱底板被定死）。
+    /// </summary>
+    internal static HashSet<string> Grounded(SolidWorksApi api, IReadOnlyDictionary<string, object> tops, IReadOnlyDictionary<string, List<Hook>> hooks, IReadOnlySet<string> fixedNames)
+    {
+        var grounded = new HashSet<string>(fixedNames, StringComparer.OrdinalIgnoreCase) { "总装" };
+        var changed = true;
+        while (changed)
+        {
+            changed = false;
+            foreach (var (name, top) in tops)
+            {
+                if (grounded.Contains(name) || hooks.GetValueOrDefault(name) is not { } own)
+                    continue;
+                var (origin, _) = ModelAccess.Frame(api, top);
+                var anchored = own.Where(hook => grounded.Contains(hook.Partner) && !hook.Partner.Equals(name, StringComparison.OrdinalIgnoreCase)).Select(hook => hook.Constraint).ToList();
+                if (anchored.Count > 0 && MateTreePlanner.Freedom(anchored, new Vec3(origin.X, origin.Y, origin.Z)).Dof == 0)
+                    changed = grounded.Add(name) || changed;
+            }
+        }
+
+        return grounded;
+    }
+
     private static (string Owner, MateGeometry Geometry, Vec3 Point, Vec3 Vector) Side(SolidWorksApi api, object entity)
     {
         var owner = api.Call(entity, "IMateEntity2", "get_ReferenceComponent") is { } component
@@ -98,15 +123,18 @@ internal static class AsmDof
         var rows = new List<Dictionary<string, string>>();
         var text = new StringBuilder();
         var (fixedCount, full, under) = (0, 0, 0);
-        foreach (var top in AssemblyContacts.Tops(api, assembly))
+        var tops = AssemblyContacts.Tops(api, assembly).ToDictionary(top => api.CallString(top, "IComponent2", "get_Name2"), StringComparer.OrdinalIgnoreCase);
+        var fixedNames = tops.Where(top => ModelAccess.Fixed(api, top.Value)).Select(top => top.Key).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var grounded = Grounded(api, tops, hooks, fixedNames);
+        foreach (var (name, top) in tops)
         {
-            var name = api.CallString(top, "IComponent2", "get_Name2");
             if (filter is not null && !name.Contains(filter, StringComparison.OrdinalIgnoreCase))
                 continue;
             var own = hooks.GetValueOrDefault(name) ?? [];
-            var isFixed = ModelAccess.Fixed(api, top);
+            var isFixed = fixedNames.Contains(name);
             var (origin, _) = ModelAccess.Frame(api, top);
-            var (dof, free) = isFixed ? (0, (IReadOnlyList<string>)[]) : MateTreePlanner.Freedom(own.Select(hook => hook.Constraint).ToList(), new Vec3(origin.X, origin.Y, origin.Z));
+            var anchored = own.Where(hook => grounded.Contains(hook.Partner) && !hook.Partner.Equals(name, StringComparison.OrdinalIgnoreCase)).ToList();
+            var (dof, free) = isFixed ? (0, (IReadOnlyList<string>)[]) : MateTreePlanner.Freedom(anchored.Select(hook => hook.Constraint).ToList(), new Vec3(origin.X, origin.Y, origin.Z));
             var status = api.CallInt(top, "IComponent2", "GetConstrainedStatus") switch
             {
                 2 => "欠定义",
@@ -123,7 +151,11 @@ internal static class AsmDof
                 under++;
             var mates = string.Join("；", own.Select(hook => $"{hook.Mate} {MateSpec.TypeName(hook.Type)}↔{AsmInterference.Short(hook.Partner)}"));
             var state = isFixed ? "固定" : dof == 0 ? $"自由度 0（{status}）" : $"剩 {dof} 个自由度（{status}）：{string.Join("、", free)}";
-            text.AppendLine($"· {name}  {state}{(own.Count > 0 ? $"  配合 {own.Count}：{mates}" : "  无配合")}{(isFixed && own.Count > 0 ? "  ⚠ 固定着又有配合" : string.Empty)}");
+            var loose = isFixed ? 0 : own.Count - anchored.Count;
+            var redundant = isFixed && own.Any(hook => fixedNames.Contains(hook.Partner));
+            text.AppendLine($"· {name}  {state}{(own.Count > 0 ? $"  配合 {own.Count}：{mates}" : "  无配合")}"
+                            + (loose > 0 ? $"（其中 {loose} 条连到还能动的零部件，没算进去）" : string.Empty)
+                            + (redundant ? "  ⚠ 固定着又和固定件配合（多余）" : string.Empty));
             rows.Add(new Dictionary<string, string>
             {
                 ["name"] = name,
@@ -135,7 +167,7 @@ internal static class AsmDof
             });
         }
 
-        var head = $"自由度：「{api.CallString(assembly, "IModelDoc2", "GetTitle")}」{rows.Count} 个顶层零部件，固定 {fixedCount}、配合定死 {full}、还能动 {under}（对方当作不动来算）。";
+        var head = $"自由度：「{api.CallString(assembly, "IModelDoc2", "GetTitle")}」{rows.Count} 个顶层零部件，固定 {fixedCount}、配合定死 {full}、还能动 {under}（只算连到已定住零部件的配合：从固定件起逐轮往外推）。";
         return rows.Count == 0 ? QuickOutcome.Nothing(head) : QuickOutcome.Ok(head + Environment.NewLine + text.ToString().TrimEnd(), rows);
     }
 }

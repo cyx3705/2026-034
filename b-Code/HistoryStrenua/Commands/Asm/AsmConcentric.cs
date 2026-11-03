@@ -50,6 +50,7 @@ internal static class AsmConcentric
             return QuickOutcome.Nothing($"双同心：{(name is null ? "总装里" : $"和「{name}」贴合的")}没有两块之间有两组以上同轴孔的。");
 
         var hooks = AsmDof.Hooks(api, assembly);
+        var grounded = AsmDof.Grounded(api, tops, hooks, tops.Where(top => ModelAccess.Fixed(api, top.Value)).Select(top => top.Key).ToHashSet(StringComparer.OrdinalIgnoreCase));
         var text = new StringBuilder($"双同心：{links.Count} 对零部件之间有两组以上同轴孔{(apply ? string.Empty : "（只预览，没加配合）")}：").AppendLine();
         var (added, failed) = (0, 0);
         foreach (var link in links)
@@ -60,7 +61,8 @@ internal static class AsmConcentric
             var childIsA = fixedA != fixedB ? !fixedA : Volume(api, a) <= Volume(api, b);
             var child = childIsA ? link.A : link.B;
             var (origin, _) = ModelAccess.Frame(api, childIsA ? a : b);
-            var existing = (hooks.GetValueOrDefault(child) ?? []).Select(hook => hook.Constraint).ToList();
+            var parent = childIsA ? link.B : link.A;
+            var existing = (hooks.GetValueOrDefault(child) ?? []).Where(hook => hook.Partner.Equals(parent, StringComparison.OrdinalIgnoreCase) || grounded.Contains(hook.Partner)).Select(hook => hook.Constraint).ToList();
             // 只上两同心零部件会沿孔轴向飘：贴合面没配过就连最大贴合面的重合一起加（能去掉自由度的才加）。
             var chosen = MateTreePlanner.Choose(link.Planes, link.Axes, childIsA, existing, new Vec3(origin.X, origin.Y, origin.Z));
             var (lines, ok) = AsmMateTree.Apply(context, chosen, apply);

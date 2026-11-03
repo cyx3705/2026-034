@@ -146,7 +146,8 @@ internal static class ContactPlanner
 
     /// <summary>
     /// 按「我这边的面」分组：同一平面（法向、位置相同）或同一根轴同一半径的合成一个对象，平面在前，组内按重叠从大到小。
-    /// 对方那个面已经和我贴合了的，它和我别的面「差一点没贴上」不再报（真机 2026-043：型材 T 槽口凹进 1 mm 的面对着脚杯连接板，全是这种）。
+    /// 对方那个面已经和我贴合了的，它和我别的面「差一点没贴上」不再报（真机 2026-043：型材 T 槽口凹进 1 mm 的面对着脚杯连接板，全是这种）；
+    /// 同一平面上已经和我贴合的零件，它别的面差一点也不报。
     /// </summary>
     public static IReadOnlyList<ContactGroup> Group(IEnumerable<ContactPair> pairs, double tol)
     {
@@ -169,7 +170,10 @@ internal static class ContactPlanner
         foreach (var group in planes.Concat(cylinders))
         {
             var id = (group.Surface == ContactSurface.Plane ? "P" : "A") + (result.Count(item => item.Surface == group.Surface) + 1);
-            result.Add(new ContactGroup(id, group.Surface, group.Normal, group.Point, group.Radius, group.Pairs.OrderByDescending(pair => pair.Amount).ToList()));
+            // 同一平面上已经和我贴合的零件，它凹进去的别的面也不报（真机：模组底座的减重槽面差 0.97 mm）。
+            var owners = group.Pairs.Where(pair => Math.Abs(pair.Gap) <= tol).Select(pair => pair.Other.Owner).ToHashSet(StringComparer.Ordinal);
+            var kept = group.Pairs.Where(pair => Math.Abs(pair.Gap) <= tol || !owners.Contains(pair.Other.Owner)).OrderByDescending(pair => pair.Amount).ToList();
+            result.Add(new ContactGroup(id, group.Surface, group.Normal, group.Point, group.Radius, kept));
         }
 
         return result;

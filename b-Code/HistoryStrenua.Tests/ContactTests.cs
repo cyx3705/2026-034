@@ -62,6 +62,9 @@ internal static partial class Tests
         Equal(1, lines.Count);
         True(lines[0].Contains("[F7,F8 ↔ 底板-1@F3]") && lines[0].Contains("重叠 1200 mm²"), lines[0]);
         Equal(1, ContactPlanner.Group([recess], 0.05).Count);
+        // 同一平面上已贴合的零件，它另一个凹进的面也不报。
+        var pocket = ContactPlanner.Match(Square("型材-1", 7, new Vec3(0, 1, 0), 145, -20, -20, 20, 20), Square("底板-1", 5, new Vec3(0, -1, 0), 146, -10, -10, 0, 0), 2, 0.05)!;
+        Equal(1, ContactPlanner.Group([pair, pocket], 0.05)[0].Pairs.Count);
     }
 
     static void TestContactCylinders()

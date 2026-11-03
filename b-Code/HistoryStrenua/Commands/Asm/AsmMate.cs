@@ -115,6 +115,7 @@ internal static class AsmMate
         // 普通（非限位）距离 / 角度配合：上下限都填同一个值，填 0 会被当成限位、报过定义（真机）。
         var distance = type == 5 ? value / 1000 : 0.0;
         var angle = type == 6 ? value * Math.PI / 180 : 0.0;
+        var existing = Mates(api, assembly).Select(feature => api.CallString(feature, "IFeature", "get_Name")).ToHashSet(StringComparer.Ordinal);
         object?[] args = [type, align, flip, distance, distance, distance, 1.0, 1.0, angle, angle, angle, false, false, 0, 0];
         var mate = api.Call(assembly, "IAssemblyDoc", "AddMate5", args);
         var error = Convert.ToInt32(args[14]);
@@ -123,28 +124,28 @@ internal static class AsmMate
         if (mate is null || error != 1)
         {
             // 真机：过定义时 AddMate5 报错码 5，却照样在配合文件夹里留下一个出错的配合，要删掉。
-            if (mate is not null)
-                DeleteMate(api, assembly, mate);
+            DeleteNew(api, assembly, existing);
             Restore(context, assembly, moving, axes, origin, wasFixed);
             return QuickOutcome.Fail($"加配合：{what} 没加上——{MateSpec.Error(error)}。「{movingName}」已退回原样。");
         }
 
         api.Call(assembly, "IModelDoc2", "EditRebuild3");
-        var mateName = api.CallString(mate, "IFeature", "get_Name");
+        var added = Mates(api, assembly).FirstOrDefault(feature => !existing.Contains(api.CallString(feature, "IFeature", "get_Name")));
+        var mateName = added is null ? api.CallString(mate, "IFeature", "get_Name") : api.CallString(added, "IFeature", "get_Name");
         var (after, turned) = ModelAccess.Frame(api, moving);
         var shift = Math.Sqrt(Math.Pow(after.X - origin.X, 2) + Math.Pow(after.Y - origin.Y, 2) + Math.Pow(after.Z - origin.Z, 2));
         var turn = Angle(axes, turned);
         var drift = $"平移 {ModelSpec.Format(shift, "0.###")} mm、转 {ModelSpec.Format(turn, "0.###")}°";
         if ((shift > Moved || turn > Moved) && !move)
         {
-            DeleteMate(api, assembly, mate);
+            DeleteNew(api, assembly, existing);
             Restore(context, assembly, moving, axes, origin, wasFixed);
             return QuickOutcome.Fail($"加配合：{what} 和现在的摆位对不上——它会把「{movingName}」{drift}（原点 {ModelAccess.Format(origin)} → {ModelAccess.Format(after)}）。"
                                      + "已撤掉配合、退回原位。先查摆位（strenua.asm.contact），或确认要它拉过去就加 move=是。");
         }
 
         var warning = new object?[] { false };
-        var code = api.CallInt(mate, "IFeature", "GetErrorCode2", warning);
+        var code = api.CallInt(added ?? mate, "IFeature", "GetErrorCode2", warning);
         var status = api.CallInt(moving, "IComponent2", "GetConstrainedStatus") switch
         {
             2 => "欠定义",
@@ -187,6 +188,13 @@ internal static class AsmMate
         for (var i = 0; i < 3; i++)
             trace += a[i, 0] * b[i, 0] + a[i, 1] * b[i, 1] + a[i, 2] * b[i, 2];
         return Math.Acos(Math.Clamp((trace - 1) / 2, -1, 1)) * 180 / Math.PI;
+    }
+
+    /// <summary>删掉配合文件夹里不在 <paramref name="existing"/> 里的配合（AddMate5 回的对象选不中，按特征树找）。</summary>
+    private static void DeleteNew(SolidWorksApi api, object assembly, IReadOnlySet<string> existing)
+    {
+        foreach (var feature in Mates(api, assembly).Where(feature => !existing.Contains(api.CallString(feature, "IFeature", "get_Name"))))
+            DeleteMate(api, assembly, feature);
     }
 
     private static void DeleteMate(SolidWorksApi api, object assembly, object mate)

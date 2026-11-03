@@ -171,6 +171,40 @@ internal static class ModelSpec
             origin.X / 1000, origin.Y / 1000, origin.Z / 1000, 1, 0, 0, 0,
         ];
 
+    /// <summary>
+    /// 直接给变换矩阵（1.39.0）：12 个数 = SolidWorks 顺序（零件 x、y、z 轴在总装里的三行方向，再加原点 mm），
+    /// 16 个数 = 4×4 齐次矩阵按行写（列向量约定：前三列是零件三根轴、第四列是原点 mm，末行 0,0,0,1）。旋转部分照 axes 的规则核对。
+    /// </summary>
+    public static (double[,] Axes, (double X, double Y, double Z) Origin) Matrix(string text)
+    {
+        var n = Numbers(text, "matrix=" + text);
+        string rotation;
+        (double, double, double) origin;
+        if (n.Count == 12)
+        {
+            rotation = string.Join(",", n.Take(9).Select(value => value.ToString("R", CultureInfo.InvariantCulture)));
+            origin = (n[9], n[10], n[11]);
+        }
+        else if (n.Count == 16)
+        {
+            if (Math.Abs(n[12]) > 1e-9 || Math.Abs(n[13]) > 1e-9 || Math.Abs(n[14]) > 1e-9 || Math.Abs(n[15] - 1) > 1e-9)
+                throw new QuickArgumentException($"matrix={text}：4×4 矩阵末行要是 0,0,0,1。");
+            // 列 j 是零件第 j 根轴：第 i 行第 j 列在 n[4i+j]。
+            rotation = string.Join(",", Enumerable.Range(0, 9).Select(k => n[4 * (k % 3) + k / 3].ToString("R", CultureInfo.InvariantCulture)));
+            origin = (n[3], n[7], n[11]);
+        }
+        else
+        {
+            throw new QuickArgumentException($"matrix= 要 12 个数（SolidWorks 顺序：三根轴 9 个 + 原点 3 个）或 16 个数（4×4 按行），给了 {n.Count} 个。");
+        }
+
+        return (Axes(rotation), origin);
+    }
+
+    /// <summary>写回 12 个数（SolidWorks 顺序，原点 mm），与 <see cref="Matrix"/> 互逆。</summary>
+    public static string MatrixText(double[,] axes, (double X, double Y, double Z) origin)
+        => string.Join(",", Enumerable.Range(0, 9).Select(k => Format(axes[k / 3, k % 3] + 0.0, "0.######")).Concat([Format(origin.X + 0.0, "0.###"), Format(origin.Y + 0.0, "0.###"), Format(origin.Z + 0.0, "0.###")]));
+
     /// <summary>草图平面的写法：前视 / 上视 / 右视（也认 front / top / right），其余当基准面名。</summary>
     public static int? StandardPlane(string text) => text.Trim().ToLowerInvariant() switch
     {

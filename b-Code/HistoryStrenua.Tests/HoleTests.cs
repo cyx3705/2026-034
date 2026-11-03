@@ -342,7 +342,7 @@ internal static partial class Tests
         Equal("onekey-sheetmetal,onekey-frame,onekey-machined,hole-flow,dowel-symbol,center-mark,hole-position,hole-callout,dowel-fit,square-slot,hole-place,"
             + "drawing-basic,drawing-create,drawing-project,drawing-iso,drawing-arrange,drawing-finish,symmetry-axes,outline-all,outline,fillet-flow,arc-center-all,arc-all,chamfer-all,arc-center,arc,chamfer,"
             + "check-dimension,check-redundant,check-chain,check-decimal,check-dangling,check-overlap,snapshot,svg,tech-ai,tech-list,tech-add,tech-remove,"
-            + "view-list,view-move,dim-list,dim-delete,dim-move,dim-edit,dim-add,dim-hole,dim-center,dim-thread,tol-dim,tol-gtol,tol-datum,doc-list,doc-open,doc-activate,doc-save,doc-close,prop-read,prop-write,mymooo-insert,mymooo-remove,model-new,model-sketch,model-extrude,model-plane,model-delete,model-info,asm-list,asm-insert,asm-move,asm-delete,asm-interference",
+            + "view-list,view-move,dim-list,dim-delete,dim-move,dim-edit,dim-add,dim-hole,dim-center,dim-thread,tol-dim,tol-gtol,tol-datum,doc-list,doc-open,doc-activate,doc-save,doc-close,prop-read,prop-write,mymooo-insert,mymooo-remove,model-new,model-sketch,model-extrude,model-plane,model-delete,model-info,asm-list,asm-insert,asm-move,asm-delete,asm-interference,asm-contact,asm-mate,asm-matelist,asm-matedelete",
             string.Join(",", QuickCommands.All.Select(command => command.Key)));
     }
 

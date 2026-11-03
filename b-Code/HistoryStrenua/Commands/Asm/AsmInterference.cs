@@ -39,9 +39,28 @@ internal static class AsmInterference
         var api = context.Api;
         var assembly = ModelAccess.ActiveAssembly(context);
         context.SetState("干涉检查");
+        var (found, touching) = Scan(context, assembly, names => names.Any(name => ignore.Any(part => name.Contains(part, StringComparison.OrdinalIgnoreCase))));
+        var contact = touching > 0 ? $"另有 {touching} 处零厚度贴合，不算干涉" : string.Empty;
+        if (found.Count == 0)
+            return QuickOutcome.Ok($"干涉检查：「{api.CallString(assembly, "IModelDoc2", "GetTitle")}」没有实体干涉{(ignore.Count > 0 ? $"（已排除含 {string.Join("、", ignore)} 的）" : string.Empty)}{(contact.Length > 0 ? "，" + contact : string.Empty)}。");
+        var text = new StringBuilder($"干涉检查：{found.Count} 对干涉，按体积从大到小（总装 mm）{(contact.Length > 0 ? "；" + contact : string.Empty)}：").AppendLine();
+        foreach (var (volume, a, b, box) in found.OrderByDescending(item => item.Volume).Take(Shown))
+            text.AppendLine($"· {ModelSpec.Format(volume, "0.#")} mm³  {Short(a)} ↔ {Short(b)}  区域[{string.Join(",", box.Select(value => ModelSpec.Format(value, "0.#")))}]");
+        if (found.Count > Shown)
+            text.AppendLine($"…另有 {found.Count - Shown} 对。");
+        return QuickOutcome.Fail(text.ToString().TrimEnd());
+    }
+
+    /// <summary>
+    /// 跑一遍 SolidWorks 干涉检查：每对零部件（<c>Name2</c>）、体积 mm³、干涉区包围盒（总装 mm）；厚度不到 <see cref="Flat"/> 的贴合只计数。
+    /// <paramref name="skip"/> 拿这一对的名字，返回 true 就不要（接触面检测只留含目标零件的那些）。
+    /// </summary>
+    internal static (List<(double Volume, string A, string B, double[] Box)> Found, int Touching) Scan(QuickCommandContext context, object assembly, Func<IReadOnlyList<string>, bool> skip)
+    {
+        var api = context.Api;
         var manager = api.Call(assembly, "IAssemblyDoc", "get_InterferenceDetectionManager")
                       ?? throw new QuickCommandException("SolidWorks 没有返回干涉检查管理器。");
-        var found = new List<(double Volume, string A, string B, string Box)>();
+        var found = new List<(double Volume, string A, string B, double[] Box)>();
         var touching = 0;
         try
         {
@@ -53,7 +72,7 @@ internal static class AsmInterference
                 context.Cancellation.ThrowIfCancellationRequested();
                 var names = api.CallArray(interference, "IInterference", "get_Components")
                     .Select(component => api.CallString(component, "IComponent2", "get_Name2")).ToList();
-                if (names.Count < 2 || names.Any(name => ignore.Any(part => name.Contains(part, StringComparison.OrdinalIgnoreCase))))
+                if (names.Count < 2 || skip(names))
                     continue;
                 var volume = api.Call(interference, "IInterference", "get_Volume") is { } v ? Convert.ToDouble(v) * 1e9 : 0;
                 var extent = api.Call(interference, "IInterference", "GetInterferenceBody") is { } body
@@ -65,7 +84,7 @@ internal static class AsmInterference
                     continue;
                 }
 
-                found.Add((volume, names[0], names[1], string.Join(",", extent.Select(value => ModelSpec.Format(value, "0.#")))));
+                found.Add((volume, names[0], names[1], extent));
             }
         }
         finally
@@ -73,19 +92,11 @@ internal static class AsmInterference
             api.CallForCleanup(manager, "IInterferenceDetectionMgr", "Done");
         }
 
-        var contact = touching > 0 ? $"另有 {touching} 处零厚度贴合，不算干涉" : string.Empty;
-        if (found.Count == 0)
-            return QuickOutcome.Ok($"干涉检查：「{api.CallString(assembly, "IModelDoc2", "GetTitle")}」没有实体干涉{(ignore.Count > 0 ? $"（已排除含 {string.Join("、", ignore)} 的）" : string.Empty)}{(contact.Length > 0 ? "，" + contact : string.Empty)}。");
-        var text = new StringBuilder($"干涉检查：{found.Count} 对干涉，按体积从大到小（总装 mm）{(contact.Length > 0 ? "；" + contact : string.Empty)}：").AppendLine();
-        foreach (var (volume, a, b, box) in found.OrderByDescending(item => item.Volume).Take(Shown))
-            text.AppendLine($"· {ModelSpec.Format(volume, "0.#")} mm³  {Short(a)} ↔ {Short(b)}  区域[{box}]");
-        if (found.Count > Shown)
-            text.AppendLine($"…另有 {found.Count - Shown} 对。");
-        return QuickOutcome.Fail(text.ToString().TrimEnd());
+        return (found, touching);
     }
 
     /// <summary>子装配里的零部件名是「子装配-1/零件-1」，太长时只留头尾两段。</summary>
-    private static string Short(string name)
+    internal static string Short(string name)
     {
         var parts = name.Split('/');
         return parts.Length <= 2 ? name : parts[0] + "/…/" + parts[^1];

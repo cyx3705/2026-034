@@ -100,6 +100,10 @@ internal static partial class Tests
             "strenua.asm.move",
             "strenua.asm.delete",
             "strenua.asm.interference",
+            "strenua.asm.contact",
+            "strenua.asm.mate",
+            "strenua.asm.matelist",
+            "strenua.asm.matedelete",
         ];
         foreach (var name in expected)
         {

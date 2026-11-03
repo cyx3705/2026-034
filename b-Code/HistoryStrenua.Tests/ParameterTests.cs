@@ -14,7 +14,7 @@ internal static partial class Tests
     {
         var registry = Registry();
         var commands = ParameterCommands().ToList();
-        Equal("check.svg,tech.add,tech.remove,view.list,view.move,dim.list,dim.delete,dim.move,dim.edit,dim.add,dim.hole,dim.center,dim.thread,tol.dim,tol.gtol,tol.datum,doc.open,doc.activate,doc.save,doc.close,prop.write,mymooo.insert,mymooo.remove,model.new,model.sketch,model.extrude,model.plane,model.delete,asm.insert,asm.move,asm.delete,asm.interference",
+        Equal("check.svg,tech.add,tech.remove,view.list,view.move,dim.list,dim.delete,dim.move,dim.edit,dim.add,dim.hole,dim.center,dim.thread,tol.dim,tol.gtol,tol.datum,doc.open,doc.activate,doc.save,doc.close,prop.write,mymooo.insert,mymooo.remove,model.new,model.sketch,model.extrude,model.plane,model.delete,asm.insert,asm.move,asm.delete,asm.interference,asm.contact,asm.mate,asm.matelist,asm.matedelete",
             string.Join(",", commands.Select(command => command.CommandName["strenua.".Length..])));
         foreach (var command in commands)
         {

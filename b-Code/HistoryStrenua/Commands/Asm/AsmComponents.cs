@@ -17,7 +17,7 @@ internal static class AsmComponents
         CommandName: StrenuaIdentity.Domain + ".asm.list",
         Title: "零部件列表",
         Summary: "列活动总装的顶层零部件：名字、文件、原点、轴朝向、包围盒、是否固定；名字供摆位、删除用。",
-        Usage: "不带参数。原点、包围盒是总装 mm；轴朝向写法同插入的 axes（零件 x,y,z 各朝总装哪根轴）。",
+        Usage: "不带参数。原点、包围盒是总装 mm；轴朝向写法同插入的 axes（零件 x,y,z 各朝总装哪根轴）；数据里的 matrix 是 12 个数的变换（同 matrix= 写法）。",
         Run: List,
         Readonly: true,
         SelfReport: true);
@@ -28,14 +28,16 @@ internal static class AsmComponents
         Title: "插入零部件",
         Summary: "把零件或子装配插进活动总装：零件原点放在 at，三根轴按 axes 朝向，默认固定；可一次插几个同一文件的。",
         Usage: "「路径」填 .SLDPRT / .SLDASM。「位置」x,y,z（总装 mm，零件原点落点），几个用分号隔开就插几个；"
-               + "「朝向」零件 x,y,z 轴各朝总装哪根轴，如 X,-Z,Y（默认 X,Y,Z 不转），必须右手系；fix=否 不固定。",
+               + "「朝向」零件 x,y,z 轴各朝总装哪根轴，如 X,-Z,Y（默认 X,Y,Z 不转），必须右手系；fix=否 不固定。"
+               + "也可以直接给「矩阵」代替位置和朝向：12 个数（零件 x、y、z 轴在总装里的方向各 3 个 + 原点 mm，同零部件列表的 matrix）或 4×4 按行 16 个数，几个用分号隔开。",
         Run: QuickCommand.Unbound,
         Parameters:
         [
             new QuickParameter("path", "路径", "零件 / 子装配完整路径", true),
-            new QuickParameter("at", "位置", "x,y,z（总装 mm），分号隔开插几个", true, 1),
+            new QuickParameter("at", "位置", "x,y,z（总装 mm），分号隔开插几个；给了矩阵就不写", false, 1),
             new QuickParameter("axes", "朝向", "零件 x,y,z 轴朝向，如 X,-Z,Y；省略不转", false, 1),
             new QuickParameter("fix", "固定", "是（默认）/ 否", false, 1),
+            new QuickParameter("matrix", "矩阵", "12 或 16 个数的变换，分号隔开插几个；代替位置和朝向", false, 2),
         ],
         Example: StrenuaIdentity.Domain + @".asm.insert path=D:\项目\b-Module-SW\XX-01-01底板.SLDPRT at=0,262,0 axes=X,-Z,Y",
         Bind: arguments =>
@@ -47,11 +49,19 @@ internal static class AsmComponents
                 ".SLDASM" => SwConst.DocumentAssembly,
                 _ => throw new QuickArgumentException($"path={path} 要以 .SLDPRT 或 .SLDASM 结尾。"),
             };
-            var points = QuickArgs.Name(arguments, "at").Split([';', '；'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-                .Select(text => ModelSpec.Point(text, "at")).ToList();
-            var axes = ModelSpec.Axes(QuickArgs.Optional(arguments, "axes") ?? "X,Y,Z");
             var fix = QuickArgs.Optional(arguments, "fix") is null || QuickArgs.Flag(arguments, "fix");
-            return context => Insert(context, path, type, points, axes, fix);
+            if (QuickArgs.Optional(arguments, "matrix") is { } matrix)
+            {
+                if (QuickArgs.Optional(arguments, "at") is not null || QuickArgs.Optional(arguments, "axes") is not null)
+                    throw new QuickArgumentException("给了 matrix= 就不要再写 at= / axes=。");
+                var frames = Split(matrix).Select(ModelSpec.Matrix).ToList();
+                return context => Insert(context, path, type, frames, fix);
+            }
+
+            var axes = ModelSpec.Axes(QuickArgs.Optional(arguments, "axes") ?? "X,Y,Z");
+            var points = Split(QuickArgs.Optional(arguments, "at") ?? throw new QuickArgumentException("要给 at=（位置）或 matrix=（矩阵）。"))
+                .Select(text => (axes, ModelSpec.Point(text, "at"))).ToList();
+            return context => Insert(context, path, type, points, fix);
         },
         SelfReport: true);
 
@@ -60,7 +70,7 @@ internal static class AsmComponents
         CommandName: StrenuaIdentity.Domain + ".asm.move",
         Title: "摆零部件",
         Summary: "把总装里一个零部件的原点挪到 at、轴按 axes 转（省略的保持原样），默认固定；读回位置。",
-        Usage: "「零部件」填零部件列表的 name（如 底板-1）。「位置」x,y,z（总装 mm）省略不挪；「朝向」同插入，省略不转；fix=否 摆完不固定。",
+        Usage: "「零部件」填零部件列表的 name（如 底板-1）。「位置」x,y,z（总装 mm）省略不挪；「朝向」同插入，省略不转；「矩阵」同插入，代替位置和朝向；fix=否 摆完不固定。",
         Run: QuickCommand.Unbound,
         Parameters:
         [
@@ -68,6 +78,7 @@ internal static class AsmComponents
             new QuickParameter("at", "位置", "x,y,z（总装 mm）；省略不挪", false, 1),
             new QuickParameter("axes", "朝向", "零件 x,y,z 轴朝向；省略不转", false, 1),
             new QuickParameter("fix", "固定", "是（默认）/ 否", false, 1),
+            new QuickParameter("matrix", "矩阵", "12 或 16 个数的变换；代替位置和朝向", false, 2),
         ],
         Example: StrenuaIdentity.Domain + ".asm.move name=底板-1 at=-600,262,0",
         Bind: arguments =>
@@ -75,6 +86,14 @@ internal static class AsmComponents
             var name = QuickArgs.Name(arguments, "name");
             var at = QuickArgs.Optional(arguments, "at") is { } text ? ModelSpec.Point(text, "at") : ((double, double, double)?)null;
             var axes = QuickArgs.Optional(arguments, "axes") is { } axesText ? ModelSpec.Axes(axesText) : null;
+            if (QuickArgs.Optional(arguments, "matrix") is { } matrix)
+            {
+                if (at is not null || axes is not null)
+                    throw new QuickArgumentException("给了 matrix= 就不要再写 at= / axes=。");
+                (axes, var origin) = ModelSpec.Matrix(matrix);
+                at = origin;
+            }
+
             if (at is null && axes is null && QuickArgs.Optional(arguments, "fix") is null)
                 throw new QuickArgumentException("没有要改的：给 at=、axes= 或 fix= 至少一个。");
             var fix = QuickArgs.Optional(arguments, "fix") is null || QuickArgs.Flag(arguments, "fix");
@@ -116,6 +135,7 @@ internal static class AsmComponents
                 ["file"] = Path.GetFileName(api.CallString(component, "IComponent2", "GetPathName")),
                 ["at"] = ModelAccess.Format(origin),
                 ["axes"] = ModelSpec.AxesText(axes),
+                ["matrix"] = ModelSpec.MatrixText(axes, origin),
                 ["box"] = box.Length == 6 ? string.Join(",", box.Select(value => ModelSpec.Format(value, "0.#"))) : string.Empty,
                 ["fixed"] = ModelAccess.Fixed(api, component) ? "是" : "否",
                 ["suppressed"] = api.CallBool(component, "IComponent2", "IsSuppressed") ? "是" : "否",
@@ -127,7 +147,9 @@ internal static class AsmComponents
         return QuickOutcome.Ok($"零部件列表：「{api.CallString(assembly, "IModelDoc2", "GetTitle")}」顶层 {rows.Count} 个。{Environment.NewLine}{text.ToString().TrimEnd()}", rows);
     }
 
-    private static QuickOutcome Insert(QuickCommandContext context, string path, int type, IReadOnlyList<(double X, double Y, double Z)> points, double[,] axes, bool fix)
+    private static IEnumerable<string> Split(string text) => text.Split([';', '；'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+    private static QuickOutcome Insert(QuickCommandContext context, string path, int type, IReadOnlyList<(double[,] Axes, (double X, double Y, double Z) Origin)> points, bool fix)
     {
         var api = context.Api;
         var application = context.Session.Application;
@@ -144,7 +166,7 @@ internal static class AsmComponents
         var names = new List<string>();
         try
         {
-            foreach (var point in points)
+            foreach (var (axes, point) in points)
             {
                 context.Cancellation.ThrowIfCancellationRequested();
                 var component = api.Call(assembly, "IAssemblyDoc", "AddComponent5", path, 0, string.Empty, false, string.Empty, 0.0, 0.0, 0.0);
@@ -162,7 +184,7 @@ internal static class AsmComponents
         }
 
         api.Call(assembly, "IModelDoc2", "EditRebuild3");
-        var text = $"插入零部件：{Path.GetFileName(path)} 插了 {names.Count}/{points.Count} 个，轴 {ModelSpec.AxesText(axes)}{(fix ? "，已固定" : string.Empty)}（总装没存）：{string.Join("；", names)}。";
+        var text = $"插入零部件：{Path.GetFileName(path)} 插了 {names.Count}/{points.Count} 个，轴 {string.Join(" / ", points.Select(p => ModelSpec.AxesText(p.Axes)).Distinct())}{(fix ? "，已固定" : string.Empty)}（总装没存）：{string.Join("；", names)}。";
         return names.Count == points.Count ? QuickOutcome.Ok(text) : QuickOutcome.Fail(text + " 余下的 SolidWorks 没插进去。");
     }
 

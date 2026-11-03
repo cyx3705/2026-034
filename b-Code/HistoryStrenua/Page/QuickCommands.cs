@@ -77,5 +77,9 @@ internal static class QuickCommands
         AsmComponents.MoveCommand,
         AsmComponents.DeleteCommand,
         AsmInterference.Command,
+        AsmContact.Command,
+        AsmMate.MateCommand,
+        AsmMate.ListCommand,
+        AsmMate.DeleteCommand,
     ];
 }

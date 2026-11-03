@@ -18,9 +18,10 @@ internal static class MymoooInsert
         Key: "mymooo-insert",
         CommandName: StrenuaIdentity.Domain + ".mymooo.insert",
         Title: "插入标准件",
-        Summary: "蚂蚁工场第 3 层·参数：按参数选型，选全了下载 3D 存进总装旁「外购件」并插入当前总装；没选全回还要选的参数",
+        Summary: "蚂蚁工场第 3 层：按参数选型，选全了下载 3D 存进「外购件」，按零件原点插进当前总装（at / axes 摆位）；没选全回还要选的参数",
         Usage: "「商品」填 strenua.mymooo.product 列出的商品号。先只给商品看要选哪些参数，再用「参数」填 码=值（逗号分开，如 M=8,L=20,XN=S11），"
-               + "有多个型式的先填「型式」；知道完整料号可直接填「料号」。选全了才下载插入，文件以料号命名放在总装目录的「外购件」里，同料号复用。当前文档要是存过的总装。",
+               + "有多个型式的先填「型式」；知道完整料号可直接填「料号」。选全了才下载插入，文件以料号命名放在总装目录的「外购件」里（装配体的零件放「外购件/料号/」），同料号复用。当前文档要是存过的总装。"
+               + "按零件原点摆：「位置」x,y,z（总装 mm），「朝向」零件 x,y,z 轴各朝总装哪根轴（如 X,-Z,Y），默认固定；insert=否 只下载不插。",
         Run: QuickCommand.Unbound,
         Parameters:
         [
@@ -219,18 +220,14 @@ internal static class MymoooInsert
 
     /// <summary>
     /// 1.37.0 导入的装配体：3D Interconnect 开着时导入件是「链接到 STP」的，另存出来的总装只引用 SolidWorks 临时目录 <c>swx&lt;进程号&gt;\IC~~</c> 里的缓存，
-    /// STP 又已删掉——临时目录一清就打不开。读文件的引用（不打开），引用落在临时目录就算坏的。
+    /// STP 又已删掉——临时目录一清就打不开。读文件的引用（不打开），引用里有 <c>\IC~~\</c> 就算坏的
+    /// （不按「在临时目录下」判：工程本身可能就放在 %TEMP% 里）。
     /// </summary>
     private static bool Broken(SolidWorksApi api, object application, string path)
-    {
-        if (!path.EndsWith(".SLDASM", StringComparison.OrdinalIgnoreCase))
-            return false;
-        var temp = Path.GetFullPath(Path.GetTempPath());
-        return api.CallArray(application, "ISldWorks", "GetDocumentDependencies2", path, false, true, false)
-            .OfType<string>()
-            .Any(reference => reference.Contains(@"\IC~~\", StringComparison.OrdinalIgnoreCase)
-                              || (Path.IsPathRooted(reference) && Path.GetFullPath(reference).StartsWith(temp, StringComparison.OrdinalIgnoreCase)));
-    }
+        => path.EndsWith(".SLDASM", StringComparison.OrdinalIgnoreCase)
+           && api.CallArray(application, "ISldWorks", "GetDocumentDependencies2", path, false, true, false)
+               .OfType<string>()
+               .Any(reference => reference.Contains(@"\IC~~\", StringComparison.OrdinalIgnoreCase));
 
     // swUserPreferenceToggle_e
     private const int Enable3DInterconnect = 691;

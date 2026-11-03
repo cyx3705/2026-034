@@ -142,11 +142,12 @@ internal static class AsmMateTree
                 continue;
             }
 
-            var outcome = AsmMate.Add(context, candidate.Type, kind, MateSpec.Target(candidate.Child, "a"), MateSpec.Target(candidate.Parent, "b"), 0, 2, false, false);
+            var outcome = AsmMate.Add(context, candidate.Type, kind, MateSpec.Target(candidate.Child, "a"), MateSpec.Target(candidate.Parent, "b"), 0, 2, false, false, Tol + 1e-6);
             if (outcome.Success)
             {
                 ok++;
-                lines.Add(what);
+                // 在允差内被吸正的写出来（「微调 平移 0.03 mm」）。
+                lines.Add(outcome.Message.Contains("微调", StringComparison.Ordinal) ? $"{what}（微调 {outcome.Message.Split("微调 ")[1].Split('（')[0]}）" : what);
             }
             else
             {

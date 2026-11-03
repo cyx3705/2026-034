@@ -94,8 +94,9 @@ internal static class AsmMate
 
     /// <summary>
     /// 加一条配合（双同心、贴合树也走这里）。a 那边所属的<b>顶层</b>零部件是要动的那个（子装配里的面也是整个子装配动）。
+    /// <paramref name="snap"/>：位置动了多少 mm / ° 以内算吸正（贴合树、双同心给贴合允差 0.05——真机 043 导入的模组差 0.03–0.05 mm），默认 0.01。
     /// </summary>
-    internal static QuickOutcome Add(QuickCommandContext context, int type, string typeName, MateTarget a, MateTarget b, double value, int align, bool flip, bool move)
+    internal static QuickOutcome Add(QuickCommandContext context, int type, string typeName, MateTarget a, MateTarget b, double value, int align, bool flip, bool move, double snap = Moved)
     {
         var api = context.Api;
         var assembly = ModelAccess.ActiveAssembly(context);
@@ -139,7 +140,7 @@ internal static class AsmMate
         var shift = Math.Sqrt(Math.Pow(after.X - origin.X, 2) + Math.Pow(after.Y - origin.Y, 2) + Math.Pow(after.Z - origin.Z, 2));
         var turn = Angle(axes, turned);
         var drift = $"平移 {ModelSpec.Format(shift, "0.###")} mm、转 {ModelSpec.Format(turn, "0.###")}°";
-        if ((shift > Moved || turn > Moved) && !move)
+        if ((shift > snap || turn > snap) && !move)
         {
             DeleteNew(api, assembly, existing);
             Restore(context, assembly, moving, axes, origin, wasFixed);
@@ -157,7 +158,7 @@ internal static class AsmMate
             5 or 6 => "无解",
             _ => "约束状态未知",
         };
-        var text = $"加配合：{mateName}（{what}），「{movingName}」{(wasFixed ? "已解除固定，" : string.Empty)}{(shift > Moved || turn > Moved ? $"被拉动 {drift}，原点现在 {ModelAccess.Format(after)}" : "位置没动")}，现在{status}（总装没存）。";
+        var text = $"加配合：{mateName}（{what}），「{movingName}」{(wasFixed ? "已解除固定，" : string.Empty)}{(shift > snap || turn > snap ? $"被拉动 {drift}，原点现在 {ModelAccess.Format(after)}" : shift > Moved || turn > Moved ? $"微调 {drift}（在允差内吸正）" : "位置没动")}，现在{status}（总装没存）。";
         if (code != 0)
             return QuickOutcome.Fail(text + $" 配合{(Convert.ToBoolean(warning[0]) ? "有警告" : "报错")}（码 {code}），用 strenua.asm.matelist 看。");
         return status is "过定义" or "无解" ? QuickOutcome.Fail(text) : QuickOutcome.Ok(text);

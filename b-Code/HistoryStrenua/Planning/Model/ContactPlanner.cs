@@ -427,7 +427,7 @@ internal static class ContactPlanner
 
     /// <summary>
     /// 每个接触对象一块截面（平面：沿法向看，画我的面轮廓、对方的面轮廓、重叠区；圆柱：沿轴剖开，横向轴向、竖向半径）。
-    /// 坐标是截面 mm（平面沿坐标轴时就是总装 mm），每块按自己的范围缩放、内层翻 Y。重叠区橙色贴合、灰色没贴上、红色压进 / 过盈。
+    /// 坐标是截面 mm（平面沿坐标轴时就是总装 mm），每块按重叠区取景（四周留 15% 或 20 mm）、内层翻 Y。重叠区橙色贴合、灰色没贴上、红色压进 / 过盈。
     /// </summary>
     public static string Svg(string title, IReadOnlyList<ContactGroup> groups, double tol)
     {
@@ -452,7 +452,6 @@ internal static class ContactPlanner
                 foreach (var face in group.Pairs.Select(pair => pair.Mine).DistinctBy(face => face.Index))
                 {
                     var loops = Outline(face.Triangles, u, v);
-                    extent.AddRange(loops.SelectMany(loop => loop));
                     body.Append($"<path data-ref=\"{Escape(face.Ref)}\" d=\"{Path(loops)}\" fill=\"none\" stroke=\"#38352F\" stroke-width=\"1.6\" vector-effect=\"non-scaling-stroke\"/>");
                 }
 
@@ -486,9 +485,10 @@ internal static class ContactPlanner
 
             if (extent.Count > 0)
             {
+                // 按重叠区取景（长型材上的接触区否则缩成一个点），零件轮廓超出的部分裁掉。
                 var (minU, maxU) = (extent.Min(p => p.U), extent.Max(p => p.U));
                 var (minV, maxV) = (extent.Min(p => p.V), extent.Max(p => p.V));
-                var pad = Math.Max(Math.Max(maxU - minU, maxV - minV) * 0.08, 1);
+                var pad = Math.Max(Math.Max(maxU - minU, maxV - minV) * 0.15, 20);
                 svg.Append($"<svg x=\"6\" y=\"{Header + 2}\" width=\"{Width - 12}\" height=\"{Height - Header - 8}\" viewBox=\"{F(minU - pad)} {F(-maxV - pad)} {F(maxU - minU + 2 * pad)} {F(maxV - minV + 2 * pad)}\">");
                 svg.Append("<g transform=\"scale(1,-1)\">").Append(body).Append("</g></svg>");
             }

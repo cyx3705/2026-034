@@ -15,6 +15,7 @@ public sealed class HistoryStrenuaModule : IModuleContextAware
     {
         ArgumentNullException.ThrowIfNull(context);
         var options = new StrenuaOptions(Path.Combine(context.Environment.DataDirectory, StrenuaOptions.FileName));
+        TechTemplates.Bus = context.Bus; // 1.41.0：技术要求模板经 diana.z 读源码区的 z 级文件夹
         var runner = new QuickCommandRunner(options, context.Bus, StepFeedback.Wrap);
         context.RegisterCommands(registry => Register(registry, runner, context.Bus));
     }

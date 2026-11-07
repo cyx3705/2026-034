@@ -97,7 +97,7 @@ internal static class TechAi
     {
         var templates = TechTemplates.Load();
         if (templates.Count == 0)
-            return (null, $"找不到模板目录或目录里没有 {TechTemplates.Extension}：{TechTemplates.Folder}");
+            return (null, TechTemplates.Missing);
 
         context.SetState("读图纸");
         var info = TechAiInfo.Read(context, drawing);

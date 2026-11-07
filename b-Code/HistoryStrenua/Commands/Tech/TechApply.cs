@@ -134,7 +134,7 @@ internal static class TechApply
     }
 
     /// <summary>表格的行：一份模板一行（name 是「技术要求」列按钮的字，也是两个动作的参数；setting 是「设置」列按钮的字）。</summary>
-    public static IReadOnlyList<IReadOnlyDictionary<string, string>> Rows(string defaultName, string folder = TechTemplates.Folder)
+    public static IReadOnlyList<IReadOnlyDictionary<string, string>> Rows(string defaultName, string? folder = null)
         => TechTemplates.Load(folder)
             .Select(template => (IReadOnlyDictionary<string, string>)new Dictionary<string, string>
             {
@@ -149,7 +149,7 @@ internal static class TechApply
     {
         var all = TechTemplates.Load();
         return all.Count == 0
-            ? $"技术要求：找不到模板目录或目录里没有 {TechTemplates.Extension}：{TechTemplates.Folder}"
+            ? "技术要求：" + TechTemplates.Missing
             : $"技术要求：没有叫「{name}」的模板，可选：{string.Join("、", all.Select(t => t.Name))}。";
     }
 }

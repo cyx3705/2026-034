@@ -424,8 +424,9 @@ internal static partial class Tests
         True(current.Success && current.Message.Contains("机加件-钢材", StringComparison.Ordinal), current.Message);
         var missing = Default(new() { ["name"] = "没有这份" });
         True(!missing.Success && runner.Options.TechDefault == "机加件-钢材", "不存在的模板应拒绝且不改");
-        if (Directory.Exists(TechTemplates.Folder))
+        if (Directory.Exists(LocalZBus.TemplateFolder))
         {
+            TechTemplates.Bus = LocalZBus.ForTemplates();
             var changed = Default(new() { ["name"] = "钣金-焊接" });
             True(changed.Success && runner.Options.TechDefault == "钣金-焊接", changed.Message);
             Equal("默认", TechApply.Rows(runner.Options.TechDefault).Single(r => r["name"] == "钣金-焊接")["setting"]);

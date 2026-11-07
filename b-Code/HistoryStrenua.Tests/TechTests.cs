@@ -25,8 +25,9 @@ internal static partial class Tests
         Equal("1：未注公差参照附表执行；", TechAiEdit.Numbered(items)[0]);
         Equal("乙 乙的续行", TechAiEdit.Plain(weld.Items[1]));
 
-        if (Directory.Exists(TechTemplates.Folder))
+        if (Directory.Exists(LocalZBus.TemplateFolder))
         {
+            TechTemplates.Bus = LocalZBus.ForTemplates();
             foreach (var template in TechTemplates.Load())
             {
                 var parsed = TechAiEdit.Parse(template.Text);
@@ -157,15 +158,27 @@ internal static partial class Tests
     static void TestTechTemplateFolder()
     {
         // 用户 z 级目录里的「通用技术要求」10 份（z 级目录长期存在；不在本机就跳过这一条的实际文件部分）。
-        if (!Directory.Exists(TechTemplates.Folder))
+        // 1.41.0：模板经 diana.z 读。没有总线或 Diana 不答时返回空并留原因，不抛。
+        TechTemplates.Bus = null;
+        Equal(0, TechTemplates.Load().Count);
+        True(TechTemplates.Missing.Contains(TechTemplates.Address, StringComparison.Ordinal) && TechTemplates.LastError is not null, TechTemplates.Missing);
+
+        if (!Directory.Exists(LocalZBus.TemplateFolder))
         {
-            Console.WriteLine($"  （跳过：本机没有 {TechTemplates.Folder}）");
+            Console.WriteLine($"  （跳过：本机没有 {LocalZBus.TemplateFolder}）");
             return;
         }
 
+        var bus = LocalZBus.ForTemplates();
+        TechTemplates.Bus = bus;
         var all = TechTemplates.Load();
         Equal(10, all.Count);
-        Equal(Directory.GetFiles(TechTemplates.Folder, "*" + TechTemplates.Extension).Length, all.Count);
+        Equal(Directory.GetFiles(LocalZBus.TemplateFolder, "*" + TechTemplates.Extension).Length, all.Count);
+        // 没变的文件不重读。
+        var reads = bus.Reads;
+        Equal(10, TechTemplates.Load().Count);
+        Equal(reads, bus.Reads);
+        True(TechTemplates.LastError is null, TechTemplates.LastError ?? "");
         True(all.All(t => t.Text.Contains("技术要求", StringComparison.Ordinal) && t.Items >= 5), "每份都读出了技术要求正文");
         var steel = all.Single(t => t.Name == "机加件-钢材");
         Equal(9, steel.Items);

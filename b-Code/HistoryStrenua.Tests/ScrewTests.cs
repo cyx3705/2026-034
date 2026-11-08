@@ -82,7 +82,7 @@ internal static partial class Tests
         var top = ScrewSpec.TopAt(stack, cap, ScrewHead.Cap);
         Equal(9.2, Math.Round(top, 3));
         var window = ScrewSpec.Engagement(hole);
-        Equal((6.0, 9.0, 12.0), window);
+        Equal((4.5, 9.0, 12.0), window);
         double[] table = [6, 8, 10, 12, 14, 16, 18, 20];
         Equal(12.0, ScrewSpec.Length(table, length => cap.TipFor(length) - top, window));
 
@@ -148,6 +148,19 @@ internal static partial class Tests
         Equal(0.0, Math.Round(face.From, 6));
         Equal(7.0, Math.Round(face.To, 6));
         True(ScrewSpec.Axial(new RoundFace("顶板-1", false, new Vec3(0, 1, 0), new Vec3(-619.5, 0, 50), 6.75, true, [new Vec3(0, 0, 0)]), hole) is null, "偏 0.5 不同轴");
+    }
+
+    static void TestScrewFlip()
+    {
+        // 孔长 18，这头朝外看：上面的板在 0–7；换另一头朝外，它在 −25…−18，另一头外面（在这头往里）的板 −30…−20 换过去是 2…12。
+        var faces = ScrewSpec.Flip([new AxialFace("顶板-1", false, true, 0, 7, 6.75, 6.75), new AxialFace("底板-1", false, true, -30, -20, 6.75, 6.75)], 18);
+        Equal((-25.0, -18.0), (faces[0].From, faces[0].To));
+        Equal((2.0, 12.0), (faces[1].From, faces[1].To));
+
+        var modules = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "FST134-1" };
+        True(ScrewSpec.Internal("FST134-1/BASE-1", ["FST134-1/CAP-1"], modules), "模组内部");
+        True(!ScrewSpec.Internal("FST134-1/BASE-1", ["安装板-1"], modules), "安装板装模组");
+        True(!ScrewSpec.Internal("型材-1", ["顶板-1"], modules), "顶层");
     }
 
     private static string Row(double[,] axes, int row)

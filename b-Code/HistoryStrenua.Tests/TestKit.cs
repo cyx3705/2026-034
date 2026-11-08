@@ -30,6 +30,7 @@ internal static partial class Tests
         ("asm: screw length (1.44.0)", TestScrewLength),
         ("asm: screw place (1.44.0)", TestScrewPlace),
         ("asm: screw drilled holes (1.44.0)", TestScrewDrilled),
+        ("asm: screw flip / module internal (1.44.0)", TestScrewFlip),
         ("contact: planes touch, gap, press, group by face (1.39.0)", TestContactPlanes),
         ("contact: hole and shaft on one axis (1.39.0)", TestContactCylinders),
         ("contact: clipping, frame, outline and section svg (1.39.0)", TestContactGeometry),

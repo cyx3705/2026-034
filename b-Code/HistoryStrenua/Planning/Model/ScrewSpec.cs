@@ -194,6 +194,22 @@ internal static class ScrewSpec
             yield return last;
     }
 
+    /// <summary>
+    /// 换成同一个孔另一头朝外的孔轴坐标：另一头孔口在这头往里 <paramref name="length"/> 处、方向相反，t' = −length − t。
+    /// </summary>
+    public static IReadOnlyList<AxialFace> Flip(IEnumerable<AxialFace> faces, double length)
+        => faces.Select(face => face with { From = -length - face.To, To = -length - face.From }).ToList();
+
+    /// <summary>
+    /// 外购子装配内部的孔（螺纹孔零件和过孔那叠零件都在同一个外购子装配里，如模组自己的底座与盖板）：厂家模型有意不带螺丝，不装。
+    /// 名字按「子装配-1/零件-1」写，<paramref name="purchasedAssemblies"/> 是外购子装配的名字。
+    /// </summary>
+    public static bool Internal(string tapped, IEnumerable<string> stack, IReadOnlySet<string> purchasedAssemblies)
+    {
+        var all = stack.Prepend(tapped).ToList();
+        return purchasedAssemblies.Any(assembly => all.All(name => name.StartsWith(assembly + "/", StringComparison.OrdinalIgnoreCase)));
+    }
+
     /// <summary>「按规格」写法 M3=十字盘头,M8=弹垫组合。</summary>
     public static IReadOnlyDictionary<double, ScrewKind> Sizes(string? text)
     {
@@ -299,11 +315,11 @@ internal static class ScrewSpec
             ? stack.SeatAt - (stack.SeatRadius - profile.HeadRadius) / Math.Tan(Math.Max(stack.ConeHalfAngle, 0.1))
             : stack.SeatAt + profile.Bearing;
 
-    /// <summary>旋入深度窗口：最少 min(d, 可用螺纹)，最多可用螺纹，最好 1.5d。</summary>
+    /// <summary>旋入深度窗口：最少 0.75 × min(d, 可用螺纹)（标准长度 2 mm 一档，卡死 1d 常常一档都落不进），最多可用螺纹，最好 1.5d。</summary>
     public static (double Min, double Ideal, double Max) Engagement(TappedHole hole)
     {
         var max = hole.Thread;
-        var min = Math.Min(hole.Diameter, max);
+        var min = 0.75 * Math.Min(hole.Diameter, max);
         return (min, Math.Min(1.5 * hole.Diameter, max), max);
     }
 
@@ -329,9 +345,11 @@ internal static class ScrewSpec
             return "商品没有这个规格";
         var shortest = engage(lengths.Min());
         var longest = engage(lengths.Max());
-        return longest < window.Min
-            ? $"最长 L{ModelSpec.Format(lengths.Max())} 也只旋入 {ModelSpec.Format(longest)} mm（至少要 {ModelSpec.Format(window.Min)}）：夹得太厚"
-            : $"最短 L{ModelSpec.Format(lengths.Min())} 旋入 {ModelSpec.Format(shortest)} mm 超过螺纹深 {ModelSpec.Format(window.Max)}：螺纹孔太浅";
+        if (longest < window.Min)
+            return $"最长 L{ModelSpec.Format(lengths.Max())} 也只旋入 {ModelSpec.Format(longest)} mm（至少要 {ModelSpec.Format(window.Min)}）：夹得太厚";
+        if (shortest > window.Max)
+            return $"最短 L{ModelSpec.Format(lengths.Min())} 旋入 {ModelSpec.Format(shortest)} mm 超过螺纹深 {ModelSpec.Format(window.Max)}：螺纹孔太浅";
+        return $"标准长度跳档，旋入落不进 {ModelSpec.Format(window.Min)}–{ModelSpec.Format(window.Max)} mm";
     }
 
     /// <summary>

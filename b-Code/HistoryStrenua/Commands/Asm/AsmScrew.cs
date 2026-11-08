@@ -74,6 +74,11 @@ internal static class AsmScrew
         context.SetState("找螺纹孔");
         var boxes = new Dictionary<string, (Vec3 Min, Vec3 Max)>(StringComparer.OrdinalIgnoreCase);
         var purchased = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        // 外购子装配（模组这类）：内部的孔厂家有意不带螺丝，不装也不报。
+        var purchasedAssemblies = api.CallArray(assembly, "IAssemblyDoc", "GetComponents", false)
+            .Where(component => api.CallArray(component, "IComponent2", "GetChildren").Length > 0 && IsPurchased(api, component))
+            .Select(component => api.CallString(component, "IComponent2", "get_Name2"))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
         var cache = new Dictionary<string, IReadOnlyList<RoundFace>>(StringComparer.OrdinalIgnoreCase);
         IReadOnlyList<RoundFace> Round(string name) => cache.TryGetValue(name, out var cached) ? cached : cache[name] = ScrewScan.RoundFaces(api, names[name]);
         var holes = new List<(TappedHole High, TappedHole Low, double Length)>();
@@ -82,7 +87,7 @@ internal static class AsmScrew
             context.Cancellation.ThrowIfCancellationRequested();
             if (AssemblyGeometry.Box(api, leaf) is { } box)
                 boxes[name] = box;
-            if (api.CallString(leaf, "IComponent2", "GetPathName").Contains(Path.DirectorySeparatorChar + MymoooRules.Folder + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+            if (IsPurchased(api, leaf))
                 purchased.Add(name);
             var wizard = ScrewScan.TappedHoles(api, leaf);
             holes.AddRange(wizard);
@@ -108,7 +113,7 @@ internal static class AsmScrew
             }
 
             // 另一头朝外：孔轴坐标翻过来（low 的孔口在 high 往里 length 处）。
-            var flipped = faces.Select(face => face with { From = length - face.To, To = length - face.From }).ToList();
+            var flipped = ScrewSpec.Flip(faces, length);
             var options2 = new[] { (Hole: high, Faces: (IReadOnlyList<AxialFace>)faces), (Hole: low, Faces: flipped) }
                 .Select(item => (item.Hole, Result: ScrewSpec.Stack(item.Faces, d)))
                 .ToList();
@@ -116,6 +121,8 @@ internal static class AsmScrew
             if (hit.Result.Stack is not { } stack)
             {
                 // 按底孔认的没对上过孔多半本来就不是螺纹孔（型材通孔中段、模组上空着的安装孔），不报。
+                if (ScrewSpec.Internal(high.Owner, [], purchasedAssemblies))
+                    continue;
                 if (!high.Drilled && Occupied(faces, d, length))
                     occupied++;
                 else if (!high.Drilled && (scope is null || scope.Contains(high.Owner)))
@@ -124,6 +131,8 @@ internal static class AsmScrew
             }
 
             if (scope is not null && !scope.Contains(hit.Hole.Owner) && !stack.Owners.Any(scope.Contains))
+                continue;
+            if (ScrewSpec.Internal(hit.Hole.Owner, stack.Owners, purchasedAssemblies))
                 continue;
             if (Occupied(faces, d, length))
             {
@@ -173,6 +182,10 @@ internal static class AsmScrew
         // 只回文字：经 MCP 有 Data 时宿主只回 Data，跳过与换类型的说明会丢（同 1.42.0 包络）。
         return QuickOutcome.Ok(Report(title, options, plans, skipped, occupied, inserted));
     }
+
+    /// <summary>外购件：文件在某个「外购件」文件夹下（蚂蚁工场插入的都在那）。</summary>
+    private static bool IsPurchased(HistoryStrenua.SolidWorks.SolidWorksApi api, object component)
+        => api.CallString(component, "IComponent2", "GetPathName").Contains(Path.DirectorySeparatorChar + MymoooRules.Folder + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
 
     /// <summary>孔里已经有杆（凸圆柱、半径约 d/2）插着：算装过了。</summary>
     private static bool Occupied(IReadOnlyList<AxialFace> faces, double d, double length)

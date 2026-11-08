@@ -173,21 +173,40 @@ internal static class ModelHole
         if (position is null || sketch is null)
             return (0, points.Count - 1);
         var data = api.CallDoubles(api.Call(sketch, "ISketch", "get_ModelToSketchTransform")!, "IMathTransform", "get_ArrayData");
-        var existing = api.CallArray(sketch, "ISketch", "GetSketchPoints2")
-            .Select(point => (Convert.ToDouble(api.Call(point, "ISketchPoint", "get_X")), Convert.ToDouble(api.Call(point, "ISketchPoint", "get_Y")))).ToList();
-        var todo = points.Select(p => ToSketch(data, p)).Where(q => !existing.Any(e => Math.Abs(e.Item1 - q.X) < 1e-5 && Math.Abs(e.Item2 - q.Y) < 1e-5)).ToList();
-        if (todo.Count == 0)
-            return (0, 0);
+        var targets = points.Select(p => ToSketch(data, p)).ToList();
 
+        // 真机：SelectByID2 选面的点会偏一点（M12 沉头落在 -20.114,-50.074 而不是 -20,-50），孔向导就在那儿打第一个孔，
+        // 所以位置草图里对不上孔心的点挪到还没占的孔心上，其余孔心再补点。
         api.ClearSelection(part);
         api.Call(position, "IFeature", "Select2", false, 0);
         api.Call(part, "IModelDoc2", "EditSketch");
+        var active = api.Call(part, "IModelDoc2", "GetActiveSketch2") ?? sketch;
         var sketches = api.Call(part, "IModelDoc2", "get_SketchManager")!;
         api.Call(sketches, "ISketchManager", "set_AddToDB", true);
         var (added, failed) = (0, 0);
         try
         {
-            foreach (var q in todo)
+            var free = new List<(double X, double Y)>(targets);
+            var strays = new List<object>();
+            foreach (var point in api.CallArray(active, "ISketch", "GetSketchPoints2"))
+            {
+                var at = (X: Convert.ToDouble(api.Call(point, "ISketchPoint", "get_X")), Y: Convert.ToDouble(api.Call(point, "ISketchPoint", "get_Y")));
+                var hit = free.FindIndex(q => Math.Abs(q.X - at.X) < 1e-5 && Math.Abs(q.Y - at.Y) < 1e-5);
+                if (hit >= 0)
+                    free.RemoveAt(hit);
+                else
+                    strays.Add(point);
+            }
+
+            foreach (var point in strays)
+            {
+                if (free.Count == 0)
+                    break;
+                if (api.CallBool(point, "ISketchPoint", "SetCoords", free[0].X, free[0].Y, 0.0))
+                    free.RemoveAt(0);
+            }
+
+            foreach (var q in free)
             {
                 if (api.Call(sketches, "ISketchManager", "CreatePoint", q.X, q.Y, 0.0) is not null)
                     added++;
@@ -202,6 +221,8 @@ internal static class ModelHole
             api.ClearSelection(part);
         }
 
+        // 真机：改了位置草图后 EditRebuild3 不重建孔特征（草图里 5 个点、孔还是 1 个），要强制重建。
+        api.Call(part, "IModelDoc2", "ForceRebuild3", false);
         return (added, failed);
     }
 

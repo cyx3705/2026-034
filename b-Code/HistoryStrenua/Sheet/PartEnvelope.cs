@@ -131,11 +131,13 @@ internal static class PartEnvelope
                 default:
                     string? note = null;
                     double value;
+                    var current = side;
                     try
                     {
                         var geometry = Face(api, component, side.Face);
                         EnvelopeSpec.Check(geometry, side.Side, side.Face);
-                        value = EnvelopeSpec.Outward(side.Side, EnvelopeSpec.Locate(geometry, side.Side, side.Axis).Value, side.Offset);
+                        value = EnvelopeSpec.Outward(side.Side, EnvelopeSpec.Locate(geometry, side.Side, side.Axis, (box.Min + box.Max) * 0.5).Value, side.Offset);
+                        current = side with { Tilt = EnvelopeSpec.Tilt(geometry, side.Side) };
                         if (Math.Abs(value - side.Value) > 0.01)
                             note = $"面变了：上次 {EnvelopeSpec.Num(side.Value)}，现在 {EnvelopeSpec.Num(value)}";
                     }
@@ -146,7 +148,7 @@ internal static class PartEnvelope
                     }
 
                     values[side.Side] = value;
-                    readings.Add(new EnvelopeReading(side, value, note));
+                    readings.Add(new EnvelopeReading(current, value, note));
                     break;
             }
         }

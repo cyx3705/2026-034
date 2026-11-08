@@ -185,6 +185,7 @@ internal static class AsmEnvelope
     {
         var api = context.Api;
         var state = PartEnvelope.Load(api, component, name);
+        RejectTilted(state, snaps.Select(snap => snap.Side), "asm.move 贴面");
         var targets = new List<(EnvelopeSnap Snap, ContactFace Face)>();
         foreach (var snap in snaps)
         {
@@ -255,6 +256,7 @@ internal static class AsmEnvelope
 
         if (!find)
             return BoxDeltaAll(context, assembly, path, state, instances, sides, faces is null, apply, fix);
+        RejectTilted(state, sides, "mode=找");
 
         var lines = new StringBuilder();
         int moved = 0, untouched = 0, partial = 0;
@@ -331,12 +333,18 @@ internal static class AsmEnvelope
     {
         var api = context.Api;
         var each = new StringBuilder();
+        var center = (state.PartBox.Min + state.PartBox.Max) * 0.5;
+        var planes = new List<(int Side, Vec3 Normal, Vec3 Point)>();
         foreach (var side in sides)
         {
             var k = EnvelopeSpec.AxisOf(side);
             var b = EnvelopeSpec.Component(side % 2 == 0 ? state.PartBox.Min : state.PartBox.Max, k);
-            var e = EnvelopeSpec.Component(side % 2 == 0 ? state.Box.Min : state.Box.Max, k);
-            each.Append($"{(each.Length > 0 ? "、" : string.Empty)}{EnvelopeSpec.SideNames[side]} 包围盒 {EnvelopeSpec.Num(b)} → 包络 {EnvelopeSpec.Num(e)}");
+            var reading = state.Sides[side];
+            var e = reading.Side.Source == EnvelopeSource.Box ? b : reading.Value;
+            var point = k switch { 0 => center with { X = e }, 1 => center with { Y = e }, _ => center with { Z = e } };
+            planes.Add((side, reading.Side.Tilt ?? EnvelopeSpec.Unit(side), point));
+            var tilt = reading.Side.Tilt is { } n ? $"（斜 {EnvelopeSpec.Num(EnvelopeSpec.TiltDegrees(n, side))}°）" : string.Empty;
+            each.Append($"{(each.Length > 0 ? "、" : string.Empty)}{EnvelopeSpec.SideNames[side]} 包围盒 {EnvelopeSpec.Num(b)} → 包络 {EnvelopeSpec.Num(e)}{tilt}");
         }
 
         var lines = new StringBuilder();
@@ -345,18 +353,19 @@ internal static class AsmEnvelope
         {
             context.Cancellation.ThrowIfCancellationRequested();
             var (origin, axes) = ModelAccess.Frame(api, component);
-            var delta = EnvelopeSpec.BoxDelta(axes, state.PartBox, state.Box, sides);
-            var target = (origin.X + delta.X, origin.Y + delta.Y, origin.Z + delta.Z);
-            if (delta.Length <= 1e-6)
+            var (turned, target, degrees) = EnvelopeSpec.Correction(axes, origin, state.PartBox, planes);
+            var delta = new Vec3(target.X - origin.X, target.Y - origin.Y, target.Z - origin.Z);
+            if (delta.Length <= 1e-6 && degrees <= 1e-6)
             {
                 lines.AppendLine($"· {instance}：包络和包围盒在这几侧一样，不用挪。");
                 continue;
             }
 
             if (apply)
-                ModelAccess.Place(context, assembly, component, axes, target, fix);
+                ModelAccess.Place(context, assembly, component, turned, target, fix);
             moved++;
-            lines.AppendLine($"· {instance}：原点 {ModelAccess.Format(origin)} → {ModelAccess.Format(target)}（{(apply ? "挪了" : "要挪")} {EnvelopeSpec.Num(delta.X)},{EnvelopeSpec.Num(delta.Y)},{EnvelopeSpec.Num(delta.Z)}）。");
+            var rotate = degrees > 1e-6 ? $"，转 {EnvelopeSpec.Num(degrees)}°" : string.Empty;
+            lines.AppendLine($"· {instance}：原点 {ModelAccess.Format(origin)} → {ModelAccess.Format(target)}（{(apply ? "挪了" : "要挪")} {EnvelopeSpec.Num(delta.X)},{EnvelopeSpec.Num(delta.Y)},{EnvelopeSpec.Num(delta.Z)}{rotate}）。");
         }
 
         if (apply)
@@ -365,6 +374,14 @@ internal static class AsmEnvelope
                    + $"{(apply ? "挪了" : "要挪")} {moved} 个{(apply ? (fix ? "，已固定（总装没存）" : "，浮动（总装没存）") : string.Empty)}。"
                    + "假定它们是按包围盒摆的，只做一次：再做会再挪一遍。";
         return QuickOutcome.Ok(head + Environment.NewLine + lines.ToString().TrimEnd());
+    }
+
+    /// <summary>斜的装配面只有盒差会转零件；贴面、找面只会平移，遇到就拒绝。</summary>
+    private static void RejectTilted(EnvelopeState state, IEnumerable<int> sides, string what)
+    {
+        var tilted = sides.Where(side => state.Sides[side].Side.Tilt is not null).Select(side => EnvelopeSpec.SideNames[side]).ToList();
+        if (tilted.Count > 0)
+            throw new QuickCommandException($"包络 {string.Join("、", tilted)} 是斜面，{what}只会平移、贴不正：用 strenua.asm.envsnap 默认的盒差（会把零件转回去）。");
     }
 
     private static QuickOutcome Envelope(QuickCommandContext context, string name, bool reset)
@@ -392,12 +409,14 @@ internal static class AsmEnvelope
         PartEnvelope.Model(api, component, name);
         var geometry = PartEnvelope.Face(api, component, face);
         var chosen = EnvelopeSpec.Check(geometry, side, face);
-        var (value, useAxis) = EnvelopeSpec.Locate(geometry, chosen, axis);
+        var partBox = PartEnvelope.PartBox(api, PartEnvelope.Model(api, component, name));
+        var (value, useAxis) = EnvelopeSpec.Locate(geometry, chosen, axis, (partBox.Min + partBox.Max) * 0.5);
+        var tilt = EnvelopeSpec.Tilt(geometry, chosen);
         if (geometry.Plane && axis is not null)
             throw new QuickArgumentException($"F{face} 是平面，at= 只给圆柱面用。");
         var final = EnvelopeSpec.Outward(chosen, value, offset);
-        var kind = geometry.Plane ? "平面" : geometry.Hole ? (useAxis ? "孔轴线" : "孔切线") : (useAxis ? "轴轴线" : "轴外侧切线");
-        return Apply(context, component, name, new EnvelopeSide(chosen, EnvelopeSource.Face, face, offset, useAxis, final), $"{EnvelopeSpec.SideNames[chosen]} 改到 F{face}（{kind}）");
+        var kind = geometry.Plane ? (tilt is { } n ? $"斜面 {EnvelopeSpec.Num(EnvelopeSpec.TiltDegrees(n, chosen))}°，盒差时零件会转回去" : "平面") : geometry.Hole ? (useAxis ? "孔轴线" : "孔切线") : (useAxis ? "轴轴线" : "轴外侧切线");
+        return Apply(context, component, name, new EnvelopeSide(chosen, EnvelopeSource.Face, face, offset, useAxis, final, tilt), $"{EnvelopeSpec.SideNames[chosen]} 改到 F{face}（{kind}）");
     }
 
     private static QuickOutcome SetOther(QuickCommandContext context, string name, EnvelopeSide side)

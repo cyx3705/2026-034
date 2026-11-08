@@ -32,7 +32,17 @@ internal static partial class Tests
         Equal(3, EnvelopeSpec.Check(top, null, 3));
         Equal(2, EnvelopeSpec.Check(top, 2, 3)); // 同一根轴的另一侧可以（凹进去的装配面）
         True(Rejects(() => EnvelopeSpec.Check(top, 0, 3)), "法向 +Y 的面定不了 -X");
-        True(Rejects(() => EnvelopeSpec.Check(new EnvelopeFaceGeometry(true, new Vec3(0, 1, 1), default, 0, false), null, 1)), "斜面拒绝");
+        True(Rejects(() => EnvelopeSpec.Check(new EnvelopeFaceGeometry(true, new Vec3(1, 1, 1), default, 0, false), null, 1)), "斜过 45° 拒绝");
+        var five = 5 * Math.PI / 180;
+        var leaning = new EnvelopeFaceGeometry(true, new Vec3(0, -Math.Sin(five), -Math.Cos(five)), new Vec3(5, 5, 1), 0, false);
+        Equal(4, EnvelopeSpec.Check(leaning, null, 9)); // 斜 5° 的底面认作 -Z
+        True(EnvelopeSpec.Tilt(leaning, 4) is not null && EnvelopeSpec.Tilt(top, 3) is null, "斜面带法向、正面不带");
+        Equal(5.0, Math.Round(EnvelopeSpec.TiltDegrees(leaning.Direction, 4), 9));
+        // 斜面位置取它和过包围盒中心那条线的交点：中心 (5,10,5) 的 y 比面上那点大 5 → z 低 5·tan5°。
+        Equal(Math.Round(1 - 5 * Math.Tan(five), 9), Math.Round(EnvelopeSpec.Locate(leaning, 4, null, new Vec3(5, 10, 5)).Value, 9));
+        var tiltedText = "-X:盒;+X:盒;-Y:盒;+Y:盒;-Z:F9^0,-0.087156,-0.996195@1;+Z:盒";
+        Equal(tiltedText, EnvelopeSpec.Format(EnvelopeSpec.Parse(tiltedText)));
+        True(EnvelopeSpec.Describe(EnvelopeSpec.Parse(tiltedText)[4]).Contains("斜 5°", StringComparison.Ordinal), EnvelopeSpec.Describe(EnvelopeSpec.Parse(tiltedText)[4]));
         Equal(40.0, EnvelopeSpec.Locate(top, 3, null).Value);
 
         // 圆柱：必须给侧、轴线要垂直；孔默认轴线，轴默认外侧切线。
@@ -99,6 +109,37 @@ internal static partial class Tests
         var delta = EnvelopeSpec.BoxDelta(bracket, bracketBox, bracketEnvelope, [2, 0]);
         Equal(new Vec3(0, -2, 2), delta); // 零件 -Y 外移 2 = 总装往下 2；零件 -X 外移 2 = 总装 +Z 2
         Equal(new Vec3(0, 0, 0), EnvelopeSpec.BoxDelta(bracket, bracketBox, bracketBox, [2, 0]));
+
+        // 带旋转的盒差。全是正的面时等于逐侧平移。
+        var straight = EnvelopeSpec.Correction(bracket, (0, 0, 0), bracketBox, [(2, new Vec3(0, -1, 0), new Vec3(18.25, 0, 0)), (0, new Vec3(-1, 0, 0), new Vec3(0, 18.25, 0))]);
+        Equal(0.0, straight.Degrees);
+        Equal((0.0, -2.0, 2.0), (Math.Round(straight.Origin.X, 9) + 0.0, Math.Round(straight.Origin.Y, 9), Math.Round(straight.Origin.Z, 9)));
+
+        // 一个斜 5° 的底面：转回去后装配面上的点全落在原来包围盒底面（总装 z=0）上，包围盒中心的 x、y 不动。
+        Vec3 World((double[,] Axes, (double X, double Y, double Z) Origin, double Degrees) c, Vec3 p)
+            => new Vec3(c.Axes[0, 0], c.Axes[0, 1], c.Axes[0, 2]) * p.X + new Vec3(c.Axes[1, 0], c.Axes[1, 1], c.Axes[1, 2]) * p.Y
+               + new Vec3(c.Axes[2, 0], c.Axes[2, 1], c.Axes[2, 2]) * p.Z + new Vec3(c.Origin.X, c.Origin.Y, c.Origin.Z);
+        var tiltedNormal = new Vec3(0, -Math.Sin(five), -Math.Cos(five));
+        var onPlane = new Vec3(5, 5, 1);
+        var along = new Vec3(0, Math.Cos(five), -Math.Sin(five));
+        var one = EnvelopeSpec.Correction(identity, (0, 0, 0), cube, [(4, tiltedNormal, onPlane)]);
+        Equal(5.0, Math.Round(one.Degrees, 9));
+        foreach (var p in new[] { onPlane, onPlane + along * 8, onPlane - along * 4 + new Vec3(3, 0, 0) })
+            Equal(0.0, Math.Round(World(one, p).Z, 9) + 0.0);
+        var movedCenter = World(one, new Vec3(5, 5, 5));
+        Equal((5.0, 5.0), (Math.Round(movedCenter.X, 9), Math.Round(movedCenter.Y, 9)));
+
+        // 两个面一起斜（绕 X 转 5°，夹角仍 90°）：两面都落回包围盒面。
+        var tiltY = new Vec3(0, -Math.Cos(five), -Math.Sin(five));
+        var tiltZ = new Vec3(0, Math.Sin(five), -Math.Cos(five));
+        var two = EnvelopeSpec.Correction(identity, (0, 0, 0), cube, [(2, tiltY, new Vec3(5, 1, 5)), (4, tiltZ, new Vec3(5, 5, 1))]);
+        Equal(5.0, Math.Round(two.Degrees, 9));
+        Equal(0.0, Math.Round(World(two, new Vec3(5, 1, 5)).Y, 9) + 0.0);
+        Equal(0.0, Math.Round(World(two, new Vec3(5, 5, 1)).Z, 9) + 0.0);
+        Equal(0.0, Math.Round(World(two, new Vec3(5, 1, 5) + new Vec3(0, Math.Sin(five), -Math.Cos(five)) * 3).Y, 9) + 0.0);
+
+        // 两面夹角 85° 对不上包围盒的 90°：拒绝。
+        True(Rejects(() => EnvelopeSpec.Correction(identity, (0, 0, 0), cube, [(2, new Vec3(0, -1, 0), new Vec3(5, 0, 5)), (4, tiltedNormal, onPlane)])), "夹角对不上要拒绝");
 
         // 批量贴面找目标：法向正对、投影重叠、范围内最近；背对的、错开的、太远的不要。
         ContactFace Plane(string owner, int index, double y, Vec3 normal, double x0, double x1)

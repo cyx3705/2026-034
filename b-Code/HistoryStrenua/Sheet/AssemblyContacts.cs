@@ -52,6 +52,8 @@ internal static class AssemblyContacts
             .Where(top => top.Box is not null)
             .ToList();
         var result = new List<NodeContacts>();
+        // 1.45.0：每个零件的面只读一次，各对之间只在内存里按包围盒筛（见 FaceCache）。
+        var cache = new FaceCache(api);
         for (var i = 0; i < tops.Count; i++)
         {
             for (var j = i + 1; j < tops.Count; j++)
@@ -62,10 +64,10 @@ internal static class AssemblyContacts
                     continue;
                 if (!AssemblyGeometry.Touches([b.Box!.Value.Min, b.Box.Value.Max], a.Box!.Value, near))
                     continue;
-                var mine = a.Leaves.SelectMany(leaf => AssemblyGeometry.Faces(api, leaf, b.Box, near)).ToList();
+                var mine = a.Leaves.SelectMany(leaf => cache.Faces(leaf, b.Box, near)).ToList();
                 if (mine.Count == 0)
                     continue;
-                var theirs = b.Leaves.SelectMany(leaf => AssemblyGeometry.Faces(api, leaf, a.Box, near)).ToList();
+                var theirs = b.Leaves.SelectMany(leaf => cache.Faces(leaf, a.Box, near)).ToList();
                 var planes = new List<ContactPair>();
                 var axes = new List<ContactPair>();
                 foreach (var own in mine)

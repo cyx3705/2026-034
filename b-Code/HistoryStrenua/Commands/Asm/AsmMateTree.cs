@@ -17,7 +17,8 @@ internal static class AsmMateTree
         CommandName: StrenuaIdentity.Domain + ".asm.matetree",
         Title: "贴合树",
         Summary: "从固定块沿贴合面广度优先往外长成树，每个零部件配到它的父零部件上（最大贴合面重合、两同心、别的方向的贴合面），成环处断开最远的贴合；默认直接加配合。",
-        Usage: "「根」填固定块的零部件名，省略我挑（固定着的、贴合关系最多的）。apply=否 只列树和打算加的配合、不动总装。"
+        Usage: "总装里互不相连的几簇（比如主机和独立落地的货架）各长一棵树，和谁都不贴的单个零部件列为孤立。"
+               + "「根」填固定块的零部件名，只管它所在那簇；省略或别的簇我挑（固定着的、贴合关系最多的）。apply=否 只列树和打算加的配合、不动总装。"
                + "子零部件固定着会先解除固定；加完位置动了就撤回那条（摆位为准），一个零部件有一条没加上就把它这一组全撤回、恢复固定。"
                + "配完还定不死的（型材只靠一个面贴着、只有一个孔）默认保持固定、不加，partial=是 才照加。总装里全是外购件时不上约束。子装配当一整块。",
         Run: QuickCommand.Unbound,
@@ -55,18 +56,25 @@ internal static class AsmMateTree
         var nodes = tops.Keys.ToList();
         var fixedNodes = tops.Where(top => ModelAccess.Fixed(api, top.Value)).Select(top => top.Key).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var root = rootName is null
-            ? MateTreePlanner.Root(nodes, edges, fixedNodes)
+            ? null
             : tops.Keys.FirstOrDefault(key => key.Equals(rootName, StringComparison.OrdinalIgnoreCase)) ?? throw new QuickArgumentException($"总装顶层没有「{rootName}」。");
-        var (tree, broken, unreached) = MateTreePlanner.Tree(nodes, edges, root);
+        // 1.45.0：不相连的几簇各自长一棵树（原来只长根所在那簇，别的簇整簇跳过、回执里也看不到）。
+        var (clusters, isolated) = MateTreePlanner.Forest(nodes, edges, fixedNodes, root);
 
         context.SetState(apply ? "加配合" : "预览");
         var hooks = AsmDof.Hooks(api, assembly);
-        var text = new StringBuilder($"贴合树：根「{root}」{(fixedNodes.Contains(root) ? "（固定）" : "（没固定，建议先 asm.move fix=是）")}，{tree.Count} 条树边、成环断开 {broken.Count} 条、连不上 {unreached.Count} 个{(apply ? string.Empty : "；只预览，没加配合")}。").AppendLine();
+        string RootNote(string name) => fixedNodes.Contains(name) ? "（固定）" : "（没固定，建议先 asm.move fix=是）";
+        var summary = new StringBuilder($"贴合树：{clusters.Count} 簇，{clusters.Sum(c => c.Tree.Count)} 条树边、成环断开 {clusters.Sum(c => c.Broken.Count)} 条、孤立 {isolated.Count} 个{(apply ? string.Empty : "；只预览，没加配合")}。");
+        for (var k = 0; k < clusters.Count; k++)
+            summary.AppendLine().Append($"簇 {k + 1}：根「{clusters[k].Root}」{RootNote(clusters[k].Root)}，{clusters[k].Members.Count} 个零部件。");
+        var text = new StringBuilder(summary.ToString()).AppendLine();
         var rows = new List<Dictionary<string, string>>();
         var (added, failed, kept) = (0, 0, 0);
-        // 已经放好的：根与前面配过的。子零部件已有的配合只算连到这些的（配到它身上的下游配合不算约束它）。
-        var placed = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { root, "总装" };
-        foreach (var edge in tree)
+        // 已经放好的：各簇的根与前面配过的。子零部件已有的配合只算连到这些的（配到它身上的下游配合不算约束它）。
+        var placed = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "总装" };
+        placed.UnionWith(clusters.Select(cluster => cluster.Root));
+        foreach (var (cluster, number) in clusters.Select((cluster, k) => (cluster, k + 1)))
+        foreach (var edge in cluster.Tree)
         {
             context.Cancellation.ThrowIfCancellationRequested();
             var link = links.First(item => (item.A == edge.Parent && item.B == edge.Child) || (item.A == edge.Child && item.B == edge.Parent));
@@ -109,9 +117,10 @@ internal static class AsmMateTree
                 }
             }
 
-            text.AppendLine(head + line);
+            text.AppendLine($"[簇 {number}] " + head + line);
             rows.Add(new Dictionary<string, string>
             {
+                ["cluster"] = number.ToString(System.Globalization.CultureInfo.InvariantCulture),
                 ["depth"] = edge.Depth.ToString(System.Globalization.CultureInfo.InvariantCulture),
                 ["child"] = edge.Child,
                 ["parent"] = edge.Parent,
@@ -120,14 +129,35 @@ internal static class AsmMateTree
             });
         }
 
+        var broken = clusters.SelectMany(cluster => cluster.Broken).ToList();
         if (broken.Count > 0)
             text.AppendLine($"成环断开（离根最远的贴合，不加配合）：{string.Join("、", broken.Select(edge => $"{AsmInterference.Short(edge.A)}–{AsmInterference.Short(edge.B)}"))}");
-        if (unreached.Count > 0)
-            text.AppendLine($"连不上根（没有贴合面通到它，保持原样）：{string.Join("、", unreached.Select(AsmInterference.Short))}");
+        if (isolated.Count > 0)
+            text.AppendLine($"孤立（和谁都不贴，保持原样）：{string.Join("、", isolated.Select(AsmInterference.Short))}");
         if (apply)
-            text.Append($"共加 {added} 条配合{(failed > 0 ? $"，{failed} 个零部件没配上已撤回（见上）" : string.Empty)}{(kept > 0 ? $"，{kept} 个定不死保持固定" : string.Empty)}；总装没存，strenua.asm.dof 看自由度。");
+        {
+            var tally = $"共加 {added} 条配合{(failed > 0 ? $"，{failed} 个零部件没配上已撤回（见上）" : string.Empty)}{(kept > 0 ? $"，{kept} 个定不死保持固定" : string.Empty)}；总装没存，strenua.asm.dof 看自由度。";
+            text.Append(tally);
+            summary.AppendLine().Append(tally);
+        }
+
         var outcome = text.ToString().TrimEnd();
-        return failed > 0 ? QuickOutcome.Fail(outcome) : QuickOutcome.Ok(outcome, rows);
+        // MCP 上有 data 就只回 data：汇总、各簇、孤立件都要在 data 里（1.44.0 只回树边，别的簇和连不上的件看不到）。
+        var data = new Dictionary<string, object>
+        {
+            ["summary"] = summary.ToString(),
+            ["clusters"] = clusters.Select((cluster, k) => new Dictionary<string, string>
+            {
+                ["cluster"] = (k + 1).ToString(System.Globalization.CultureInfo.InvariantCulture),
+                ["root"] = cluster.Root,
+                ["fixed"] = fixedNodes.Contains(cluster.Root) ? "是" : "否",
+                ["members"] = cluster.Members.Count.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                ["broken"] = string.Join("、", cluster.Broken.Select(edge => $"{edge.A}–{edge.B}")),
+            }).ToList(),
+            ["isolated"] = isolated,
+            ["rows"] = rows,
+        };
+        return failed > 0 ? QuickOutcome.Fail(outcome) : QuickOutcome.Ok(outcome, data);
     }
 
     /// <summary>逐条加（或只写出来）；返回每条的一句话与成功条数。双同心也用它。</summary>

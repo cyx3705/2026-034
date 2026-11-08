@@ -21,6 +21,9 @@ internal sealed record ContactEdge(string A, string B, double Area);
 /// <summary>贴合树的一条边：<see cref="Child"/> 配到 <see cref="Parent"/> 上，<see cref="Depth"/> 是离根几层。</summary>
 internal sealed record TreeEdge(string Parent, string Child, int Depth, double Area);
 
+/// <summary>一簇贴合连着的零部件（1.45.0）：根、成员、树边（按配的先后）、成环断开的边。</summary>
+internal sealed record MateCluster(string Root, IReadOnlyList<string> Members, IReadOnlyList<TreeEdge> Tree, IReadOnlyList<ContactEdge> Broken);
+
 /// <summary>
 /// 装配类自由度与贴合树（1.40.0，用户定：有加工件的装配体才上约束；先摆位置、解除固定再上约束）的纯规则。
 /// </summary>
@@ -172,6 +175,70 @@ internal static class MateTreePlanner
         var broken = edges.Where(edge => !used.Contains(edge) && depth.ContainsKey(edge.A) && depth.ContainsKey(edge.B)).ToList();
         var unreached = nodes.Where(node => !depth.ContainsKey(node)).ToList();
         return (tree, broken, unreached);
+    }
+
+    /// <summary>
+    /// 总装按贴合分成互不相连的几簇（1.45.0，用户问「一个装配体里有两块不粘连的零件」：1.44.0 只从一个根长一棵树，
+    /// 别的簇整簇算「连不上」、回执里也看不到），每簇各挑根（<see cref="Root"/>）各长一棵树；指定的根只管它所在那簇。
+    /// 簇按「指定根所在的在前、零部件多的在前、名字」排；和谁都不贴的单个零部件另列为孤立。
+    /// </summary>
+    public static (IReadOnlyList<MateCluster> Clusters, IReadOnlyList<string> Isolated) Forest(IReadOnlyList<string> nodes, IReadOnlyList<ContactEdge> edges, IReadOnlySet<string> fixedNodes, string? root = null)
+    {
+        var neighbours = nodes.ToDictionary(node => node, _ => new List<string>(), StringComparer.Ordinal);
+        foreach (var edge in edges)
+        {
+            if (neighbours.TryGetValue(edge.A, out var a) && neighbours.ContainsKey(edge.B))
+            {
+                a.Add(edge.B);
+                neighbours[edge.B].Add(edge.A);
+            }
+        }
+
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var groups = new List<List<string>>();
+        foreach (var start in nodes)
+        {
+            if (!seen.Add(start))
+                continue;
+            var group = new List<string> { start };
+            var queue = new Queue<string>([start]);
+            while (queue.Count > 0)
+            {
+                foreach (var next in neighbours[queue.Dequeue()])
+                {
+                    if (seen.Add(next))
+                    {
+                        group.Add(next);
+                        queue.Enqueue(next);
+                    }
+                }
+            }
+
+            groups.Add(group);
+        }
+
+        var clusters = new List<MateCluster>();
+        var isolated = new List<string>();
+        foreach (var group in groups
+                     .OrderByDescending(group => root is not null && group.Contains(root, StringComparer.Ordinal))
+                     .ThenByDescending(group => group.Count)
+                     .ThenBy(group => group.Min(StringComparer.Ordinal), StringComparer.Ordinal))
+        {
+            if (group.Count == 1)
+            {
+                isolated.Add(group[0]);
+                continue;
+            }
+
+            var members = group.ToHashSet(StringComparer.Ordinal);
+            var inside = edges.Where(edge => members.Contains(edge.A) && members.Contains(edge.B)).ToList();
+            var ordered = nodes.Where(members.Contains).ToList();
+            var top = root is not null && members.Contains(root) ? root : Root(ordered, inside, fixedNodes);
+            var (tree, broken, _) = Tree(ordered, inside, top);
+            clusters.Add(new MateCluster(top, ordered, tree, broken));
+        }
+
+        return (clusters, isolated);
     }
 
     /// <summary>零件文件在任何「外购件」文件夹下就是外购件（蚂蚁工场插入的都放那），其余是加工件。</summary>

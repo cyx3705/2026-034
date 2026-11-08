@@ -40,6 +40,23 @@ internal static partial class Tests
         Equal("C", MateTreePlanner.Root(nodes, edges, new HashSet<string>()));
         Equal("D", MateTreePlanner.Root(nodes, edges, new HashSet<string> { "D" }));
 
+        // 1.45.0：两簇不相连 + 一个孤立件，各簇各挑根各长树。
+        string[] forestNodes = ["A", "B", "C", "D", "E", "P", "Q", "R", "Z"];
+        ContactEdge[] forestEdges = [.. edges, new("P", "Q", 4), new("Q", "R", 2)];
+        var (clusters, isolated) = MateTreePlanner.Forest(forestNodes, forestEdges, new HashSet<string> { "R" });
+        Equal(2, clusters.Count);
+        Equal("C", clusters[0].Root);
+        Equal("A,B,C,D", string.Join(",", clusters[0].Members));
+        Equal(3, clusters[0].Tree.Count);
+        Equal("R", clusters[1].Root);
+        Equal("R>Q,Q>P", string.Join(",", clusters[1].Tree.Select(edge => $"{edge.Parent}>{edge.Child}")));
+        Equal("E,Z", string.Join(",", isolated));
+        // 指定的根只管它所在那簇，且那簇排在前面；另一簇照样自己挑根。
+        (clusters, isolated) = MateTreePlanner.Forest(forestNodes, forestEdges, new HashSet<string>(), "P");
+        Equal("P,C", string.Join(",", clusters.Select(cluster => cluster.Root)));
+        Equal("P>Q,Q>R", string.Join(",", clusters[0].Tree.Select(edge => $"{edge.Parent}>{edge.Child}")));
+        Equal(1, clusters[1].Broken.Count);
+
         True(MateTreePlanner.Purchased(@"C:\项目\b-Module-SW\外购件\AHS10-H4040-L700.SLDPRT"), "外购件文件夹");
         True(!MateTreePlanner.Purchased(@"C:\项目\b-Module-SW\LSQH-01-01 立柱底板.SLDPRT"), "加工件");
     }

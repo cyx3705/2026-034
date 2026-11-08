@@ -47,54 +47,7 @@ internal static class AssemblyGeometry
     /// <paramref name="near"/> 给了就先用面的包围盒筛：离 <paramref name="within"/> 超过它的面不做三角化。
     /// </summary>
     public static IReadOnlyList<ContactFace> Faces(SolidWorksApi api, object component, (Vec3 Min, Vec3 Max)? within = null, double near = 0)
-    {
-        var owner = api.CallString(component, "IComponent2", "get_Name2");
-        var (rows, origin, scale) = Transform(api, component);
-        Vec3 Point(double x, double y, double z) => (rows[0] * x + rows[1] * y + rows[2] * z) * (1000 * scale) + origin;
-        Vec3 Turn(double x, double y, double z) => (rows[0] * x + rows[1] * y + rows[2] * z).Normalized();
-
-        var faces = new List<ContactFace>();
-        var index = 0;
-        foreach (var face in AllFaces(api, component))
-        {
-            var number = index++;
-            if (api.Call(face, "IFace2", "GetSurface") is not { } surface)
-                continue;
-            var plane = api.CallBool(surface, "ISurface", "IsPlane");
-            if (!plane && !api.CallBool(surface, "ISurface", "IsCylinder"))
-                continue;
-            if (within is { } box && api.CallDoubles(face, "IFace2", "GetBox") is { Length: 6 } fb && !Touches(Corners(fb).Select(c => Point(c.X, c.Y, c.Z)), box, near))
-                continue;
-            var t = api.CallDoubles(face, "IFace2", "GetTessTriangles", true);
-            if (t.Length < 9)
-                continue;
-            var triangles = new List<Vec3>(t.Length / 3);
-            for (var i = 0; i + 2 < t.Length; i += 3)
-                triangles.Add(Point(t[i], t[i + 1], t[i + 2]));
-            if (plane)
-            {
-                var n = api.CallDoubles(face, "IFace2", "get_Normal");
-                if (n.Length < 3)
-                    continue;
-                faces.Add(new ContactFace(owner, number, ContactSurface.Plane, Turn(n[0], n[1], n[2]), triangles[0], 0, false, triangles));
-            }
-            else
-            {
-                var p = api.CallDoubles(surface, "ISurface", "get_CylinderParams");
-                var norms = api.CallDoubles(face, "IFace2", "GetTessNorms");
-                if (p.Length < 7 || norms.Length < 3)
-                    continue;
-                // 孔壁还是轴：第一个面片顶点的法向朝不朝轴线（GetTessNorms 已按面朝向，不用再看 FaceInSurfaceSense）。
-                var axis = new Vec3(p[3], p[4], p[5]).Normalized();
-                var w = new Vec3(t[0] - p[0], t[1] - p[1], t[2] - p[2]);
-                var radial = w - axis * w.Dot(axis);
-                var hole = new Vec3(norms[0], norms[1], norms[2]).Dot(radial) < 0;
-                faces.Add(new ContactFace(owner, number, ContactSurface.Cylinder, Turn(p[3], p[4], p[5]), Point(p[0], p[1], p[2]), p[6] * 1000 * scale, hole, triangles));
-            }
-        }
-
-        return faces;
-    }
+        => new FaceCache(api).Faces(component, within, near);
 
     /// <summary>零部件的第 <paramref name="index"/> 个面（编号同 <see cref="Faces"/>）；超出抛参数错。</summary>
     public static object Face(SolidWorksApi api, object component, int index)
@@ -133,7 +86,7 @@ internal static class AssemblyGeometry
         return ([new Vec3(d[0], d[1], d[2]), new Vec3(d[3], d[4], d[5]), new Vec3(d[6], d[7], d[8])], new Vec3(d[9], d[10], d[11]) * 1000, d[12]);
     }
 
-    private static IEnumerable<Vec3> Corners(double[] b)
+    internal static IEnumerable<Vec3> Corners(double[] b)
     {
         foreach (var x in new[] { b[0], b[3] })
         foreach (var y in new[] { b[1], b[4] })

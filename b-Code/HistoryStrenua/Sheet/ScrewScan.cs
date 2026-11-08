@@ -33,7 +33,7 @@ internal static class ScrewScan
             var diameter = Math.Round(thread, 1);
             var through = api.CallInt(data, "IWizardHoleFeatureData2", "get_ThreadEndCondition") == 1;
             var depth = Number(api.Call(data, "IWizardHoleFeatureData2", "get_ThreadDepth")) * 1000;
-            var name = api.CallString(feature, "IFeature", "Name");
+            var name = api.CallString(feature, "IFeature", "get_Name");
             var cylinders = api.CallArray(feature, "IFeature", "GetFaces")
                 .Select(face => (Face: face, Surface: api.Call(face, "IFace2", "GetSurface")))
                 .Where(item => item.Surface is not null && api.CallBool(item.Surface, "ISurface", "IsCylinder"))

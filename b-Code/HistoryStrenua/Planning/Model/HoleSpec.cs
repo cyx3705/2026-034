@@ -7,11 +7,23 @@ namespace HistoryStrenua;
 /// </summary>
 /// <remarks>
 /// 编号全是真机读 <c>ISldWorks.GetHoleStandardsData</c> 拿到的（SolidWorks 2025，GB = 13）：
-/// 柱形沉头 361 内六角圆柱头 GB/T 70.1；锥形沉头 362 内六角花形沉头 GB/T 2673；通孔 356 螺钉间隙；钻孔 355 钻孔大小；销孔 708 暗销孔；螺纹孔 359。
+/// 柱形沉头 361 内六角圆柱头 GB/T 70.1；锥形沉头 ISO 140（ISO 10642）退 GB 362；通孔 356 螺钉间隙；钻孔 355 钻孔大小；销孔 708 暗销孔；螺纹孔 359。
 /// 规格写法：螺钉类「M6」，钻孔 / 销孔「Ø6.0」（至少一位小数，「6」「Ø6」SolidWorks 都不认）。
 /// </remarks>
-internal sealed record HoleKind(string Name, int Generic, int Fastener, bool Metric, string Description)
+internal sealed record HoleKind(string Name, int Generic, int Fastener, bool Metric, string Description, int IsoFastener = 0, bool IsoFirst = false)
 {
+    public const int StandardGb = 13;
+    public const int StandardIso = 8;
+
+    /// <summary>
+    /// 依次试的（孔库标准, 紧固件类型）：GB 有的档先用 GB，没有的退到 ISO 同类。
+    /// 真机：GB 362 / 363 沉头只有 M6 起，M3–M5 建不出；ISO 140（ISO 10642 内六角沉头，等同 GB/T 70.3）M3–M12 全有，锥形沉头先用它。
+    /// </summary>
+    public IReadOnlyList<(int Standard, int Fastener)> Candidates
+        => IsoFastener == 0 ? [(StandardGb, Fastener)]
+            : IsoFirst ? [(StandardIso, IsoFastener), (StandardGb, Fastener)]
+            : [(StandardGb, Fastener), (StandardIso, IsoFastener)];
+
     // swWzdGeneralHoleTypes_e
     public const int CounterBore = 0;
     public const int CounterSink = 1;
@@ -20,12 +32,12 @@ internal sealed record HoleKind(string Name, int Generic, int Fastener, bool Met
 
     public static IReadOnlyList<HoleKind> All { get; } =
     [
-        new("沉头", CounterBore, 361, true, "柱形沉头孔（内六角圆柱头螺钉 GB/T 70.1，沉孔按标准）"),
-        new("锥形沉头", CounterSink, 362, true, "锥形沉头孔（沉头螺钉，90°）"),
-        new("通孔", Plain, 356, true, "螺钉过孔（按螺钉配合取孔径）"),
-        new("螺纹", Tap, 359, true, "螺纹孔（底孔 + 装饰螺纹线）"),
-        new("钻孔", Plain, 355, false, "光孔（直接给直径）"),
-        new("销孔", Plain, 708, false, "销钉孔（暗销孔）"),
+        new("沉头", CounterBore, 361, true, "柱形沉头孔（内六角圆柱头螺钉 GB/T 70.1，沉孔按标准）", 139),
+        new("锥形沉头", CounterSink, 362, true, "锥形沉头孔（内六角沉头螺钉 ISO 10642 / GB/T 70.3，90°）", 140, true),
+        new("通孔", Plain, 356, true, "螺钉过孔（按螺钉配合取孔径）", 144),
+        new("螺纹", Tap, 359, true, "螺纹孔（底孔 + 装饰螺纹线）", 147),
+        new("钻孔", Plain, 355, false, "光孔（直接给直径）", 143),
+        new("销孔", Plain, 708, false, "销钉孔（暗销孔）", 710),
     ];
 
     private static readonly Dictionary<string, string> Aliases = new(StringComparer.OrdinalIgnoreCase)

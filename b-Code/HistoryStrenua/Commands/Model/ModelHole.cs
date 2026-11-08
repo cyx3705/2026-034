@@ -81,8 +81,6 @@ internal static class ModelHole
         _ => throw new QuickArgumentException($"fit={text}：写 紧 / 正常 / 松。"),
     };
 
-    private const int StandardGb = 13;
-
     private static QuickOutcome Run(QuickCommandContext context, HoleSpec spec, string? name)
     {
         var api = context.Api;
@@ -117,15 +115,26 @@ internal static class ModelHole
         var before = Volume(api, part);
         var values = spec.WizardValues();
         var features = api.Call(part, "IModelDoc2", "get_FeatureManager")!;
-        var feature = api.Call(features, "IFeatureManager", "HoleWizard5",
-            // 真机：EndType 是 short（传 int 反射报类型不符），其余编号是 int。
-            spec.Kind.Generic, StandardGb, spec.Kind.Fastener, spec.Size, (short)spec.EndCondition,
-            values[0], values[1], values[2], values[3], values[4], values[5], values[6], values[7], values[8], values[9],
-            values[10], values[11], values[12], values[13], values[14],
-            string.Empty, spec.Reverse, true, true, true, true, false);
+        object? feature = null;
+        var standard = "GB";
+        foreach (var (index, fastener) in spec.Kind.Candidates)
+        {
+            api.ClearSelection(part);
+            api.CallBool(extension, "IModelDocExtension", "SelectByID2", string.Empty, "FACE", first.X / 1000, first.Y / 1000, first.Z / 1000, false, 0, null, 0);
+            feature = api.Call(features, "IFeatureManager", "HoleWizard5",
+                // 真机：EndType 是 short（传 int 反射报类型不符），其余编号是 int。
+                spec.Kind.Generic, index, fastener, spec.Size, (short)spec.EndCondition,
+                values[0], values[1], values[2], values[3], values[4], values[5], values[6], values[7], values[8], values[9],
+                values[10], values[11], values[12], values[13], values[14],
+                string.Empty, spec.Reverse, true, true, true, true, false);
+            standard = index == HoleKind.StandardGb ? "GB" : "ISO";
+            if (feature is not null)
+                break;
+        }
+
         api.ClearSelection(part);
         if (feature is null)
-            return QuickOutcome.Fail($"异形孔：{spec.Title} 没建成。常见原因：规格不在 GB 孔库「{spec.Kind.Description}」里（钻孔 / 销孔直径要是孔库里有的档），"
+            return QuickOutcome.Fail($"异形孔：{spec.Title} 没建成。常见原因：规格不在 GB / ISO 孔库「{spec.Kind.Description}」里（钻孔 / 销孔直径要是孔库里有的档），"
                                      + "或孔朝外打空了（试 reverse=是）。");
 
         var added = AddPoints(api, part, feature, spec.Points);
@@ -139,7 +148,7 @@ internal static class ModelHole
         var missing = spec.Points.Where(p => !centers.Any(c => HoleSpec.Distance(Project(p, first, n), c) < 0.05)).ToList();
         object?[] errorArgs = [false];
         var error = api.CallInt(feature, "IFeature", "GetErrorCode2", errorArgs);
-        var text = $"异形孔：{spec.Title} × {spec.Points.Count} →「{featureName}」（GB {spec.Kind.Description}）；"
+        var text = $"异形孔：{spec.Title} × {spec.Points.Count} →「{featureName}」（{standard} {spec.Kind.Description}）；"
                    + $"孔径 {string.Join(" / ", diameters.Select(d => "Ø" + ModelSpec.Format(d)))}；"
                    + $"建出 {centers.Count} 个孔{(added.Failed > 0 ? $"，补点失败 {added.Failed} 个" : string.Empty)}；"
                    + $"体积 {ModelSpec.Format(before)} → {ModelSpec.Format(after)} cm³。";

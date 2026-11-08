@@ -10,6 +10,9 @@ internal static partial class Tests
         Equal(359, HoleKind.Parse("螺纹孔").Fastener);
         Equal(708, HoleKind.Parse("销孔").Fastener);
         Throws(() => HoleKind.Parse("腰型孔"), "不认识的类型");
+        // 锥形沉头先 ISO 10642（GB 沉头 M3–M5 孔库里没有），其余先 GB 再退 ISO。
+        Equal("8:140,13:362", string.Join(",", HoleKind.Parse("锥形沉头").Candidates.Select(c => $"{c.Standard}:{c.Fastener}")));
+        Equal("13:361,8:139", string.Join(",", HoleKind.Parse("沉头").Candidates.Select(c => $"{c.Standard}:{c.Fastener}")));
 
         Equal("M12", HoleSpec.NormalizeSize(HoleKind.Parse("沉头"), "m12"));
         Equal("M6", HoleSpec.NormalizeSize(HoleKind.Parse("通孔"), "6"));

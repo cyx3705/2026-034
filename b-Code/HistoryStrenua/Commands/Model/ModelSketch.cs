@@ -44,7 +44,7 @@ internal static class ModelSketch
         Title: "画草图",
         Summary: "在基准面或零件表面上一次画完一张草图（矩形、圆、多孔、多边形、腰型槽），退出草图并回草图名。",
         Usage: "「平面」写 前视 / 上视 / 右视、基准面名，或 face:x,y,z（零件表面上的一点，mm）。"
-               + "「图形」分号隔开：rect:中心x,中心y,宽,高；box:x1,y1,x2,y2；circle:x,y,直径；circles:直径,x1,y1,x2,y2,…；poly:x1,y1,x2,y2,…（自动闭合）；slot:x1,y1,x2,y2,宽。草图 mm。打孔不要画圆切除，用 strenua.model.hole（异形孔向导）。",
+               + "「图形」分号隔开：rect:中心x,中心y,宽,高；box:x1,y1,x2,y2；circle:x,y,直径；circles:直径,x1,y1,x2,y2,…；poly:x1,y1,x2,y2,…（自动闭合）；slot:x1,y1,x2,y2,宽。草图 mm。",
         Run: QuickCommand.Unbound,
         Parameters:
         [

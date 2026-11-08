@@ -219,6 +219,45 @@ internal static class EnvelopeSpec
         return ((next.X, next.Y, next.Z), moved);
     }
 
+    /// <summary>
+    /// 批量贴面自动找目标（1.42.0，用户定：同一种零件装配关系类似，一起贴）：盒的 <paramref name="side"/> 面前后 <paramref name="near"/> mm 内、
+    /// 法向正对、在这一面上的投影和它有重叠的平面里，取离得最近的（一样近取重叠面积大的）。返回目标与距离（正 = 还差这么多，负 = 已压进去），没有为 null。
+    /// </summary>
+    public static (ContactFace Face, double Distance)? Nearest(double[,] axes, (double X, double Y, double Z) origin, (Vec3 Min, Vec3 Max) box, int side, IEnumerable<ContactFace> candidates, double near)
+    {
+        var rows = new[] { new Vec3(axes[0, 0], axes[0, 1], axes[0, 2]), new Vec3(axes[1, 0], axes[1, 1], axes[1, 2]), new Vec3(axes[2, 0], axes[2, 1], axes[2, 2]) };
+        var k = AxisOf(side);
+        var d = rows[k] * SignOf(side);
+        var o = new Vec3(origin.X, origin.Y, origin.Z);
+        var plane = Component(side % 2 == 0 ? box.Min : box.Max, k) * SignOf(side) + o.Dot(d);
+        var others = Enumerable.Range(0, 3).Where(axis => axis != k).ToArray();
+        (ContactFace Face, double Distance, double Area)? best = null;
+        foreach (var face in candidates)
+        {
+            if (face.Surface != ContactSurface.Plane || face.Normal.Normalized().Dot(d) > -Parallel || face.Triangles.Count == 0)
+                continue;
+            var distance = face.Point.Dot(d) - plane;
+            if (Math.Abs(distance) > near)
+                continue;
+            var area = 1.0;
+            foreach (var axis in others)
+            {
+                var u = rows[axis];
+                var lo = Component(box.Min, axis) + o.Dot(u);
+                var hi = Component(box.Max, axis) + o.Dot(u);
+                var overlap = Math.Min(hi, face.Triangles.Max(p => p.Dot(u))) - Math.Max(lo, face.Triangles.Min(p => p.Dot(u)));
+                area *= Math.Max(0, overlap);
+            }
+
+            if (area <= 0.01)
+                continue;
+            if (best is not { } b || Math.Abs(distance) < Math.Abs(b.Distance) - 1e-6 || (Math.Abs(Math.Abs(distance) - Math.Abs(b.Distance)) <= 1e-6 && area > b.Area))
+                best = (face, distance, area);
+        }
+
+        return best is { } found ? (found.Face, found.Distance) : null;
+    }
+
     /// <summary>零件盒按零部件变换（三根轴行向量、原点 mm）换到总装，取轴对齐外接盒。</summary>
     public static (Vec3 Min, Vec3 Max) ToAssembly((Vec3 Min, Vec3 Max) box, double[,] axes, (double X, double Y, double Z) origin)
     {

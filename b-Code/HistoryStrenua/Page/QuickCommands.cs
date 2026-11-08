@@ -88,5 +88,6 @@ internal static class QuickCommands
         AsmEnvelope.EnvelopeCommand,
         AsmEnvelope.FaceCommand,
         AsmEnvelope.ShowCommand,
+        AsmEnvelope.SnapCommand,
     ];
 }

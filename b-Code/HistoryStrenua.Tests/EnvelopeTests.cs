@@ -92,6 +92,26 @@ internal static partial class Tests
             True(error.Message.Contains("现在正对目标的是 -Z", StringComparison.Ordinal), error.Message);
         }
 
+        // 批量贴面找目标：法向正对、投影重叠、范围内最近；背对的、错开的、太远的不要。
+        ContactFace Plane(string owner, int index, double y, Vec3 normal, double x0, double x1)
+            => new(owner, index, ContactSurface.Plane, normal, new Vec3(x0, y, 0), 0, false,
+                [new Vec3(x0, y, -5), new Vec3(x1, y, -5), new Vec3(x1, y, 5), new Vec3(x0, y, 5)]);
+        var up = new Vec3(0, 1, 0);
+        // 盒 0..10，原点 (0, 1.95, 0)：底面在 y=1.95，-Y 侧。
+        ContactFace[] faces =
+        [
+            Plane("梁-1", 94, 0, up, -20, 20),          // 正下方，差 1.95 → 选它
+            Plane("梁-2", 3, 1, up, 30, 40),            // 更近但投影不重叠
+            Plane("梁-3", 7, -1, new Vec3(0, -1, 0), -20, 20), // 背对
+            Plane("梁-4", 8, -10, up, -20, 20),         // 太远
+        ];
+        var pick = EnvelopeSpec.Nearest(identity, (0, 1.95, 0), cube, 2, faces, 5);
+        True(pick is not null && pick.Value.Face.Ref == "梁-1@F94", pick?.Face.Ref ?? "没找到");
+        Equal(1.95, Math.Round(pick!.Value.Distance, 6));
+        // 压进去的也找（距离为负）。
+        Equal(-0.5, Math.Round(EnvelopeSpec.Nearest(identity, (0, -0.5, 0), cube, 2, faces, 5)!.Value.Distance, 6));
+        True(EnvelopeSpec.Nearest(identity, (0, 1.95, 0), cube, 2, faces[1..], 5) is null, "只剩错开、背对、太远的就没有目标");
+
         // 线框 12 条棱、每条只沿一根轴。
         var edges = EnvelopeSpec.Edges((min, max));
         Equal(12, edges.Count);

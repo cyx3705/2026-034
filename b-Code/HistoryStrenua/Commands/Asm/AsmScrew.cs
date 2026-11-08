@@ -150,15 +150,8 @@ internal static class AsmScrew
             api.Call(assembly, "IModelDoc2", "EditRebuild3");
         }
 
-        return QuickOutcome.Ok(Report(title, options, plans, skipped, occupied, inserted), plans.Select((plan, index) => new Dictionary<string, string>
-        {
-            ["hole"] = $"{plan.Hole.Owner}@{Where(plan.Hole)}",
-            ["size"] = plan.Hole.Size,
-            ["seat"] = SeatName(plan.Stack.Seat),
-            ["number"] = plan.Number,
-            ["engage"] = ModelSpec.Format(plan.Engage, "0.#"),
-            ["component"] = index < inserted.Count ? inserted[index] : string.Empty,
-        }).ToList());
+        // 只回文字：经 MCP 有 Data 时宿主只回 Data，跳过与换类型的说明会丢（同 1.42.0 包络）。
+        return QuickOutcome.Ok(Report(title, options, plans, skipped, occupied, inserted));
     }
 
     /// <summary>孔里已经有杆（凸圆柱、半径约 d/2）插着：算装过了。</summary>

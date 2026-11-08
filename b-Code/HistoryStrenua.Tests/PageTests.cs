@@ -95,6 +95,7 @@ internal static partial class Tests
             "strenua.model.plane",
             "strenua.model.delete",
             "strenua.model.info",
+            "strenua.model.hole",
             "strenua.asm.list",
             "strenua.asm.insert",
             "strenua.asm.move",

@@ -209,8 +209,16 @@ internal static class ModelFeature
         {
             var centers = group.Select(hole => Center(hole)).Select(c => $"({ModelSpec.Format(c.X)},{ModelSpec.Format(c.Y)},{ModelSpec.Format(c.Z)})");
             var depths = group.Select(hole => ModelSpec.Format((hole.AxialMax - hole.AxialMin) * 1000)).Distinct();
-            text.AppendLine($"· Ø{ModelSpec.Format(group.Key.Item1)} 沿 {group.Key.Item2} ×{group.Count()}，深 {string.Join("/", depths)}：{string.Join(" ", centers)}");
+            var owners = string.Join("、", group.Select(hole => hole.Feature).Where(name => name.Length > 0).Distinct());
+            text.AppendLine($"· Ø{ModelSpec.Format(group.Key.Item1)} 沿 {group.Key.Item2} ×{group.Count()}，深 {string.Join("/", depths)}{(owners.Length > 0 ? $"（{owners}）" : string.Empty)}：{string.Join(" ", centers)}");
         }
+
+        // 1.43.0（用户定）：孔一律走异形孔向导；拉伸切除打的孔不合规，点名让改。
+        var cuts = holes.Select(hole => hole.Feature).Where(name => name.Length > 0).Distinct()
+            .Where(name => Feature(api, part, name) is { } owner && api.CallString(owner, "IFeature", "GetTypeName2") is "ICE" or "Cut" or "Extrusion")
+            .ToList();
+        if (cuts.Count > 0)
+            text.AppendLine($"不合规：{string.Join("、", cuts)} 是拉伸切除打的孔，删掉（strenua.model.delete）后用 strenua.model.hole 异形孔重打。");
 
         return QuickOutcome.Ok(text.ToString().TrimEnd());
     }

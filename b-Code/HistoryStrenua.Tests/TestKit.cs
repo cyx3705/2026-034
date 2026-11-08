@@ -24,6 +24,7 @@ internal static partial class Tests
         ("symbols: unicode becomes SolidWorks symbol codes (1.38.0)", TestSymbolTokens),
         ("thread: spec, tap drill and callout lines (1.38.0)", TestThreadSpec),
         ("model: sketch shapes, axes and placement (1.38.0)", TestModelSpec),
+        ("model: hole wizard spec (1.43.0)", TestHoleSpec),
         ("contact: planes touch, gap, press, group by face (1.39.0)", TestContactPlanes),
         ("contact: hole and shaft on one axis (1.39.0)", TestContactCylinders),
         ("contact: clipping, frame, outline and section svg (1.39.0)", TestContactGeometry),

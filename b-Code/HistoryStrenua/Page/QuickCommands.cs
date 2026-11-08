@@ -72,6 +72,7 @@ internal static class QuickCommands
         ModelFeature.PlaneCommand,
         ModelFeature.DeleteCommand,
         ModelFeature.InfoCommand,
+        ModelHole.Command,
         AsmComponents.ListCommand,
         AsmComponents.InsertCommand,
         AsmComponents.MoveCommand,

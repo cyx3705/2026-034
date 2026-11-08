@@ -118,10 +118,11 @@ internal static class AsmEnvelope
         Key: "asm-envsnap",
         CommandName: StrenuaIdentity.Domain + ".asm.envsnap",
         Title: "包络贴面",
-        Summary: "按装配包络把零件贴到旁边的装配面上：自动找每个包络面正对着、最近的别的零件平面，沿法向挪过去；with=全部 同一零件文件的全部实例一起贴。",
-        Usage: "「零部件」填零部件列表的 name（顶层零件）。「一起」写 全部（同一零件文件的全部顶层实例）或几个实例名逗号分开，省略只贴这一个。"
-               + "「包络面」省略就贴包络里改到真实面的那几侧（用 strenua.asm.envface 定过的装配面），也可写 -Y,-X。"
-               + "每个实例每一面找目标：别的零件上法向正对、投影有重叠、前后「范围」内（默认 5 mm）最近的平面；找不到就这一面不动并报出来。「间隙」正 = 离开。apply=否 只预览不挪。"
+        Summary: "按包络改正按包围盒摆的零件：每一侧包围盒面到包络面差多少，就沿零件自己的轴反向挪多少，包络面落到原来包围盒面的位置；with=全部 同一零件文件的全部实例一起改。",
+        Usage: "「零部件」填零部件列表的 name（顶层零件）。「一起」写 全部（同一零件文件的全部顶层实例）或几个实例名逗号分开，省略只改这一个。"
+               + "「包络面」省略就用包络里改到真实面的那几侧（strenua.asm.envface 定过的装配面），也可写 -Y,-X。"
+               + "默认「盒差」：假定零件是按包围盒摆好的，不看周围零件、姿态随零件轴；**只能做一次**，做完再做会再挪一遍（先 apply=否 预览）。"
+               + "mode=找：不假定怎么摆的，每一面找别的零件上法向正对、投影重叠、前后「范围」内（默认 5 mm）最近的平面贴上，可重复做；「间隙」只给这种用。"
                + "单个指定目标面用 strenua.asm.move face= onto=。",
         Run: QuickCommand.Unbound,
         Parameters:
@@ -129,8 +130,9 @@ internal static class AsmEnvelope
             new QuickParameter("name", "零部件", "零部件名（零部件列表的 name）", true),
             new QuickParameter("with", "一起", "全部 / 实例名逗号分开；省略只贴这一个", false, 1),
             new QuickParameter("face", "包络面", "+X/-X/…逗号分开；省略 = 包络里跟着面的那几侧", false, 1),
-            new QuickParameter("near", "范围", "找目标面的前后范围 mm，默认 5", false, 2),
-            new QuickParameter("gap", "间隙", "mm，正 = 离开，默认 0", false, 2),
+            new QuickParameter("mode", "方式", "盒差（默认，按包围盒摆过的改正一次）/ 找（找旁边的面贴）", false, 1),
+            new QuickParameter("near", "范围", "mode=找：找目标面的前后范围 mm，默认 5", false, 2),
+            new QuickParameter("gap", "间隙", "mode=找：mm，正 = 离开，默认 0", false, 2),
             new QuickParameter("apply", "执行", "否 = 只预览", false, 2),
             new QuickParameter("fix", "固定", "是（默认）/ 否", false, 2),
         ],
@@ -142,13 +144,21 @@ internal static class AsmEnvelope
             var faces = QuickArgs.Optional(arguments, "face") is { } faceText ? QuickArgs.Names(faceText, "face").Select(text => EnvelopeSpec.Side(text, "face")).ToList() : null;
             if (faces is not null && faces.GroupBy(EnvelopeSpec.AxisOf).Any(group => group.Count() > 1))
                 throw new QuickArgumentException("face= 里同一根轴写了两面，一根轴只能贴一面。");
+            var find = QuickArgs.Optional(arguments, "mode")?.Trim() switch
+            {
+                null or "盒差" or "box" => false,
+                "找" or "find" => true,
+                var text => throw new QuickArgumentException($"mode={text}：写 盒差 或 找。"),
+            };
+            if (!find && (QuickArgs.Optional(arguments, "near") is not null || QuickArgs.Optional(arguments, "gap") is not null))
+                throw new QuickArgumentException("near= / gap= 只给 mode=找 用；盒差直接按包围盒到包络的差值挪。");
             var near = QuickArgs.Millimeters(QuickArgs.Optional(arguments, "near"), "near") ?? 5;
             if (near <= 0)
                 throw new QuickArgumentException("near= 要大于 0。");
             var gap = QuickArgs.Millimeters(QuickArgs.Optional(arguments, "gap"), "gap") ?? 0;
             var apply = QuickArgs.Optional(arguments, "apply") is null || QuickArgs.Flag(arguments, "apply");
             var fix = QuickArgs.Optional(arguments, "fix") is null || QuickArgs.Flag(arguments, "fix");
-            return context => SnapAll(context, name, with, faces, near, gap, apply, fix);
+            return context => SnapAll(context, name, with, faces, find, near, gap, apply, fix);
         },
         SelfReport: true);
 
@@ -208,7 +218,7 @@ internal static class AsmEnvelope
     /// 批量贴面：同一零件文件的实例共用一份包络（存在零件里），每个实例各自找目标面——同一种零件装配关系类似，但坐在不同的梁上。
     /// 实例逐个摆，后摆的会把先摆好的当目标（同种零件互相贴也行）。
     /// </summary>
-    private static QuickOutcome SnapAll(QuickCommandContext context, string name, IReadOnlyList<string> with, IReadOnlyList<int>? faces, double near, double gap, bool apply, bool fix)
+    private static QuickOutcome SnapAll(QuickCommandContext context, string name, IReadOnlyList<string> with, IReadOnlyList<int>? faces, bool find, double near, double gap, bool apply, bool fix)
     {
         var api = context.Api;
         var assembly = ModelAccess.ActiveAssembly(context);
@@ -242,6 +252,9 @@ internal static class AsmEnvelope
                 instances.Add((other, component));
             }
         }
+
+        if (!find)
+            return BoxDeltaAll(context, assembly, path, state, instances, sides, faces is null, apply, fix);
 
         var lines = new StringBuilder();
         int moved = 0, untouched = 0, partial = 0;
@@ -311,6 +324,47 @@ internal static class AsmEnvelope
         var head = $"包络贴面{preview}：{Path.GetFileName(path)} {instances.Count} 个实例，贴的面 {string.Join(",", sides.Select(side => EnvelopeSpec.SideNames[side]))}{which}；全贴上 {moved}、部分 {partial}、没动 {untouched}{tail}。";
         var text = head + Environment.NewLine + lines.ToString().TrimEnd();
         return untouched == instances.Count ? QuickOutcome.Fail(text) : QuickOutcome.Ok(text);
+    }
+
+    /// <summary>盒差改正：每个实例按自己的零件轴把「包围盒 → 包络」的差值反向挪过去，不看周围零件。</summary>
+    private static QuickOutcome BoxDeltaAll(QuickCommandContext context, object assembly, string path, EnvelopeState state, IReadOnlyList<(string Name, object Component)> instances, IReadOnlyList<int> sides, bool fromEnvelope, bool apply, bool fix)
+    {
+        var api = context.Api;
+        var each = new StringBuilder();
+        foreach (var side in sides)
+        {
+            var k = EnvelopeSpec.AxisOf(side);
+            var b = EnvelopeSpec.Component(side % 2 == 0 ? state.PartBox.Min : state.PartBox.Max, k);
+            var e = EnvelopeSpec.Component(side % 2 == 0 ? state.Box.Min : state.Box.Max, k);
+            each.Append($"{(each.Length > 0 ? "、" : string.Empty)}{EnvelopeSpec.SideNames[side]} 包围盒 {EnvelopeSpec.Num(b)} → 包络 {EnvelopeSpec.Num(e)}");
+        }
+
+        var lines = new StringBuilder();
+        var moved = 0;
+        foreach (var (instance, component) in instances)
+        {
+            context.Cancellation.ThrowIfCancellationRequested();
+            var (origin, axes) = ModelAccess.Frame(api, component);
+            var delta = EnvelopeSpec.BoxDelta(axes, state.PartBox, state.Box, sides);
+            var target = (origin.X + delta.X, origin.Y + delta.Y, origin.Z + delta.Z);
+            if (delta.Length <= 1e-6)
+            {
+                lines.AppendLine($"· {instance}：包络和包围盒在这几侧一样，不用挪。");
+                continue;
+            }
+
+            if (apply)
+                ModelAccess.Place(context, assembly, component, axes, target, fix);
+            moved++;
+            lines.AppendLine($"· {instance}：原点 {ModelAccess.Format(origin)} → {ModelAccess.Format(target)}（{(apply ? "挪了" : "要挪")} {EnvelopeSpec.Num(delta.X)},{EnvelopeSpec.Num(delta.Y)},{EnvelopeSpec.Num(delta.Z)}）。");
+        }
+
+        if (apply)
+            api.Call(assembly, "IModelDoc2", "EditRebuild3");
+        var head = $"包络贴面（盒差{(apply ? string.Empty : "，预览没挪")}）：{Path.GetFileName(path)} {instances.Count} 个实例，{each}{(fromEnvelope ? "（包络里的装配面）" : string.Empty)}；"
+                   + $"{(apply ? "挪了" : "要挪")} {moved} 个{(apply ? (fix ? "，已固定（总装没存）" : "，浮动（总装没存）") : string.Empty)}。"
+                   + "假定它们是按包围盒摆的，只做一次：再做会再挪一遍。";
+        return QuickOutcome.Ok(head + Environment.NewLine + lines.ToString().TrimEnd());
     }
 
     private static QuickOutcome Envelope(QuickCommandContext context, string name, bool reset)

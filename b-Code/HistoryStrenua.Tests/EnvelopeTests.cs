@@ -92,6 +92,14 @@ internal static partial class Tests
             True(error.Message.Contains("现在正对目标的是 -Z", StringComparison.Ordinal), error.Message);
         }
 
+        // 盒差（用户的算法）：角码零件 y 朝总装 Y、z 朝总装 -X（axes=-Z,Y,X 的转置写法这里直接给行），包围盒 -Y=-2 / -X=-2，包络都改到 0。
+        var bracket = new double[3, 3] { { 0, 0, -1 }, { 0, 1, 0 }, { 1, 0, 0 } };
+        var bracketBox = (new Vec3(-2, -2, -17.25), new Vec3(38.5, 38.5, 17.25));
+        var bracketEnvelope = (new Vec3(0, 0, -17.25), new Vec3(38.5, 38.5, 17.25));
+        var delta = EnvelopeSpec.BoxDelta(bracket, bracketBox, bracketEnvelope, [2, 0]);
+        Equal(new Vec3(0, -2, 2), delta); // 零件 -Y 外移 2 = 总装往下 2；零件 -X 外移 2 = 总装 +Z 2
+        Equal(new Vec3(0, 0, 0), EnvelopeSpec.BoxDelta(bracket, bracketBox, bracketBox, [2, 0]));
+
         // 批量贴面找目标：法向正对、投影重叠、范围内最近；背对的、错开的、太远的不要。
         ContactFace Plane(string owner, int index, double y, Vec3 normal, double x0, double x1)
             => new(owner, index, ContactSurface.Plane, normal, new Vec3(x0, y, 0), 0, false,

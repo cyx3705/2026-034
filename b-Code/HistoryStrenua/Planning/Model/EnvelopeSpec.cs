@@ -220,6 +220,26 @@ internal static class EnvelopeSpec
     }
 
     /// <summary>
+    /// 盒差改正（1.42.0，用户定的算法）：零件是按包围盒摆的，包络又是从包围盒改出来的，所以每一侧「包围盒面 → 包络面」差多少，
+    /// 就把零件沿这一侧的零件轴反向挪多少，包络面正好落到原来包围盒面的位置；姿态不管，直接用零件三根轴换到总装。
+    /// 返回总装 mm 的平移。同一根轴两侧都改过只能取一侧（参数层已拦）。不能重复做：做完再做会再挪一次。
+    /// </summary>
+    public static Vec3 BoxDelta(double[,] axes, (Vec3 Min, Vec3 Max) partBox, (Vec3 Min, Vec3 Max) envelope, IEnumerable<int> sides)
+    {
+        var rows = new[] { new Vec3(axes[0, 0], axes[0, 1], axes[0, 2]), new Vec3(axes[1, 0], axes[1, 1], axes[1, 2]), new Vec3(axes[2, 0], axes[2, 1], axes[2, 2]) };
+        var delta = new Vec3(0, 0, 0);
+        foreach (var side in sides)
+        {
+            var k = AxisOf(side);
+            var b = Component(side % 2 == 0 ? partBox.Min : partBox.Max, k);
+            var e = Component(side % 2 == 0 ? envelope.Min : envelope.Max, k);
+            delta += rows[k] * (b - e);
+        }
+
+        return delta;
+    }
+
+    /// <summary>
     /// 批量贴面自动找目标（1.42.0，用户定：同一种零件装配关系类似，一起贴）：盒的 <paramref name="side"/> 面前后 <paramref name="near"/> mm 内、
     /// 法向正对、在这一面上的投影和它有重叠的平面里，取离得最近的（一样近取重叠面积大的）。返回目标与距离（正 = 还差这么多，负 = 已压进去），没有为 null。
     /// </summary>

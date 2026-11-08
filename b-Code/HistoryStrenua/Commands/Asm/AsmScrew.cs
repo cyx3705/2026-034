@@ -172,15 +172,18 @@ internal static class AsmScrew
         }
 
         var inserted = new List<string>();
+        var clashes = new List<string>();
         if (options.Apply && plans.Count > 0)
         {
             context.SetState("插入螺钉");
             inserted.AddRange(Insert(context, assembly, title, plans));
             api.Call(assembly, "IModelDoc2", "EditRebuild3");
+            context.SetState("干涉核对");
+            clashes.AddRange(Clashes(context, assembly, plans, inserted));
         }
 
         // 只回文字：经 MCP 有 Data 时宿主只回 Data，跳过与换类型的说明会丢（同 1.42.0 包络）。
-        return QuickOutcome.Ok(Report(title, options, plans, skipped, occupied, inserted));
+        return QuickOutcome.Ok(Report(title, options, plans, skipped, occupied, inserted, clashes));
     }
 
     /// <summary>外购件：文件在某个「外购件」文件夹下（蚂蚁工场插入的都在那）。</summary>
@@ -344,7 +347,38 @@ internal static class AsmScrew
         return names;
     }
 
-    private static string Report(string title, Options options, IReadOnlyList<Plan> plans, IReadOnlyList<string> skipped, int occupied, IReadOnlyList<string> inserted)
+    /// <summary>
+    /// 装完核对：新螺钉和螺纹孔零件以外的零件干涉（头压在筋上、杆穿进别的零件）就是孔被挡住了，单列出来。
+    /// 螺钉带真螺纹，和自己的螺纹孔零件干涉是啮合段，不算。
+    /// </summary>
+    private static IEnumerable<string> Clashes(QuickCommandContext context, object assembly, IReadOnlyList<Plan> plans, IReadOnlyList<string> inserted)
+    {
+        var owners = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        for (var i = 0; i < inserted.Count && i < plans.Count; i++)
+        {
+            if (!string.IsNullOrEmpty(inserted[i]))
+                owners[inserted[i]] = plans[i].Hole.Owner;
+        }
+
+        bool Skip(IReadOnlyList<string> names)
+        {
+            var screw = names.FirstOrDefault(owners.ContainsKey);
+            if (screw is null)
+                return true;
+            var other = names.FirstOrDefault(name => !string.Equals(name, screw, StringComparison.OrdinalIgnoreCase));
+            return other is null || string.Equals(other, owners[screw], StringComparison.OrdinalIgnoreCase);
+        }
+
+        var (found, _) = AsmInterference.Scan(context, assembly, Skip);
+        return found.OrderByDescending(item => item.Volume).Select(item =>
+        {
+            var screw = owners.ContainsKey(item.A) ? item.A : item.B;
+            var other = screw == item.A ? item.B : item.A;
+            return $"{screw} ↔ {AsmInterference.Short(other)} {ModelSpec.Format(item.Volume, "0.#")} mm³ 区域[{string.Join(",", item.Box.Select(value => ModelSpec.Format(value, "0.#")))}]";
+        });
+    }
+
+    private static string Report(string title, Options options, IReadOnlyList<Plan> plans, IReadOnlyList<string> skipped, int occupied, IReadOnlyList<string> inserted, IReadOnlyList<string> clashes)
     {
         var text = new StringBuilder(options.Apply
             ? $"一键螺丝：「{title}」装了 {inserted.Count} 颗螺钉"
@@ -355,6 +389,12 @@ internal static class AsmScrew
         if (skipped.Count > 0)
             text.Append($"，{skipped.Count} 个孔没装");
         text.Append(options.Apply ? "；固定、没加配合，总装没存。" : "；长度按经验估，真装时按下载件现量再挑一次。").AppendLine();
+        if (clashes.Count > 0)
+        {
+            text.AppendLine($"⚠ 装上后 {clashes.Count} 处和别的零件干涉（螺纹孔零件的啮合段不算）：孔被挡住，改设计或删掉这颗（strenua.asm.delete）：");
+            foreach (var clash in clashes.Take(Shown))
+                text.AppendLine("  " + clash);
+        }
         foreach (var group in plans.GroupBy(plan => plan.Number))
             text.AppendLine($"· {group.Key} × {group.Count()}（{group.First().Kind.Name}）");
         text.AppendLine("明细（螺纹孔 ← 孔口 · 旋入深度）：");

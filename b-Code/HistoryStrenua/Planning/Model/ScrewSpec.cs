@@ -65,11 +65,14 @@ internal sealed record ScrewProfile(Vec3 Axis, Vec3 Top, double Length, double T
 /// <summary>螺纹孔轴线上一个别的零件的孔面（总装 mm），轴向坐标从螺纹孔口量、朝外为正。</summary>
 internal sealed record AxialFace(string Owner, bool Cone, bool Hole, double From, double To, double MinRadius, double MaxRadius);
 
+/// <summary>零件上一张圆柱 / 圆锥面（总装 mm）：轴线方向与轴上一点、圆柱半径（圆锥为 0）、孔壁还是杆、三角面片顶点。</summary>
+internal sealed record RoundFace(string Owner, bool Cone, Vec3 Axis, Vec3 Point, double Radius, bool Hole, IReadOnlyList<Vec3> Points);
+
 /// <summary>螺纹孔往外穿过的那叠零件：最外那个零件、孔口种类、承压面位置（沉头孔是孔口平面）、沉孔 / 锥孔尺寸。</summary>
 internal sealed record ScrewStack(IReadOnlyList<string> Owners, ScrewSeat Seat, double SeatAt, double SeatRadius, double ConeHalfAngle);
 
-/// <summary>螺纹孔（总装 mm）：所属零部件、孔口点、朝外方向、公称直径、可用螺纹长、是否贯穿。</summary>
-internal sealed record TappedHole(string Owner, string Feature, Vec3 Entry, Vec3 Outward, double Diameter, double Thread, bool Through)
+/// <summary>螺纹孔（总装 mm）：所属零部件、特征名、孔口点、朝外方向、公称直径、可用螺纹长、是否贯穿；<c>Drilled</c> = 按底孔认的（外购件没有异形孔特征，Ø 等于标准攻丝底孔就当螺纹孔）。</summary>
+internal sealed record TappedHole(string Owner, string Feature, Vec3 Entry, Vec3 Outward, double Diameter, double Thread, bool Through, bool Drilled = false)
 {
     public string Size => "M" + ModelSpec.Format(Diameter);
 }
@@ -87,6 +90,109 @@ internal static class ScrewSpec
 
     /// <summary>过孔半径上限（公称直径的倍数）；更大的同轴圆柱是沉孔。</summary>
     public const double ClearanceRatio = 0.75;
+
+    /// <summary>粗牙标准攻丝底孔直径（GB/T 20330 / 常用钻头）：公称直径 → 底孔。</summary>
+    public static readonly IReadOnlyDictionary<double, double> TapDrills = new Dictionary<double, double>
+    {
+        [2] = 1.6, [2.5] = 2.05, [3] = 2.5, [4] = 3.3, [5] = 4.2, [6] = 5.0, [8] = 6.8, [10] = 8.5, [12] = 10.2, [14] = 12, [16] = 14, [20] = 17.5, [24] = 21,
+    };
+
+    /// <summary>孔径是不是某个规格的攻丝底孔（差 0.05 内），是就回公称直径。</summary>
+    public static double? TapSize(double holeDiameter)
+        => TapDrills.Where(pair => Math.Abs(pair.Value - holeDiameter) <= 0.05).Select(pair => (double?)pair.Key).FirstOrDefault();
+
+    /// <summary>
+    /// 把一张面换成孔轴坐标（从 <paramref name="hole"/> 孔口量、朝外为正）：不同轴（方向差、轴线偏 &gt; <see cref="Coaxial"/>）回 null。
+    /// </summary>
+    public static AxialFace? Axial(RoundFace face, TappedHole hole)
+    {
+        if (Math.Abs(face.Axis.Dot(hole.Outward)) < 0.9999 || Offset(face.Point, hole) > Coaxial || face.Points.Count == 0)
+            return null;
+        double from = double.MaxValue, to = double.MinValue, rMin = double.MaxValue, rMax = 0;
+        foreach (var point in face.Points)
+        {
+            var v = point - hole.Entry;
+            var along = v.Dot(hole.Outward);
+            var radius = (v - hole.Outward * along).Length;
+            from = Math.Min(from, along);
+            to = Math.Max(to, along);
+            rMin = Math.Min(rMin, radius);
+            rMax = Math.Max(rMax, radius);
+        }
+
+        return face.Cone
+            ? new AxialFace(face.Owner, true, face.Hole, from, to, rMin, rMax)
+            : new AxialFace(face.Owner, false, face.Hole, from, to, face.Radius, face.Radius);
+    }
+
+    /// <summary>点到孔轴线的距离。</summary>
+    public static double Offset(Vec3 point, TappedHole hole)
+    {
+        var v = point - hole.Entry;
+        return (v - hole.Outward * v.Dot(hole.Outward)).Length;
+    }
+
+    /// <summary>
+    /// 按底孔认螺纹孔：孔壁圆柱直径等于标准攻丝底孔的，同一根轴线上首尾相接（缝 ≤ 0.05）的连成一段，一段一个孔、两头都给；
+    /// 可用螺纹 = min(段长, 2d)（外购件攻丝深度不知道，取常用的 2 倍公称直径）。<paramref name="skip"/> 排掉已有异形孔螺纹的轴线。
+    /// </summary>
+    public static IReadOnlyList<(TappedHole High, TappedHole Low, double Length)> DrilledHoles(IReadOnlyList<RoundFace> faces, Func<Vec3, Vec3, bool>? skip = null)
+    {
+        var holes = new List<(TappedHole, TappedHole, double)>();
+        var drills = faces.Where(face => face.Hole && !face.Cone && TapSize(face.Radius * 2) is not null && face.Points.Count > 0).ToList();
+        var used = new bool[drills.Count];
+        for (var i = 0; i < drills.Count; i++)
+        {
+            if (used[i])
+                continue;
+            var seed = drills[i];
+            var axis = seed.Axis.Normalized();
+            var probe = new TappedHole(seed.Owner, string.Empty, seed.Point, axis, 0, 0, false);
+            var spans = new List<(double From, double To)>();
+            for (var j = i; j < drills.Count; j++)
+            {
+                if (used[j] || Math.Abs(drills[j].Radius - seed.Radius) > 0.01 || Axial(drills[j], probe) is not { } axial)
+                    continue;
+                used[j] = true;
+                spans.Add((axial.From, axial.To));
+            }
+
+            if (skip?.Invoke(seed.Point, axis) == true)
+                continue;
+            var d = TapSize(seed.Radius * 2)!.Value;
+            foreach (var (from, to) in Merge(spans))
+            {
+                var length = to - from;
+                var usable = Math.Min(length, 2 * d);
+                var name = $"底孔Ø{ModelSpec.Format(seed.Radius * 2)}";
+                var high = seed.Point + axis * to;
+                var low = seed.Point + axis * from;
+                holes.Add((new TappedHole(seed.Owner, name, high, axis, d, usable, false, true), new TappedHole(seed.Owner, name, low, -axis, d, usable, false, true), length));
+            }
+        }
+
+        return holes;
+    }
+
+    private static IEnumerable<(double From, double To)> Merge(IEnumerable<(double From, double To)> spans)
+    {
+        (double From, double To)? current = null;
+        foreach (var span in spans.OrderBy(span => span.From))
+        {
+            if (current is { } open && span.From <= open.To + 0.05)
+            {
+                current = (open.From, Math.Max(open.To, span.To));
+                continue;
+            }
+
+            if (current is { } done)
+                yield return done;
+            current = span;
+        }
+
+        if (current is { } last)
+            yield return last;
+    }
 
     /// <summary>「按规格」写法 M3=十字盘头,M8=弹垫组合。</summary>
     public static IReadOnlyDictionary<double, ScrewKind> Sizes(string? text)

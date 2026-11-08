@@ -72,11 +72,23 @@ internal static class AsmScrew
         }
 
         context.SetState("找螺纹孔");
+        var boxes = new Dictionary<string, (Vec3 Min, Vec3 Max)>(StringComparer.OrdinalIgnoreCase);
+        var purchased = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var cache = new Dictionary<string, IReadOnlyList<RoundFace>>(StringComparer.OrdinalIgnoreCase);
+        IReadOnlyList<RoundFace> Round(string name) => cache.TryGetValue(name, out var cached) ? cached : cache[name] = ScrewScan.RoundFaces(api, names[name]);
         var holes = new List<(TappedHole High, TappedHole Low, double Length)>();
-        foreach (var leaf in leaves)
+        foreach (var (name, leaf) in names)
         {
             context.Cancellation.ThrowIfCancellationRequested();
-            holes.AddRange(ScrewScan.TappedHoles(api, leaf));
+            if (AssemblyGeometry.Box(api, leaf) is { } box)
+                boxes[name] = box;
+            if (api.CallString(leaf, "IComponent2", "GetPathName").Contains(Path.DirectorySeparatorChar + MymoooRules.Folder + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+                purchased.Add(name);
+            var wizard = ScrewScan.TappedHoles(api, leaf);
+            holes.AddRange(wizard);
+            // 没打异形孔螺纹的：孔径等于攻丝底孔就按底孔认（外购件型材端面孔这类），排掉已有异形孔螺纹的轴线。
+            holes.AddRange(ScrewSpec.DrilledHoles(Round(name), (point, axis) => wizard.Any(item =>
+                Math.Abs(item.High.Outward.Dot(axis)) > 0.9999 && ScrewSpec.Offset(point, item.High) <= ScrewSpec.Coaxial)));
         }
 
         var skipped = new List<string>();
@@ -88,42 +100,50 @@ internal static class AsmScrew
             context.Cancellation.ThrowIfCancellationRequested();
             var d = high.Diameter;
             var faces = new List<AxialFace>();
-            foreach (var (name, leaf) in names)
+            foreach (var (name, box) in boxes)
             {
-                if (string.Equals(name, high.Owner, StringComparison.OrdinalIgnoreCase)
-                    || !ScrewScan.Along(api, leaf, high, length + 300, 300, d))
+                if (string.Equals(name, high.Owner, StringComparison.OrdinalIgnoreCase) || !ScrewScan.Along(box, high, length + 300, 300, d))
                     continue;
-                faces.AddRange(ScrewScan.AxialFaces(api, leaf, high, 2 * d));
+                faces.AddRange(Round(name).Select(face => ScrewSpec.Axial(face, high)).OfType<AxialFace>());
             }
 
             // 另一头朝外：孔轴坐标翻过来（low 的孔口在 high 往里 length 处）。
             var flipped = faces.Select(face => face with { From = length - face.To, To = length - face.From }).ToList();
-            if (Occupied(faces, d, length))
-            {
-                occupied++;
-                continue;
-            }
-
             var options2 = new[] { (Hole: high, Faces: (IReadOnlyList<AxialFace>)faces), (Hole: low, Faces: flipped) }
                 .Select(item => (item.Hole, Result: ScrewSpec.Stack(item.Faces, d)))
                 .ToList();
             var hit = options2.FirstOrDefault(item => item.Result.Stack is not null);
             if (hit.Result.Stack is not { } stack)
             {
-                if (scope is null || scope.Contains(high.Owner))
+                // 按底孔认的没对上过孔多半本来就不是螺纹孔（型材通孔中段、模组上空着的安装孔），不报。
+                if (!high.Drilled && Occupied(faces, d, length))
+                    occupied++;
+                else if (!high.Drilled && (scope is null || scope.Contains(high.Owner)))
                     skipped.Add($"{high.Owner} {high.Size}（{high.Feature}）@{Where(high)}：{options2[0].Result.Reason}");
                 continue;
             }
 
             if (scope is not null && !scope.Contains(hit.Hole.Owner) && !stack.Owners.Any(scope.Contains))
                 continue;
+            if (Occupied(faces, d, length))
+            {
+                occupied++;
+                continue;
+            }
+
+            if (hit.Hole.Drilled && !purchased.Contains(hit.Hole.Owner))
+            {
+                skipped.Add($"{hit.Hole.Owner} {hit.Hole.Size}@{Where(hit.Hole)}：{hit.Hole.Feature} 对着 {string.Join(" / ", stack.Owners)} 的过孔，但不是异形孔螺纹孔（加工件要先 strenua.model.hole type=螺纹 打螺纹）");
+                continue;
+            }
+
             found.Add((hit.Hole, stack));
         }
 
         if (found.Count == 0)
         {
             var empty = new StringBuilder($"一键螺丝：「{title}」{(options.Scope is null ? string.Empty : $"范围「{options.Scope}」")}里没有要装的螺纹孔");
-            empty.Append(holes.Count == 0 ? "（没有异形孔向导打的螺纹孔）。" : $"（螺纹孔 {holes.Count} 个，已装 {occupied} 个）。");
+            empty.Append(holes.Count == 0 ? "（没有螺纹孔：异形孔向导螺纹孔、外购件攻丝底孔都没有）。" : $"（已装 {occupied} 个）。");
             foreach (var line in skipped.Take(Shown))
                 empty.AppendLine().Append("· 跳过 ").Append(line);
             return QuickOutcome.Nothing(empty.ToString());

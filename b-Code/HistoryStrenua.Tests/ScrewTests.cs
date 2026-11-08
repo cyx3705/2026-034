@@ -118,6 +118,38 @@ internal static partial class Tests
         True(Math.Abs(Det(axes) - 1) < 1e-9, "右手系");
     }
 
+    static void TestScrewDrilled()
+    {
+        Equal(12.0, ScrewSpec.TapSize(10.2));
+        Equal(6.0, ScrewSpec.TapSize(5.02));
+        True(ScrewSpec.TapSize(6.6) is null, "过孔不是底孔");
+
+        // 型材中心孔 Ø10.2 沿 Y：端头一段 0–18、中段 30–1600（两段分开）；同轴 Ø6.6 不算。
+        static RoundFace Cylinder(double diameter, double from, double to)
+            => new("型材-1", false, new Vec3(0, 1, 0), new Vec3(-620, 0, 50), diameter / 2, true,
+                [new Vec3(-620 + diameter / 2, from, 50), new Vec3(-620 - diameter / 2, to, 50)]);
+        var holes = ScrewSpec.DrilledHoles([Cylinder(10.2, 0, 10), Cylinder(10.2, 10, 18), Cylinder(10.2, 30, 1600), Cylinder(6.6, 1600, 1640)]);
+        Equal(2, holes.Count);
+        var end = holes.Single(hole => hole.Length < 100);
+        Equal(18.0, Math.Round(end.Length, 6));
+        Equal(12.0, end.High.Diameter);
+        Equal(18.0, end.High.Thread);
+        Equal(24.0, holes.Single(hole => hole.Length > 100).High.Thread);
+        True(end.High.Drilled, "按底孔认");
+        Equal(18.0, Math.Round(end.High.Entry.Y, 6));
+        Equal(0.0, Math.Round(end.Low.Entry.Y, 6));
+        // 已有异形孔螺纹的轴线排掉。
+        Equal(0, ScrewSpec.DrilledHoles([Cylinder(10.2, 0, 18)], (_, _) => true).Count);
+
+        // 同轴判定 / 轴向投影。
+        var hole = end.High;
+        var face = ScrewSpec.Axial(new RoundFace("顶板-1", false, new Vec3(0, -1, 0), new Vec3(-620, 25, 50), 6.75, true,
+            [new Vec3(-613.25, 18, 50), new Vec3(-626.75, 25, 50)]), hole)!;
+        Equal(0.0, Math.Round(face.From, 6));
+        Equal(7.0, Math.Round(face.To, 6));
+        True(ScrewSpec.Axial(new RoundFace("顶板-1", false, new Vec3(0, 1, 0), new Vec3(-619.5, 0, 50), 6.75, true, [new Vec3(0, 0, 0)]), hole) is null, "偏 0.5 不同轴");
+    }
+
     private static string Row(double[,] axes, int row)
         => string.Join(",", Enumerable.Range(0, 3).Select(column => Math.Round(axes[row, column], 9) is var value && value == 0 ? "0" : value.ToString(System.Globalization.CultureInfo.InvariantCulture)));
 

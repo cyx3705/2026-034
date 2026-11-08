@@ -65,15 +65,15 @@ internal static class ScrewScan
     }
 
     /// <summary>
-    /// 零部件上与孔轴同轴的圆柱 / 圆锥面，换成孔轴坐标（从 <paramref name="hole"/> 孔口量、朝外为正）。
-    /// 也带凸的（螺钉杆），判有没有装过螺丝用。先按面包围盒筛（离轴线 <paramref name="reach"/> 以外的不三角化）。
+    /// 零部件全部圆柱 / 圆锥面（总装 mm，带三角面片顶点与孔壁 / 杆）：一个零部件读一次，过孔、已装螺钉、按底孔认螺纹孔都用它。
     /// </summary>
-    public static IReadOnlyList<AxialFace> AxialFaces(SolidWorksApi api, object component, TappedHole hole, double reach)
+    public static IReadOnlyList<RoundFace> RoundFaces(SolidWorksApi api, object component)
     {
         var owner = api.CallString(component, "IComponent2", "get_Name2");
         var (rows, origin, scale) = AssemblyGeometry.Transform(api, component);
         Vec3 Point(double x, double y, double z) => (rows[0] * x + rows[1] * y + rows[2] * z) * (1000 * scale) + origin;
-        var faces = new List<AxialFace>();
+        Vec3 Turn(double x, double y, double z) => (rows[0] * x + rows[1] * y + rows[2] * z).Normalized();
+        var faces = new List<RoundFace>();
         foreach (var face in AssemblyGeometry.AllFaces(api, component))
         {
             if (api.Call(face, "IFace2", "GetSurface") is not { } surface)
@@ -81,78 +81,31 @@ internal static class ScrewScan
             var cone = api.CallBool(surface, "ISurface", "IsCone");
             if (!cone && !api.CallBool(surface, "ISurface", "IsCylinder"))
                 continue;
-            if (api.CallDoubles(face, "IFace2", "GetBox") is not { Length: 6 } b
-                || !NearAxis(Corners(b).Select(c => Point(c.X, c.Y, c.Z)).ToList(), hole, reach))
+            var p = api.CallDoubles(surface, "ISurface", cone ? "get_ConeParams" : "get_CylinderParams");
+            if (p.Length < 7)
                 continue;
-            if (!cone)
-            {
-                var p = api.CallDoubles(surface, "ISurface", "get_CylinderParams");
-                if (p.Length < 7)
-                    continue;
-                var axis = (rows[0] * p[3] + rows[1] * p[4] + rows[2] * p[5]).Normalized();
-                if (Math.Abs(axis.Dot(hole.Outward)) < 0.9999 || Offset(Point(p[0], p[1], p[2]), hole) > ScrewSpec.Coaxial)
-                    continue;
-            }
-
             var t = api.CallDoubles(face, "IFace2", "GetTessTriangles", true);
             var n = api.CallDoubles(face, "IFace2", "GetTessNorms");
             if (t.Length < 9 || n.Length < 3)
                 continue;
-            double from = double.MaxValue, to = double.MinValue, rMin = double.MaxValue, rMax = 0;
+            var axis = Turn(p[3], p[4], p[5]);
+            var center = Point(p[0], p[1], p[2]);
+            var points = new List<Vec3>(t.Length / 3);
             for (var i = 0; i + 2 < t.Length; i += 3)
-            {
-                var v = Point(t[i], t[i + 1], t[i + 2]) - hole.Entry;
-                var along = v.Dot(hole.Outward);
-                var radius = (v - hole.Outward * along).Length;
-                from = Math.Min(from, along);
-                to = Math.Max(to, along);
-                rMin = Math.Min(rMin, radius);
-                rMax = Math.Max(rMax, radius);
-            }
-
-            if (cone && Coaxial(api, surface, rows, Point, hole) is false)
-                continue;
+                points.Add(Point(t[i], t[i + 1], t[i + 2]));
             // 孔壁还是杆：第一个顶点的法向朝不朝轴线（GetTessNorms 已按面朝向）。
-            var first = Point(t[0], t[1], t[2]) - hole.Entry;
-            var radial = first - hole.Outward * first.Dot(hole.Outward);
-            var normal = rows[0] * n[0] + rows[1] * n[1] + rows[2] * n[2];
-            faces.Add(new AxialFace(owner, cone, normal.Dot(radial) < 0, from, to, cone ? rMin : (rMin + rMax) / 2, cone ? rMax : (rMin + rMax) / 2));
+            var first = points[0] - center;
+            var radial = first - axis * first.Dot(axis);
+            var hole = Turn(n[0], n[1], n[2]).Dot(radial) < 0;
+            faces.Add(new RoundFace(owner, cone, axis, center, cone ? 0 : p[6] * 1000 * scale, hole, points));
         }
 
         return faces;
     }
 
-    /// <summary>圆锥同轴：锥轴平行、锥顶落在孔轴上。</summary>
-    private static bool Coaxial(SolidWorksApi api, object surface, Vec3[] rows, Func<double, double, double, Vec3> point, TappedHole hole)
+    /// <summary>包围盒挨不挨孔轴线（螺纹孔口往外 <paramref name="span"/> mm、往里 <paramref name="depth"/> mm 这一段，放大 <paramref name="reach"/>）。</summary>
+    public static bool Along((Vec3 Min, Vec3 Max) box, TappedHole hole, double depth, double span, double reach)
     {
-        var p = api.CallDoubles(surface, "ISurface", "get_ConeParams");
-        if (p.Length < 8)
-            return false;
-        var axis = (rows[0] * p[3] + rows[1] * p[4] + rows[2] * p[5]).Normalized();
-        return Math.Abs(axis.Dot(hole.Outward)) > 0.9999 && Offset(point(p[0], p[1], p[2]), hole) <= ScrewSpec.Coaxial;
-    }
-
-    /// <summary>点到孔轴线的距离。</summary>
-    private static double Offset(Vec3 point, TappedHole hole)
-    {
-        var v = point - hole.Entry;
-        return (v - hole.Outward * v.Dot(hole.Outward)).Length;
-    }
-
-    /// <summary>外接框离孔轴线（整条线）不超过 <paramref name="reach"/>：粗筛，用框心到线距离减半对角。</summary>
-    private static bool NearAxis(IReadOnlyList<Vec3> corners, TappedHole hole, double reach)
-    {
-        var min = new Vec3(corners.Min(c => c.X), corners.Min(c => c.Y), corners.Min(c => c.Z));
-        var max = new Vec3(corners.Max(c => c.X), corners.Max(c => c.Y), corners.Max(c => c.Z));
-        var center = (min + max) * 0.5;
-        return Offset(center, hole) <= reach + (max - min).Length / 2;
-    }
-
-    /// <summary>零部件包围盒挨不挨孔轴线（螺纹孔口往外 <paramref name="span"/> mm、往里 <paramref name="depth"/> mm 这一段，放大 <paramref name="reach"/>）。</summary>
-    public static bool Along(SolidWorksApi api, object component, TappedHole hole, double depth, double span, double reach)
-    {
-        if (AssemblyGeometry.Box(api, component) is not { } box)
-            return false;
         // 线段与放大盒的 slab 求交。
         var start = hole.Entry - hole.Outward * depth;
         var direction = hole.Outward * (depth + span);
@@ -236,12 +189,4 @@ internal static class ScrewScan
     }
 
     private static double Number(object? value) => value is null ? 0 : Convert.ToDouble(value, System.Globalization.CultureInfo.InvariantCulture);
-
-    private static IEnumerable<Vec3> Corners(double[] b)
-    {
-        foreach (var x in new[] { b[0], b[3] })
-        foreach (var y in new[] { b[1], b[4] })
-        foreach (var z in new[] { b[2], b[5] })
-            yield return new Vec3(x, y, z);
-    }
 }

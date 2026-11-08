@@ -195,9 +195,9 @@ internal static class EnvelopeSpec
         return (new Vec3(points.Min(p => p.X), points.Min(p => p.Y), points.Min(p => p.Z)), new Vec3(points.Max(p => p.X), points.Max(p => p.Y), points.Max(p => p.Z)));
     }
 
-    /// <summary>盒写成 minX,minY,minZ,maxX,maxY,maxZ（同 asm.list 的 box）。</summary>
+    /// <summary>盒写成 minX,minY,minZ,maxX,maxY,maxZ（同 asm.list 的 box 顺序；保留 3 位——真机角码 146.95 按一位小数写成 147，正好把 1.95 mm 悬空藏掉）。</summary>
     public static string BoxText((Vec3 Min, Vec3 Max) box)
-        => string.Join(",", new[] { box.Min.X, box.Min.Y, box.Min.Z, box.Max.X, box.Max.Y, box.Max.Z }.Select(v => ModelSpec.Format(v, "0.#")));
+        => string.Join(",", new[] { box.Min.X, box.Min.Y, box.Min.Z, box.Max.X, box.Max.Y, box.Max.Z }.Select(Num));
 
     /// <summary>盒的 12 条棱（画线框用）。</summary>
     public static IReadOnlyList<(Vec3 A, Vec3 B)> Edges((Vec3 Min, Vec3 Max) box)
@@ -216,7 +216,11 @@ internal static class EnvelopeSpec
         return edges;
     }
 
-    public static string Num(double value) => Math.Round(value, 3).ToString("0.###", CultureInfo.InvariantCulture);
+    public static string Num(double value)
+    {
+        var text = Math.Round(value, 3).ToString("0.###", CultureInfo.InvariantCulture);
+        return text == "-0" ? "0" : text;
+    }
 
     private static string Vector(Vec3 v) => $"({ModelSpec.Format(v.X, "0.###")},{ModelSpec.Format(v.Y, "0.###")},{ModelSpec.Format(v.Z, "0.###")})";
 

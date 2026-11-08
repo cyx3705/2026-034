@@ -66,6 +66,11 @@ internal static partial class Tests
         Equal(new Vec3(150, 20, 0), amax);
         Equal("50,0,-40,150,20,0", EnvelopeSpec.BoxText((amin, amax)));
 
+        // 不写「-0」，盒保留 3 位（146.95 不能写成 147）。
+        Equal("0", EnvelopeSpec.Num(-0.0000001));
+        Equal("146.95", EnvelopeSpec.Num(146.95));
+        Equal("0,146.95,0,1,2,3", EnvelopeSpec.BoxText((new Vec3(-1e-9, 146.95, 0), new Vec3(1, 2, 3))));
+
         // 线框 12 条棱、每条只沿一根轴。
         var edges = EnvelopeSpec.Edges((min, max));
         Equal(12, edges.Count);

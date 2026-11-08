@@ -119,13 +119,13 @@ internal static class AssemblyGeometry
         throw new QuickCommandException($"特征树里找不到{(kind == MateTarget.Kinds.Origin ? "原点" : MateSpec.PlaneNames[index] + "基准面")}。");
     }
 
-    private static List<object> AllFaces(SolidWorksApi api, object component)
+    public static List<object> AllFaces(SolidWorksApi api, object component)
         => api.CallArray(component, "IComponent2", "GetBodies2", SolidBody)
             .SelectMany(body => api.CallArray(body, "IBody2", "GetFaces"))
             .ToList();
 
     /// <summary>零部件变换：零件三根轴（行）、原点（mm）、比例。</summary>
-    private static (Vec3[] Rows, Vec3 Origin, double Scale) Transform(SolidWorksApi api, object component)
+    public static (Vec3[] Rows, Vec3 Origin, double Scale) Transform(SolidWorksApi api, object component)
     {
         var d = api.Call(component, "IComponent2", "get_Transform2") is { } transform ? api.CallDoubles(transform, "IMathTransform", "get_ArrayData") : [];
         if (d.Length < 13)

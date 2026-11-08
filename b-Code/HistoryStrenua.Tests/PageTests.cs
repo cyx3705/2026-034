@@ -113,6 +113,7 @@ internal static partial class Tests
             "strenua.asm.envface",
             "strenua.asm.envshow",
             "strenua.asm.envsnap",
+            "strenua.asm.screw",
         ];
         foreach (var name in expected)
         {

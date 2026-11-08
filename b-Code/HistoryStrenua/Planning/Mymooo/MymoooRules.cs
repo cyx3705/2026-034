@@ -81,6 +81,15 @@ internal static partial class MymoooRules
         return option?["optionId"]?.ToString();
     }
 
+    /// <summary>枚举参数的可选数值（如长度表 6 / 8 / 10…），读不成数的跳过，升序。</summary>
+    public static IReadOnlyList<double> Values(JsonNode parameter)
+        => (parameter["paramValues"] as JsonArray ?? [])
+            .Select(v => Number(Text(v, "optionValue")))
+            .OfType<double>()
+            .Distinct()
+            .Order()
+            .ToList();
+
     /// <summary>参数的可选值，给人读：区间写「15~800」，枚举最多列 <paramref name="limit"/> 个。</summary>
     public static string Choices(JsonNode parameter, int limit = 40)
     {

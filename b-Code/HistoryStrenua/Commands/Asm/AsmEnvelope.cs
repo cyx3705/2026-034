@@ -9,6 +9,7 @@ namespace HistoryStrenua;
 /// <remarks>
 /// 盒在零件坐标、轴对齐，数据存零件属性（<see cref="EnvelopeSpec"/>），跟零件走；改面用 <c>asm.contact</c> 回执里的 F 序号。
 /// 列表、摆位回执里有包络就带上包络（总装坐标外接盒），干涉、接触仍按真实几何。
+/// 只回文字不带 Data（真机：经 MCP 有 Data 时 AI 只拿到 Data，存盘情况、外接盒、面变了的提示全丢）。
 /// 写属性前零件没有未保存改动就顺手存零件（只多了这一条属性，我定：不存就白建了）；有别的未保存改动就不存，回执说明。
 /// </remarks>
 internal static class AsmEnvelope
@@ -142,7 +143,7 @@ internal static class AsmEnvelope
         }
 
         var head = reset ? "重建为包围盒" : saved is not null ? "新建（六面跟包围盒）" : "读回";
-        return QuickOutcome.Ok(Report($"装配包络：「{name}」{head}", state, saved), Rows(state));
+        return QuickOutcome.Ok(Report($"装配包络：「{name}」{head}", state, saved));
     }
 
     private static QuickOutcome SetFace(QuickCommandContext context, string name, int? side, int face, double offset, bool? axis)
@@ -193,7 +194,7 @@ internal static class AsmEnvelope
         var saved = PartEnvelope.Write(api, before.Model, sides);
         var after = PartEnvelope.Load(api, component, name);
         var oldValue = before.Sides[side.Side].Value;
-        return QuickOutcome.Ok(Report($"包络改面：「{name}」{what}，{EnvelopeSpec.Num(oldValue)} → {EnvelopeSpec.Num(after.Sides[side.Side].Value)}", after, saved), Rows(after));
+        return QuickOutcome.Ok(Report($"包络改面：「{name}」{what}，{EnvelopeSpec.Num(oldValue)} → {EnvelopeSpec.Num(after.Sides[side.Side].Value)}", after, saved));
     }
 
     private static QuickOutcome Show(QuickCommandContext context, string name, bool hide)
@@ -281,13 +282,4 @@ internal static class AsmEnvelope
             text.Append($"；⚠ {state.Crossed} 向两面交叉，改一下");
         return text.Append('。').ToString();
     }
-
-    private static List<Dictionary<string, string>> Rows(EnvelopeState state)
-        => state.Sides.Select(reading => new Dictionary<string, string>
-        {
-            ["side"] = EnvelopeSpec.SideNames[reading.Side.Side],
-            ["value"] = EnvelopeSpec.Num(reading.Value),
-            ["source"] = EnvelopeSpec.Describe(reading.Side),
-            ["note"] = reading.Note ?? string.Empty,
-        }).ToList();
 }

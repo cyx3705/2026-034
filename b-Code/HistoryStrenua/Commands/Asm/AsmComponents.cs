@@ -16,8 +16,8 @@ internal static class AsmComponents
         Key: "asm-list",
         CommandName: StrenuaIdentity.Domain + ".asm.list",
         Title: "零部件列表",
-        Summary: "列活动总装的顶层零部件：名字、文件、原点、轴朝向、包围盒、是否固定；名字供摆位、删除用。",
-        Usage: "不带参数。原点、包围盒是总装 mm；轴朝向写法同插入的 axes（零件 x,y,z 各朝总装哪根轴）；数据里的 matrix 是 12 个数的变换（同 matrix= 写法）。",
+        Summary: "列活动总装的顶层零部件：名字、文件、原点、轴朝向、包围盒（建过装配包络的另给包络）、是否固定；名字供摆位、删除用。",
+        Usage: "不带参数。原点、包围盒、包络是总装 mm（包络见 strenua.asm.envelope）；轴朝向写法同插入的 axes（零件 x,y,z 各朝总装哪根轴）；数据里的 matrix 是 12 个数的变换（同 matrix= 写法）。",
         Run: List,
         Readonly: true,
         SelfReport: true);
@@ -163,8 +163,9 @@ internal static class AsmComponents
                 ["fixed"] = ModelAccess.Fixed(api, component) ? "是" : "否",
                 ["suppressed"] = api.CallBool(component, "IComponent2", "IsSuppressed") ? "是" : "否",
             };
+            row["envelope"] = AsmEnvelope.AssemblyBoxText(api, component, row["name"]) ?? string.Empty;
             rows.Add(row);
-            text.AppendLine($"· {row["name"]}  {row["file"]}  原点{row["at"]}  轴 {row["axes"]}  盒[{row["box"]}]{(row["fixed"] == "是" ? "  固定" : string.Empty)}{(row["suppressed"] == "是" ? "  压缩" : string.Empty)}");
+            text.AppendLine($"· {row["name"]}  {row["file"]}  原点{row["at"]}  轴 {row["axes"]}  盒[{row["box"]}]{(row["envelope"].Length > 0 ? $"  包络[{row["envelope"]}]" : string.Empty)}{(row["fixed"] == "是" ? "  固定" : string.Empty)}{(row["suppressed"] == "是" ? "  压缩" : string.Empty)}");
         }
 
         return QuickOutcome.Ok($"零部件列表：「{api.CallString(assembly, "IModelDoc2", "GetTitle")}」顶层 {rows.Count} 个。{Environment.NewLine}{text.ToString().TrimEnd()}", rows);
@@ -224,7 +225,8 @@ internal static class AsmComponents
         var off = Math.Max(Math.Abs(after.X - target.X), Math.Max(Math.Abs(after.Y - target.Y), Math.Abs(after.Z - target.Z)));
         var mates = MateCount(api, component);
         var text = $"摆零部件：「{name}」原点 {ModelAccess.Format(origin)} → {ModelAccess.Format(after)}，轴 {ModelSpec.AxesText(turned)}{(fix ? "，已固定" : "，浮动")}"
-                   + $"，包围盒 [{string.Join(",", ModelAccess.Box(api, component).Select(value => ModelSpec.Format(value, "0.#")))}]。"
+                   + $"，包围盒 [{string.Join(",", ModelAccess.Box(api, component).Select(value => ModelSpec.Format(value, "0.#")))}]"
+                   + (AsmEnvelope.AssemblyBoxText(api, component, name) is { } envelope ? $"，包络 [{envelope}]" : string.Empty) + "。"
                    + (mates > 0 ? $" 它有 {mates} 个配合，位置以配合为准。" : string.Empty);
         return off < 0.01 ? QuickOutcome.Ok(text) : QuickOutcome.Fail(text + $" 读回差 {ModelSpec.Format(off)} mm（被配合拉回或固定没解开）。");
     }

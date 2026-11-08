@@ -32,6 +32,7 @@ internal static partial class Tests
         ("freedom: wrench rank and free motions (1.40.0)", TestFreedom),
         ("mate tree: breadth first, loops broken farthest, root pick (1.40.0)", TestMateTree),
         ("mate choose: biggest face, two concentric, no redundant (1.40.0)", TestMateChoose),
+        ("envelope: property text, face checks, compose and frame (1.42.0)", TestEnvelopeSpec),
         ("notes: one short line per command point, capped per area (1.38.0)", TestNoteLimits),
         ("REQ-DQ-02/03: whole-sheet placement and measured annotation bounds", TestDrawingQuality),
         ("REQ-DQ-04: counted chamfers constrain endpoints", TestCountedChamfers),

@@ -85,5 +85,8 @@ internal static class QuickCommands
         AsmDof.Command,
         AsmConcentric.Command,
         AsmMateTree.Command,
+        AsmEnvelope.EnvelopeCommand,
+        AsmEnvelope.FaceCommand,
+        AsmEnvelope.ShowCommand,
     ];
 }

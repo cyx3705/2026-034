@@ -108,6 +108,9 @@ internal static partial class Tests
             "strenua.asm.dof",
             "strenua.asm.concentric",
             "strenua.asm.matetree",
+            "strenua.asm.envelope",
+            "strenua.asm.envface",
+            "strenua.asm.envshow",
         ];
         foreach (var name in expected)
         {

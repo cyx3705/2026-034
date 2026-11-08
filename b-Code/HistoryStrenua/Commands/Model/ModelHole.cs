@@ -118,7 +118,8 @@ internal static class ModelHole
         var values = spec.WizardValues();
         var features = api.Call(part, "IModelDoc2", "get_FeatureManager")!;
         var feature = api.Call(features, "IFeatureManager", "HoleWizard5",
-            spec.Kind.Generic, StandardGb, spec.Kind.Fastener, spec.Size, spec.EndCondition,
+            // 真机：EndType 是 short（传 int 反射报类型不符），其余编号是 int。
+            spec.Kind.Generic, StandardGb, spec.Kind.Fastener, spec.Size, (short)spec.EndCondition,
             values[0], values[1], values[2], values[3], values[4], values[5], values[6], values[7], values[8], values[9],
             values[10], values[11], values[12], values[13], values[14],
             string.Empty, spec.Reverse, true, true, true, true, false);

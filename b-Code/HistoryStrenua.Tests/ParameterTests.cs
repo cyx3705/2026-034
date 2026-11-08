@@ -209,6 +209,21 @@ internal static partial class Tests
         result = run!.Handler(new CommandContext(run, new Dictionary<string, string> { ["key"] = "view-move", ["view"] = "工程图视图1" }, "test", null, default))
             .GetAwaiter().GetResult();
         True(!result.Success && result.Message.Contains("缺位置", StringComparison.Ordinal), result.Message);
+
+        // 1.42.0 贴面：个数对不上、和 at= 混用、目标不是面、同轴两面，都在碰 SolidWorks 前拒绝。
+        True(registry.TryGet("strenua.asm.move", out var asmMove), "缺摆零部件");
+        foreach (var (arguments, expected) in new (Dictionary<string, string>, string)[]
+                 {
+                     (new() { ["name"] = "角码-1", ["face"] = "-Y,-X", ["onto"] = "梁-1@F3" }, "一一对应"),
+                     (new() { ["name"] = "角码-1", ["face"] = "-Y", ["onto"] = "梁-1@F3", ["at"] = "0,0,0" }, "不能再给 at="),
+                     (new() { ["name"] = "角码-1", ["face"] = "-Y", ["onto"] = "梁-1@前视" }, "零部件@F序号"),
+                     (new() { ["name"] = "角码-1", ["face"] = "-Y,+Y", ["onto"] = "梁-1@F3,梁-2@F4" }, "同一根轴"),
+                     (new() { ["name"] = "角码-1", ["gap"] = "1" }, "只给贴面用"),
+                 })
+        {
+            result = asmMove!.Handler(new CommandContext(asmMove, arguments, "test", null, default)).GetAwaiter().GetResult();
+            True(!result.Success && result.Message.Contains(expected, StringComparison.Ordinal), result.Message);
+        }
     }
 
     static CommandContext Context(params (string Key, string Value)[] values)

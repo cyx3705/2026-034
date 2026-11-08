@@ -129,6 +129,43 @@ internal static class AsmEnvelope
         }
     }
 
+    /// <summary>
+    /// 摆位贴面（asm.move face= onto=）：按零件 <paramref name="axes"/> 与原点 <paramref name="origin"/>，逐对把包络面沿目标法向贴上，返回新原点与回执片段。
+    /// 一根轴只贴一面（参数层已拦）；几对目标面互相不垂直时后一对会挪动前一对，算完逐对复核，差 0.01 mm 以上就拒绝、不摆。
+    /// </summary>
+    public static ((double X, double Y, double Z) Origin, string Text)? Snap(QuickCommandContext context, object assembly, object component, string name, double[,] axes, (double X, double Y, double Z) origin, IReadOnlyList<EnvelopeSnap> snaps)
+    {
+        var api = context.Api;
+        var state = PartEnvelope.Load(api, component, name);
+        var targets = new List<(EnvelopeSnap Snap, ContactFace Face)>();
+        foreach (var snap in snaps)
+        {
+            var other = AssemblyGeometry.Component(api, assembly, snap.Onto.Component ?? string.Empty);
+            if (ReferenceEquals(other, component) || string.Equals(api.CallString(other, "IComponent2", "get_Name2"), name, StringComparison.OrdinalIgnoreCase))
+                throw new QuickArgumentException($"onto={snap.Onto} 是它自己，要贴到别的零部件上。");
+            AssemblyGeometry.Face(api, other, snap.Onto.Index); // 序号越界在这里报
+            var face = AssemblyGeometry.Faces(api, other).FirstOrDefault(f => f.Index == snap.Onto.Index && f.Surface == ContactSurface.Plane)
+                       ?? throw new QuickCommandException($"{snap.Onto} 不是平面，贴面只认平面。");
+            targets.Add((snap, face));
+        }
+
+        var current = origin;
+        foreach (var (snap, face) in targets)
+            current = EnvelopeSpec.Snap(axes, current, state.Box, snap.Side, face.Point, face.Normal, snap.Gap).Origin;
+        var parts = new List<string>();
+        foreach (var (snap, face) in targets)
+        {
+            var residual = EnvelopeSpec.Snap(axes, current, state.Box, snap.Side, face.Point, face.Normal, snap.Gap).Moved;
+            if (Math.Abs(residual) > 0.01)
+                throw new QuickCommandException($"几个目标面不互相垂直，贴了后面的 {snap.Onto} 前面的又离开了（差 {EnvelopeSpec.Num(residual)} mm），没摆。分开贴或换目标面。");
+            var source = state.Sides[snap.Side];
+            parts.Add($"包络 {EnvelopeSpec.SideNames[snap.Side]}（{EnvelopeSpec.Describe(source.Side)}）贴 {snap.Onto}{(snap.Gap != 0 ? $" 隔 {EnvelopeSpec.Num(snap.Gap)}" : string.Empty)}");
+        }
+
+        var moved = new Vec3(current.X - origin.X, current.Y - origin.Y, current.Z - origin.Z).Length;
+        return (current, $"{string.Join("、", parts)}（挪了 {EnvelopeSpec.Num(moved)} mm{(state.Stored ? string.Empty : "；没建包络，按包围盒")}）");
+    }
+
     private static QuickOutcome Envelope(QuickCommandContext context, string name, bool reset)
     {
         var api = context.Api;

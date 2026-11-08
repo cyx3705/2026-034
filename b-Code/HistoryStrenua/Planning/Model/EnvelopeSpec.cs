@@ -18,6 +18,9 @@ internal enum EnvelopeSource
 /// </summary>
 internal sealed record EnvelopeSide(int Side, EnvelopeSource Source, int Face, double Offset, bool Axis, double Value);
 
+/// <summary>贴面摆位的一对：这个零件包络的哪一侧，贴到哪个零部件的哪个面，隔多少（正 = 离开）。</summary>
+internal sealed record EnvelopeSnap(int Side, MateTarget Onto, double Gap);
+
 /// <summary>零件坐标里的一个面（平面：法向 + 面上一点；圆柱：轴向 + 轴上一点 + 半径 + 是不是孔）。</summary>
 internal sealed record EnvelopeFaceGeometry(bool Plane, Vec3 Direction, Vec3 Point, double Radius, bool Hole);
 
@@ -180,6 +183,40 @@ internal static class EnvelopeSpec
         }
 
         return (min, max, crossed);
+    }
+
+    /// <summary>
+    /// 贴面摆位（1.42.0，用户定：角码照包围盒摆悬空 1.95 mm，要让包络面直接贴到目标面）：
+    /// 零件三根轴 <paramref name="axes"/>（行）、原点 <paramref name="origin"/>（总装 mm）下，把盒的 <paramref name="side"/> 面贴到目标平面
+    /// （面上一点 <paramref name="target"/>、朝外法向 <paramref name="normal"/>，总装坐标），隔 <paramref name="gap"/>（正 = 离开）。
+    /// 只沿目标法向平移，别的方向不动；这一面朝外方向要和目标法向相反，否则抛可纠正的错（先用 axes= 转对）。返回新原点与挪了多少。
+    /// </summary>
+    public static ((double X, double Y, double Z) Origin, double Moved) Snap(double[,] axes, (double X, double Y, double Z) origin, (Vec3 Min, Vec3 Max) box, int side, Vec3 target, Vec3 normal, double gap)
+    {
+        var rows = new[] { new Vec3(axes[0, 0], axes[0, 1], axes[0, 2]), new Vec3(axes[1, 0], axes[1, 1], axes[1, 2]), new Vec3(axes[2, 0], axes[2, 1], axes[2, 2]) };
+        var k = AxisOf(side);
+        var outward = rows[k] * SignOf(side);
+        var n = normal.Normalized();
+        if (outward.Dot(n) > -Parallel)
+        {
+            var facing = Enumerable.Range(0, 6).Where(s => (rows[AxisOf(s)] * SignOf(s)).Dot(n) <= -Parallel).DefaultIfEmpty(-1).First();
+            throw new QuickCommandException($"包络 {SideNames[side]} 面朝向 {Vector(outward)}，和目标面法向 {Vector(n)} 不是正对着，贴不上"
+                                            + (facing >= 0 ? $"（现在正对目标的是 {SideNames[facing]}，要贴 {SideNames[side]} 先用 axes= 转）。" : "（先用 axes= 转对）。"));
+        }
+
+        // 这一面上任取一点（面中心），在总装里的位置。
+        var center = (box.Min + box.Max) * 0.5;
+        var local = k switch
+        {
+            0 => center with { X = side % 2 == 0 ? box.Min.X : box.Max.X },
+            1 => center with { Y = side % 2 == 0 ? box.Min.Y : box.Max.Y },
+            _ => center with { Z = side % 2 == 0 ? box.Min.Z : box.Max.Z },
+        };
+        var o = new Vec3(origin.X, origin.Y, origin.Z);
+        var world = rows[0] * local.X + rows[1] * local.Y + rows[2] * local.Z + o;
+        var moved = gap - (world - target).Dot(n);
+        var next = o + n * moved;
+        return ((next.X, next.Y, next.Z), moved);
     }
 
     /// <summary>零件盒按零部件变换（三根轴行向量、原点 mm）换到总装，取轴对齐外接盒。</summary>

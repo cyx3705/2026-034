@@ -71,6 +71,27 @@ internal static partial class Tests
         Equal("146.95", EnvelopeSpec.Num(146.95));
         Equal("0,146.95,0,1,2,3", EnvelopeSpec.BoxText((new Vec3(-1e-9, 146.95, 0), new Vec3(1, 2, 3))));
 
+        // 贴面摆位：只沿目标法向挪，间隙往外。
+        var identity = new double[3, 3] { { 1, 0, 0 }, { 0, 1, 0 }, { 0, 0, 1 } };
+        var cube = (new Vec3(0, 0, 0), new Vec3(10, 10, 10));
+        var (snapped, moved) = EnvelopeSpec.Snap(identity, (5, 5, 5), cube, 2, new Vec3(0, 100, 0), new Vec3(0, 1, 0), 0);
+        Equal((5.0, 100.0, 5.0), snapped);
+        Equal(95.0, moved);
+        Equal((5.0, 101.0, 5.0), EnvelopeSpec.Snap(identity, (5, 5, 5), cube, 2, new Vec3(0, 100, 0), new Vec3(0, 1, 0), 1).Origin);
+        // 角码那种：零件 z 朝总装 Y（axes=X,-Z,Y），包络 -Z 改到装配面 0（包围盒 -2 是定位凸台），贴梁顶 145。
+        var turned = new double[3, 3] { { 1, 0, 0 }, { 0, 0, -1 }, { 0, 1, 0 } };
+        var corner = (new Vec3(0, 0, 0), new Vec3(38.5, 38.5, 38.5));
+        Equal(145.0, EnvelopeSpec.Snap(turned, (920, 100, 118), corner, 4, new Vec3(0, 145, 0), new Vec3(0, 1, 0), 0).Origin.Y);
+        True(Rejects(() => EnvelopeSpec.Snap(turned, (0, 0, 0), corner, 2, new Vec3(0, 145, 0), new Vec3(0, 1, 0), 0)), "-Y 朝 +Z 贴不上朝 +Y 的面");
+        try
+        {
+            EnvelopeSpec.Snap(turned, (0, 0, 0), corner, 2, new Vec3(0, 145, 0), new Vec3(0, 1, 0), 0);
+        }
+        catch (QuickCommandException error)
+        {
+            True(error.Message.Contains("现在正对目标的是 -Z", StringComparison.Ordinal), error.Message);
+        }
+
         // 线框 12 条棱、每条只沿一根轴。
         var edges = EnvelopeSpec.Edges((min, max));
         Equal(12, edges.Count);

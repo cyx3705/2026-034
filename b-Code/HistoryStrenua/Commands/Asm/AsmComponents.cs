@@ -69,8 +69,10 @@ internal static class AsmComponents
         Key: "asm-move",
         CommandName: StrenuaIdentity.Domain + ".asm.move",
         Title: "摆零部件",
-        Summary: "把总装里一个零部件的原点挪到 at、轴按 axes 转（省略的保持原样），默认固定；读回位置。",
-        Usage: "「零部件」填零部件列表的 name（如 底板-1）。「位置」x,y,z（总装 mm）省略不挪；「朝向」同插入，省略不转；「矩阵」同插入，代替位置和朝向；fix=否 摆完不固定。",
+        Summary: "把总装里一个零部件的原点挪到 at、轴按 axes 转（省略的保持原样），或把它的装配包络面贴到别的零部件的面上（face= onto=），默认固定；读回位置。",
+        Usage: "「零部件」填零部件列表的 name（如 底板-1）。「位置」x,y,z（总装 mm）省略不挪；「朝向」同插入，省略不转；「矩阵」同插入，代替位置和朝向；fix=否 摆完不固定。"
+               + "贴面：「包络面」写这个零件的包络侧（零件坐标 +X/-X/…，见 strenua.asm.envelope；没建包络就按包围盒），「贴到」写 零部件@F序号（平面，同 asm.contact），逗号分开可一次贴几对；"
+               + "只沿目标面法向挪，别的方向不动；「间隙」正 = 离开（默认 0）。可和朝向一起给（先转再贴），不能和位置、矩阵一起给。",
         Run: QuickCommand.Unbound,
         Parameters:
         [
@@ -79,6 +81,9 @@ internal static class AsmComponents
             new QuickParameter("axes", "朝向", "零件 x,y,z 轴朝向；省略不转", false, 1),
             new QuickParameter("fix", "固定", "是（默认）/ 否", false, 1),
             new QuickParameter("matrix", "矩阵", "12 或 16 个数的变换；代替位置和朝向", false, 2),
+            new QuickParameter("face", "包络面", "+X/-X/+Y/-Y/+Z/-Z（零件坐标），逗号分开", false, 3),
+            new QuickParameter("onto", "贴到", "零部件@F序号（平面），逗号分开、与包络面一一对应", false, 3),
+            new QuickParameter("gap", "间隙", "mm，正 = 离开，默认 0", false, 3),
         ],
         Example: StrenuaIdentity.Domain + ".asm.move name=底板-1 at=-600,262,0",
         Bind: arguments =>
@@ -94,10 +99,13 @@ internal static class AsmComponents
                 at = origin;
             }
 
-            if (at is null && axes is null && QuickArgs.Optional(arguments, "fix") is null)
-                throw new QuickArgumentException("没有要改的：给 at=、axes= 或 fix= 至少一个。");
+            var snaps = Snaps(arguments);
+            if (snaps.Count > 0 && at is not null)
+                throw new QuickArgumentException("贴面（face= onto=）只能和 axes= 一起给，不能再给 at= / matrix=。");
+            if (at is null && axes is null && snaps.Count == 0 && QuickArgs.Optional(arguments, "fix") is null)
+                throw new QuickArgumentException("没有要改的：给 at=、axes=、face= onto= 或 fix= 至少一个。");
             var fix = QuickArgs.Optional(arguments, "fix") is null || QuickArgs.Flag(arguments, "fix");
-            return context => Move(context, name, at, axes, fix);
+            return context => Move(context, name, at, axes, fix, snaps);
         },
         SelfReport: true);
 
@@ -159,7 +167,7 @@ internal static class AsmComponents
                 ["at"] = ModelAccess.Format(origin),
                 ["axes"] = ModelSpec.AxesText(axes),
                 ["matrix"] = ModelSpec.MatrixText(axes, origin),
-                ["box"] = box.Length == 6 ? string.Join(",", box.Select(value => ModelSpec.Format(value, "0.#"))) : string.Empty,
+                ["box"] = box.Length == 6 ? string.Join(",", box.Select(value => ModelSpec.Format(value, "0.###"))) : string.Empty,
                 ["fixed"] = ModelAccess.Fixed(api, component) ? "是" : "否",
                 ["suppressed"] = api.CallBool(component, "IComponent2", "IsSuppressed") ? "是" : "否",
             };
@@ -212,20 +220,51 @@ internal static class AsmComponents
         return names.Count == points.Count ? QuickOutcome.Ok(text) : QuickOutcome.Fail(text + " 余下的 SolidWorks 没插进去。");
     }
 
-    private static QuickOutcome Move(QuickCommandContext context, string name, (double X, double Y, double Z)? at, double[,]? axes, bool fix)
+    /// <summary>face= onto= gap= 拆成一对对（个数要一样，gap 一个数对全部或逐对给）。</summary>
+    private static IReadOnlyList<EnvelopeSnap> Snaps(HistoryVulcan.Core.Commands.CommandContext arguments)
+    {
+        var faces = QuickArgs.Optional(arguments, "face") is { } faceText ? QuickArgs.Names(faceText, "face") : [];
+        var targets = QuickArgs.Optional(arguments, "onto") is { } ontoText ? QuickArgs.Names(ontoText, "onto") : [];
+        var gaps = QuickArgs.Optional(arguments, "gap") is { } gapText ? QuickArgs.Names(gapText, "gap").Select(text => QuickArgs.Millimeters(text, "gap") ?? 0).ToList() : [];
+        if (faces.Count != targets.Count)
+            throw new QuickArgumentException($"face= 给了 {faces.Count} 个、onto= 给了 {targets.Count} 个，要一一对应。");
+        if (faces.Count == 0 && gaps.Count > 0)
+            throw new QuickArgumentException("gap= 只给贴面用，要同时给 face= onto=。");
+        if (gaps.Count > 1 && gaps.Count != faces.Count)
+            throw new QuickArgumentException($"gap= 写一个数对全部，或逐对写 {faces.Count} 个。");
+        var snaps = new List<EnvelopeSnap>();
+        for (var i = 0; i < faces.Count; i++)
+        {
+            var target = MateSpec.Target(targets[i], "onto");
+            if (target.Kind != MateTarget.Kinds.Face)
+                throw new QuickArgumentException($"onto={targets[i]}：要写 零部件@F序号（平面）。");
+            var side = EnvelopeSpec.Side(faces[i], "face");
+            if (snaps.Any(snap => EnvelopeSpec.AxisOf(snap.Side) == EnvelopeSpec.AxisOf(side)))
+                throw new QuickArgumentException($"face= 里 {faces[i]} 和前面的同一根轴，一根轴只能贴一面。");
+            snaps.Add(new EnvelopeSnap(side, target, gaps.Count == 0 ? 0 : gaps.Count == 1 ? gaps[0] : gaps[i]));
+        }
+
+        return snaps;
+    }
+
+    private static QuickOutcome Move(QuickCommandContext context, string name, (double X, double Y, double Z)? at, double[,]? axes, bool fix, IReadOnlyList<EnvelopeSnap> snaps)
     {
         var api = context.Api;
         var assembly = ModelAccess.ActiveAssembly(context);
         var component = ModelAccess.Component(api, assembly, name);
         var (origin, current) = ModelAccess.Frame(api, component);
         var target = at ?? origin;
+        var snapped = snaps.Count > 0 ? AsmEnvelope.Snap(context, assembly, component, name, axes ?? current, target, snaps) : null;
+        if (snapped is not null)
+            target = snapped.Value.Origin;
         ModelAccess.Place(context, assembly, component, axes ?? current, target, fix);
         api.Call(assembly, "IModelDoc2", "EditRebuild3");
         var (after, turned) = ModelAccess.Frame(api, component);
         var off = Math.Max(Math.Abs(after.X - target.X), Math.Max(Math.Abs(after.Y - target.Y), Math.Abs(after.Z - target.Z)));
         var mates = MateCount(api, component);
         var text = $"摆零部件：「{name}」原点 {ModelAccess.Format(origin)} → {ModelAccess.Format(after)}，轴 {ModelSpec.AxesText(turned)}{(fix ? "，已固定" : "，浮动")}"
-                   + $"，包围盒 [{string.Join(",", ModelAccess.Box(api, component).Select(value => ModelSpec.Format(value, "0.#")))}]"
+                   + (snapped is not null ? $"，{snapped.Value.Text}" : string.Empty)
+                   + $"，包围盒 [{string.Join(",", ModelAccess.Box(api, component).Select(value => ModelSpec.Format(value, "0.###")))}]"
                    + (AsmEnvelope.AssemblyBoxText(api, component, name) is { } envelope ? $"，包络 [{envelope}]" : string.Empty) + "。"
                    + (mates > 0 ? $" 它有 {mates} 个配合，位置以配合为准。" : string.Empty);
         return off < 0.01 ? QuickOutcome.Ok(text) : QuickOutcome.Fail(text + $" 读回差 {ModelSpec.Format(off)} mm（被配合拉回或固定没解开）。");

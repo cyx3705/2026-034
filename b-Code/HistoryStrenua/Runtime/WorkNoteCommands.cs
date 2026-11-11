@@ -13,7 +13,7 @@ internal static class WorkNoteCommands
             Name = StrenuaIdentity.Domain + ".note.write",
             Domain = StrenuaIdentity.Domain,
             CommandClass = "note",
-            Summary = $"记一条指令的注意点（≤{WorkNotes.NoteLimit} 字、每区 ≤{WorkNotes.AreaLimit} 条，只写指令怎么用、哪里会错，不写项目内容）；经 MCP 的回执最上面都带通用区和本类区。replace= 改或删",
+            Summary = "维护指令的通用或分类使用注意点",
             Example = StrenuaIdentity.Domain + ".note.write area=dim text=dim.edit 改孔标注前缀会顶掉直径值，螺纹孔改用 dim.thread",
             Parameters =
             [

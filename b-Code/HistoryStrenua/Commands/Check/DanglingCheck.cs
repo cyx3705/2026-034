@@ -16,6 +16,7 @@ internal static class DanglingCheck
         Key: "check-dangling",
         CommandName: StrenuaIdentity.Domain + ".check.dangling",
         Title: "悬空标注",
+        CatalogSummary: "检查并选中悬空尺寸和注解",
         Summary: "当前图纸页全部视图与图纸上查附着丢了的尺寸和注解（悬空），列出并在 SolidWorks 里选中，不改图。",
         Usage: "不用点视图：当前图纸页上全部视图（含轴测图）和图纸本身逐个查尺寸、孔标注、注释、中心符号线等注解，附着的边 / 点丢了（SolidWorks 显示成悬空色的那种，模型改过或中心符号线删过以后常见）就列进控制台，并在 SolidWorks 里选中它们，按 Delete 即可删掉或手工重新附着；不删、不挪任何东西。",
         Run: Run);

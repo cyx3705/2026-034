@@ -9,6 +9,7 @@ internal static class TolDim
         Key: "tol-dim",
         CommandName: StrenuaIdentity.Domain + ".tol.dim",
         Title: "尺寸公差",
+        CatalogSummary: "设置或清除尺寸及孔标注的尺寸公差",
         Summary: "按名字给尺寸或孔标注写尺寸公差：对称、双向、极限、基本、最小、最大、配合，或去掉；读回显示文字。",
         Usage: "填「视图」「名字」「种类」（" + ToleranceSpec.TypeHelp + "）。对称写 plus=0.02；双向、极限写 plus= 上偏差和 minus= 下偏差（带符号 mm，如 plus=0.02 minus=-0.01）；配合类写 hole=H7 和 / 或 shaft=g6。孔标注默认写第一个直径变量，要写别的用 var= 变量名。名字用 strenua.dim.list 查。",
         Run: QuickCommand.Unbound,

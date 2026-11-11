@@ -14,6 +14,7 @@ internal static class DimList
         Key: "dim-list",
         CommandName: StrenuaIdentity.Domain + ".dim.list",
         Title: "标注列表",
+        CatalogSummary: "列出视图或整页的尺寸和注解",
         Summary: "列出视图（省略则整页）里的尺寸与注解：名字、种类、显示文字、尺寸值、位置与外框（图纸 mm）；名字供删、挪、改标注用。",
         Usage: "「视图」填视图名只列这个视图，空着列整页（含图纸页本身上的注释）。每个尺寸 / 注解一行：名字、种类（线性 / 坐标 / 角度 / 半径 / 直径 / 倒角尺寸、孔标注、注释、中心符号线……）、图上显示的字、尺寸值、位置（文字中点）与外框，单位图纸 mm。名字就是「删标注」「挪标注」「改尺寸」的「名字」框要填的。图纸页上标题栏 / 修改栏 / 图号框里的字、图框外的（分区字母、模板备用的技术要求）和空注释不列，只报个数（格子里的字见图纸 SVG 的 data-text）。只读，不改图。",
         Run: QuickCommand.Unbound,

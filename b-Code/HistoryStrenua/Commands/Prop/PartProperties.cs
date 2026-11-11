@@ -22,6 +22,7 @@ internal static class PartProperties
         Key: "prop-read",
         CommandName: StrenuaIdentity.Domain + ".prop.read",
         Title: "读取属性",
+        CatalogSummary: "读取当前模型的图号、材料等属性",
         Summary: "读当前零件（当前是工程图时取它引用的零件）的图号、名称、材料、表面处理、热处理、日期、设计。",
         Usage: "读当前零件活动配置的属性；当前是工程图时读它引用的零件。",
         Run: Read,
@@ -32,6 +33,7 @@ internal static class PartProperties
         Key: "prop-write",
         CommandName: StrenuaIdentity.Domain + ".prop.write",
         Title: "写入属性",
+        CatalogSummary: "写入当前零件属性并读回核对",
         Summary: "写当前零件属性：图号、名称取自文件名，材料、表面处理、热处理、日期、设计只写填了的；写完读回核对。",
         Usage: "图号、名称总是按文件名（第一个空格前是图号）写。其余选「不改」或留空就不动。默认不存盘，「保存」选是才存零件。",
         Run: QuickCommand.Unbound,
@@ -73,7 +75,7 @@ internal static class PartProperties
     /// <summary>设默认值的指令，也是页面「设为默认」按钮的动作。不碰 SolidWorks，所以不走快捷指令执行器。</summary>
     public const string DefaultCommandName = StrenuaIdentity.Domain + ".prop.default";
 
-    public const string DefaultSummary = "把材料、表面处理、热处理、日期、设计记成默认（存本机）：页面初值显示它们，一键类出图时自动写入零件；没填的项不写。";
+    public const string DefaultSummary = "设置出图时自动写入的零件属性默认值";
 
     private static PropertyDefaults FromArguments(CommandContext arguments) => new(
         Selected(arguments.GetString("material")),

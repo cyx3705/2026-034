@@ -11,6 +11,7 @@ internal static class ChainCheck
         Key: "check-chain",
         CommandName: StrenuaIdentity.Domain + ".check.chain",
         Title: "尺寸链",
+        CatalogSummary: "检查线性尺寸是否连接尺寸链和基准",
         Summary: "当前图纸页全部视图（轴测图除外）查线性尺寸：不从基准开始、也不在尺寸链上的列出来，并说明是换了行、链没接到基准，还是孤立，不改图。",
         Usage: "不用点视图：基准是最左、最上的直边，贯穿视图的对称轴也算。从基准沿「同一行、首尾相接」走得到的才算在链上。换行的用 dim.move 挪回那一行；孤立的改成从基准标（回执给出值），或接到链上。坐标尺寸、C 倒角、带公差的尺寸不查。在 SolidWorks 里选中（高亮）有问题的；手动点时弹窗，AI 调用不弹。不加、不删任何尺寸。",
         Run: Run);

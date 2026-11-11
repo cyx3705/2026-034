@@ -17,6 +17,7 @@ internal static class AsmMate
         Key: "asm-mate",
         CommandName: StrenuaIdentity.Domain + ".asm.mate",
         Title: "加配合",
+        CatalogSummary: "添加装配配合，默认禁止拉动零部件",
         Summary: "在活动总装里给两个几何加配合（重合、同轴心、平行、垂直、相切、距离、角度、锁定）；默认不许零部件被拉动，拉动了就撤掉并报差多少。",
         Usage: "a、b 写 零部件@F12（面，序号见 strenua.asm.contact 回执）、零部件@前视 / 上视 / 右视 / 原点、@前视（总装自己的）；锁定只写两个零部件名。"
                + "a 那边是要动的零部件，固定着会先解除固定。「数值」距离 mm、角度 °；「对齐」同向 / 反向 / 最近（默认，跟着现在的摆位）；flip=是 反过来。"
@@ -60,6 +61,7 @@ internal static class AsmMate
         Key: "asm-matelist",
         CommandName: StrenuaIdentity.Domain + ".asm.matelist",
         Title: "配合列表",
+        CatalogSummary: "列出总装或指定零部件的配合",
         Summary: "列活动总装的配合：名字、种类、连着哪些零部件、压缩、报错；可只看和某个零部件有关的。",
         Usage: "「零部件」填名字片段只列和它有关的；省略列全部。名字供删配合用。",
         Run: QuickCommand.Unbound,
@@ -77,6 +79,7 @@ internal static class AsmMate
         Key: "asm-matedelete",
         CommandName: StrenuaIdentity.Domain + ".asm.matedelete",
         Title: "删配合",
+        CatalogSummary: "按名称删除装配配合，零部件保留原位",
         Summary: "按名字删活动总装的配合（逗号分开删几个）；零部件留在原位、不自动固定。",
         Usage: "「配合」填配合列表的 name，逗号分开。删完零部件不挪，要固定用 strenua.asm.move name=… fix=是。",
         Run: QuickCommand.Unbound,

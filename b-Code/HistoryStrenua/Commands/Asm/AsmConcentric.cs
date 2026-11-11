@@ -17,6 +17,7 @@ internal static class AsmConcentric
         Key: "asm-concentric",
         CommandName: StrenuaIdentity.Domain + ".asm.concentric",
         Title: "双同心",
+        CatalogSummary: "为贴合零部件的两组同轴孔添加同心配合",
         Summary: "扫活动总装里互相贴合的零部件：两块之间有两组以上同轴孔（孔对孔、孔对轴）就取相距最远的两组各加一个同轴心；默认直接加。",
         Usage: "「零部件」填名字只扫和它贴合的；省略扫全部。apply=否 只列找到的同轴孔与打算加的配合。动的是不固定的那边（都固定就动小的那块），位置动了就撤回。"
                + "总装里全是外购件时不上约束。",

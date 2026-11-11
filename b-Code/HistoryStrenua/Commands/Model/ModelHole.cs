@@ -16,6 +16,7 @@ internal static class ModelHole
         Key: "model-hole",
         CommandName: StrenuaIdentity.Domain + ".model.hole",
         Title: "异形孔",
+        CatalogSummary: "用异形孔向导按国标创建一组同规格孔",
         Summary: "异形孔向导打孔：沉头 / 锥形沉头 / 通孔 / 螺纹 / 钻孔 / 销孔，按 GB 孔库取标准尺寸，一次在一张平面上打一组同规格孔；零件上的孔一律用它，不用拉伸切除。",
         Usage: "「类型」沉头 / 锥形沉头 / 通孔 / 螺纹 / 钻孔 / 销孔；「规格」螺钉类写 M6，钻孔 / 销孔写直径 6。"
                + "「孔心」零件坐标 mm 的 x,y,z，落在开孔那张平面上，多个分号隔开（第一个点选面）。「深度」省略 = 完全贯穿。"

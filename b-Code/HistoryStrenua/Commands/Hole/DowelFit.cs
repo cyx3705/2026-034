@@ -21,6 +21,7 @@ internal static class DowelFit
         Key: "dowel-fit",
         CommandName: StrenuaIdentity.Domain + ".hole.dowelfit",
         Title: "销孔标注",
+        CatalogSummary: "标注销孔 H7 偏差和相邻销孔间距公差",
         Summary: "点一个工程图视图，销孔的孔标注带上 H7 与偏差值，相邻销孔之间的尺寸带 ±0.02（已有的改、没有的补）。",
         Usage: "在工程图里点一个视图（先点后按、先按后点都行，60 秒内）。只认异形孔向导的销钉孔：每种销孔的孔标注（没有就先加）孔径带 H7 和偏差值；相邻销孔之间的水平 / 竖直尺寸带 ±0.02，已有的直接改、没有的新加（销孔与别的孔、与基准之间不加）；这段尺寸和别的孔的同段尺寸重叠被并成一个时，后面写「(公差仅对销孔)」。「避障」开着时最后把压线的数字滑开。",
         Run: context => Run(context, null));

@@ -14,6 +14,7 @@ internal static class DimMove
         Key: "dim-move",
         CommandName: StrenuaIdentity.Domain + ".dim.move",
         Title: "挪标注",
+        CatalogSummary: "按名称移动尺寸或注解文字",
         Summary: "按名字挪一个尺寸或注解的文字：挪到 x/y 或挪动 dx/dy（图纸 mm）；线性尺寸挪文字即换层，读回核对位置。",
         Usage: "填「视图」「名字」，再填 X / Y（文字挪到哪，同标注列表的位置，图纸 mm）或 右移 / 上移（挪多少 mm），两种只能用一种。线性尺寸挪文字就是换层；孔标注整块平移，引线侧 SolidWorks 自己换。挪完读回，被 SolidWorks 摆回去（坐标尺寸组常这样）回执失败。中心符号线、中心线、销钉符号跟着几何走，不能挪。不看避障开关。",
         Run: QuickCommand.Unbound,

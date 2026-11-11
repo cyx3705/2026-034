@@ -17,6 +17,7 @@ internal static class AsmDof
         Key: "asm-dof",
         CommandName: StrenuaIdentity.Domain + ".asm.dof",
         Title: "自由度",
+        CatalogSummary: "查看顶层零部件的配合和剩余自由度",
         Summary: "列活动总装每个顶层零部件：固定没有、约束状态、挂着的配合（种类与对方）、按配合算还剩几个自由度、能沿哪移 / 绕哪转。",
         Usage: "「零部件」填名字片段只看这些；省略看全部。自由度把配合的对方当作不动来算（对方自己能动的，看它那一行）；固定的记 0。只读。",
         Run: QuickCommand.Unbound,

@@ -13,6 +13,7 @@ internal static class ChamferAll
         Key: "chamfer-all",
         CommandName: StrenuaIdentity.Domain + ".fillet.chamferall",
         Title: "全图倒角",
+        CatalogSummary: "标注全页非轴测视图的倒角尺寸",
         Summary: "当前图纸页全部视图（轴测图跳过）逐个做倒角标注：C1 不标，同尺寸 2 个以上合标 N x C，已标的跳过。",
         Usage: "不用点视图：当前图纸页上的全部视图（轴测图跳过）逐个做「倒角标注」——侧着看成斜线的倒角每种尺寸标一个 C 尺寸，同一尺寸 2 个以上写「N x C…」；C1 不标（技术要求「未注倒角C1」）；已标过的、前面视图标过的同一个倒角跳过。某个视图没成不中断，最后汇总。",
         Run: Run);

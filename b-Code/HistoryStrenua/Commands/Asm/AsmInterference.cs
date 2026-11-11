@@ -16,6 +16,7 @@ internal static class AsmInterference
         Key: "asm-interference",
         CommandName: StrenuaIdentity.Domain + ".asm.interference",
         Title: "干涉检查",
+        CatalogSummary: "检查总装实体干涉并列出位置和体积",
         Summary: "检查活动总装的实体干涉：每对零部件、干涉体积（mm³）、干涉区包围盒；贴合面不算，可按名字排除。",
         Usage: "不带参数检查整个总装。「排除」写名字片段，逗号分开（如 RQBET,螺钉），零部件名含其中任一段的干涉对不报。按体积从大到小，最多列 40 对。",
         Run: QuickCommand.Unbound,

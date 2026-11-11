@@ -18,6 +18,7 @@ internal static class MymoooInsert
         Key: "mymooo-insert",
         CommandName: StrenuaIdentity.Domain + ".mymooo.insert",
         Title: "插入标准件",
+        CatalogSummary: "选型下载标准件并插入当前总装",
         Summary: "蚂蚁工场第 3 层：按参数选型，选全了下载 3D 存进「外购件」，按零件原点插进当前总装（at / axes 摆位）；没选全回还要选的参数",
         Usage: "「商品」填 strenua.mymooo.product 列出的商品号。先只给商品看要选哪些参数，再用「参数」填 码=值（逗号分开，如 M=8,L=20,XN=S11），"
                + "有多个型式的先填「型式」；知道完整料号可直接填「料号」。选全了才下载插入，文件以料号命名放在总装目录的「外购件」里（装配体的零件放「外购件/料号/」），同料号复用。当前文档要是存过的总装。"

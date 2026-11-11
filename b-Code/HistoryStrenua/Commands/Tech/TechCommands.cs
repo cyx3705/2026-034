@@ -15,7 +15,7 @@ internal static class TechCommands
             Name = TechApply.CommandName,
             Domain = StrenuaIdentity.Domain,
             CommandClass = TechApply.CommandClass,
-            Summary = "PowerSW「技术要求」模板：" + TechApply.Summary,
+            Summary = "按模板或 AI 筛选结果替换技术要求",
             Example = TechApply.CommandName + " name=机加件-钢材",
             Level = CommandLevel.Run,
             Parameters =
@@ -36,7 +36,7 @@ internal static class TechCommands
             Name = TechApply.DefaultCommandName,
             Domain = StrenuaIdentity.Domain,
             CommandClass = TechApply.CommandClass,
-            Summary = "PowerSW「技术要求」默认模板：" + TechApply.DefaultSummary,
+            Summary = "查看或设置一键出图的默认技术要求模板",
             Example = TechApply.DefaultCommandName + " name=机加件-钢材",
             Parameters =
             [

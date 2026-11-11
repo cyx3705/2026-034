@@ -21,6 +21,7 @@ internal static class ArcCenter
         Key: "arc-center",
         CommandName: StrenuaIdentity.Domain + ".fillet.arccenter",
         Title: "圆心位置",
+        CatalogSummary: "按相切关系标注指定视图的圆心位置",
         Summary: "点一个工程图视图，给圆弧圆心标位置尺寸（基准同孔位尺寸）：两端与直线相切不标，一端相切标一个，都不相切标两个。",
         Usage: "在工程图里点一个视图（先点后按、先按后点都行，60 秒内）。视图里的圆弧（圆角、凹弧、孔以外的整圆）以零件最左、最上的直边为基准标圆心位置："
             + "两端都与直线相切的不标；两端都不相切的（含整圆）水平、竖直各标一个；只有一端相切的只标一个——切线水平只标水平尺寸、切线竖直只标竖直尺寸、切线斜的标水平尺寸；"
@@ -286,6 +287,7 @@ internal static class ArcCenterAll
         Key: "arc-center-all",
         CommandName: StrenuaIdentity.Domain + ".fillet.arccenterall",
         Title: "全图圆心",
+        CatalogSummary: "按相切关系标注全页圆心位置",
         Summary: "当前图纸页全部视图（轴测图跳过）逐个做圆心位置：两端与直线相切不标，一端相切标一个，都不相切标两个。",
         Usage: "不用点视图：当前图纸页上的全部视图（轴测图跳过）逐个做「圆心位置」——圆弧（圆角、凹弧、孔以外的整圆）以零件最左、最上的直边为基准标圆心："
             + "两端与直线相切不标，一端相切只标一个（切线水平标水平、切线竖直标竖直、斜的标水平），都不相切水平、竖直各一个；与孔同心、已有尺寸的跳过。某个视图没成不中断，最后汇总。",

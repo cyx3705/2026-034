@@ -14,6 +14,7 @@ internal static class DimAdd
         Key: "dim-add",
         CommandName: StrenuaIdentity.Domain + ".dim.add",
         Title: "加尺寸",
+        CatalogSummary: "按几何编号添加并核对水平或竖直尺寸",
         Summary: "按图纸 SVG 的编号在两头之间（线、线的端点、孔、圆弧圆心）加一个水平或竖直尺寸，读回值与几何核对，对不上删掉报失败。",
         Usage: "先用 strenua.check.svg view=视图名 查编号。「从」「到」都要填，各是直边 E3（线到线）、直边端点 E3.1 / E3.2（SVG 里 x1,y1 是 .1，x2,y2 是 .2）孔 H5（圆心）、圆弧 C3（圆心，SVG 里带 data-center 的才行）或曲线端点 C3.1 / C3.2（折线首尾）。斜边只能取端点。两头不能在同一条边上：不量线自身长度，要定一条线的端点就从基准或已标的线量到那个端点。方向 h 水平、v 竖直，X、Y 是文字位置（图纸 mm）。不看避障开关，说放哪放哪。",
         Run: QuickCommand.Unbound,

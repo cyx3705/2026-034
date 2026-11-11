@@ -15,6 +15,7 @@ internal static class ModelSketch
         Key: "model-new",
         CommandName: StrenuaIdentity.Domain + ".model.new",
         Title: "新建零件",
+        CatalogSummary: "按模板新建并保存零件或装配体",
         Summary: "用默认模板新建零件或装配体并存到给定路径，成为活动文档；已有同名文件要 overwrite=是。",
         Usage: "「路径」填 .SLDPRT 或 .SLDASM 的完整路径。用 SolidWorks 选项里的默认模板，建完立即存盘（文件在才能被总装引用）。",
         Run: QuickCommand.Unbound,
@@ -42,13 +43,14 @@ internal static class ModelSketch
         Key: "model-sketch",
         CommandName: StrenuaIdentity.Domain + ".model.sketch",
         Title: "画草图",
+        CatalogSummary: "在基准面或表面绘制一张草图",
         Summary: "在基准面或零件表面上一次画完一张草图（矩形、圆、多孔、多边形、腰型槽），退出草图并回草图名。",
         Usage: "「平面」写 前视 / 上视 / 右视、基准面名，或 face:x,y,z（零件表面上的一点，mm）。"
                + "「图形」分号隔开：rect:中心x,中心y,宽,高；box:x1,y1,x2,y2；circle:x,y,直径；circles:直径,x1,y1,x2,y2,…；poly:x1,y1,x2,y2,…（自动闭合）；slot:x1,y1,x2,y2,宽。草图 mm。",
         Run: QuickCommand.Unbound,
         Parameters:
         [
-            new QuickParameter("plane", "平面", "前视 / 上视 / 右视 / 基准面名 / face:x,y,z", true),
+            new QuickParameter("plane", "平面", "基准面名称（如上视），或表面点 face:x,y,z，坐标单位 mm", true),
             new QuickParameter("shapes", "图形", "rect / box / circle / circles / poly / slot，分号隔开", true, 1),
         ],
         Example: StrenuaIdentity.Domain + ".model.sketch plane=上视 shapes=rect:0,0,200,120;circles:6.6,-80,-40,80,-40,-80,40,80,40",

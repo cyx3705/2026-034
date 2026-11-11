@@ -18,6 +18,7 @@ internal static class AsmEnvelope
         Key: "asm-envelope",
         CommandName: StrenuaIdentity.Domain + ".asm.envelope",
         Title: "装配包络",
+        CatalogSummary: "查看或创建零部件的装配包络",
         Summary: "看或建一个零件的装配包络：零件坐标的盒，六个面各自跟包围盒 / 跟某个面 / 手填；没建过就按包围盒建。回执给零件坐标六面值和总装坐标外接盒。",
         Usage: "「零部件」填零部件列表的 name（只做零件，子装配里的写「子装配-1/零件-1」）。已有包络时只读回（面变了、失效会标出来）；reset=是 六面全改回包围盒。"
                + "改某一面用 strenua.asm.envface。数据存零件属性「Strenua包络」。",
@@ -40,6 +41,7 @@ internal static class AsmEnvelope
         Key: "asm-envface",
         CommandName: StrenuaIdentity.Domain + ".asm.envface",
         Title: "包络改面",
+        CatalogSummary: "调整装配包络的指定面",
         Summary: "把装配包络的一面改成零件上真实的装配面（F 序号）、改回包围盒或手填；只动这一面，别的面不变。",
         Usage: "「零部件」同装配包络。「改成」写 F12（同 asm.contact 回执的面序号）/ 盒 / 数（零件坐标 mm）。"
                + "「哪面」+X/-X/+Y/-Y/+Z/-Z（零件坐标）：平面可省，按面的法向定；圆柱面、盒、数必须写。"
@@ -97,6 +99,7 @@ internal static class AsmEnvelope
         Key: "asm-envshow",
         CommandName: StrenuaIdentity.Domain + ".asm.envshow",
         Title: "显示包络",
+        CatalogSummary: "显示或隐藏零部件装配包络线框",
         Summary: "在总装里画出一个零件装配包络的线框（3D 草图「包络-零部件名」），只给人看；hide=是 删掉线框。",
         Usage: "「零部件」同装配包络。重画会先删旧线框。线框不跟零件动，摆位、改面后要再画一次。总装没存。",
         Run: QuickCommand.Unbound,
@@ -118,6 +121,7 @@ internal static class AsmEnvelope
         Key: "asm-envsnap",
         CommandName: StrenuaIdentity.Domain + ".asm.envsnap",
         Title: "包络贴面",
+        CatalogSummary: "按装配包络修正零部件的位置",
         Summary: "按包络改正按包围盒摆的零件：每一侧包围盒面到包络面差多少，就沿零件自己的轴反向挪多少，包络面落到原来包围盒面的位置；with=全部 同一零件文件的全部实例一起改。",
         Usage: "「零部件」填零部件列表的 name（顶层零件）。「一起」写 全部（同一零件文件的全部顶层实例）或几个实例名逗号分开，省略只改这一个。"
                + "「包络面」省略就用包络里改到真实面的那几侧（strenua.asm.envface 定过的装配面），也可写 -Y,-X。"

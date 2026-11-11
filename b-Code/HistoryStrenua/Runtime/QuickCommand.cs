@@ -40,6 +40,7 @@ namespace HistoryStrenua;
 /// <param name="SelfReport">
 /// 回执自己已读回改了什么（挪标注「现在占…」、删标注、改尺寸读回显示文字），经 MCP 调用也不再附本步 SVG（1.24.0：附上的和文字说的完全重复）。
 /// </param>
+/// <param name="CatalogSummary">30 字以内的指令短简介；页面详细说明仍使用 Summary 和 Usage。</param>
 internal sealed record QuickCommand(
     string Key,
     string CommandName,
@@ -53,7 +54,8 @@ internal sealed record QuickCommand(
     bool Readonly = false,
     Func<CommandContext, Func<QuickCommandContext, QuickOutcome>>? Bind = null,
     string? Page = null,
-    bool SelfReport = false)
+    bool SelfReport = false,
+    string? CatalogSummary = null)
 {
     /// <summary>带参数的指令的 <see cref="Run"/>：只经 <see cref="Bind"/> 执行，走到这里说明调用方没给参数。</summary>
     public static QuickOutcome Unbound(QuickCommandContext context) => QuickOutcome.Fail("这条指令要带参数。");

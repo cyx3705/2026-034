@@ -15,6 +15,7 @@ internal static class MymoooRemove
         Key: "mymooo-remove",
         CommandName: StrenuaIdentity.Domain + ".mymooo.remove",
         Title: "删零部件",
+        CatalogSummary: "删除总装零部件，可清理未引用外购文件",
         Summary: "从当前总装删顶层零部件（零件或子装配，按零部件名）；files=是 再删「外购件」里不再被引用的文件。不存总装",
         Usage: "「零部件」填零部件名（插入回执里的名字，如 SBH1-M8-L20-S11-1），几个用逗号分开。「删文件」填是：删完把总装目录「外购件」里、总装已不再引用的那些文件也删掉（外购件以外的文件不删）。不存总装。",
         Run: QuickCommand.Unbound,

@@ -14,7 +14,7 @@ internal static class PageCommands
             Name = StrenuaPage.DataCommand,
             Domain = StrenuaIdentity.Domain,
             CommandClass = "ui",
-            Summary = "返回 PowerSW 技术要求模板表格的行（view=tech）",
+            Summary = "读取技术要求模板表格数据",
             Readonly = true,
             HiddenReason = Hidden,
             AllowUnspecifiedParameters = true,
@@ -32,11 +32,11 @@ internal static class PageCommands
         yield return Internal("describe", "返回 PowerSW 页面描述", _ => Json(StrenuaPage.Describe(options)));
         yield return Internal("actions", "返回 PowerSW 页面动作声明", _ => Json(StrenuaPage.Actions()));
         yield return Option(StrenuaOption.Clearance, "clearance", "避障",
-            "页面「避障」开关：" + StrenuaPage.ClearanceSummary, options);
+            "查看或设置新增标注和视图是否避障", options);
         yield return Option(StrenuaOption.Chain, "chain", "尺寸链",
-            "页面「尺寸链」开关：" + StrenuaPage.ChainSummary, options);
+            "查看或设置位置标注是否采用坐标尺寸链", options);
         yield return Option(StrenuaOption.TechAi, "techai", "AI 填写技术要求",
-            "页面「AI 填写技术要求」开关：" + StrenuaPage.TechAiSummary, options);
+            "查看或设置技术要求是否由 AI 筛选", options);
     }
 
     /// <summary>

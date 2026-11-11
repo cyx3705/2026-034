@@ -17,6 +17,7 @@ internal static class AsmContact
         Key: "asm-contact",
         CommandName: StrenuaIdentity.Domain + ".asm.contact",
         Title: "接触面检测",
+        CatalogSummary: "检测零部件接触面和干涉区并绘制截面",
         Summary: "查活动总装里一个零部件和别的零部件的干涉区与接触面：每个接触面一个对象（平面 / 孔轴），写清贴合、差多少没贴上、重叠多大在哪，附截面 SVG。",
         Usage: "「零部件」填零部件列表的 name（子装配里的写「子装配-1/零件-1」，填子装配就查它整体）。「对象」写名字片段只看这些对方；"
                + "「范围」差多少 mm 以内的也报（默认 1）；「允差」以内算贴合（默认 0.05）。回执里的 [F12 ↔ 型材-1@F3] 是两边的面，直接给 strenua.asm.mate。"

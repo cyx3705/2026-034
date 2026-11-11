@@ -11,6 +11,7 @@ internal static class DimHole
         Key: "dim-hole",
         CommandName: StrenuaIdentity.Domain + ".dim.hole",
         Title: "加孔标注",
+        CatalogSummary: "按孔编号添加孔标注并指定折点",
         Summary: "按图纸 SVG 的孔编号（H5）给那个孔加一个孔标注，折点放到指定位置，读回显示文字。",
         Usage: "先用 strenua.check.svg view=视图名 查孔编号。X、Y 是引线折点（文字下划线靠孔的那一端，图纸 mm），默认在孔左边文字朝左，在右边朝右；要反过来（比如折点在孔左下、字往右排到孔底下）写 side，字的中点要过孔心才接得上。规格、N x 由 SolidWorks 按孔特征写，「(反面)」「(含对面)」自动带上，读回看对不对。",
         Run: QuickCommand.Unbound,

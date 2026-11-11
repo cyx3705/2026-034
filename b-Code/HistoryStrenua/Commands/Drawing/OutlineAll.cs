@@ -15,6 +15,7 @@ internal static class OutlineAll
         Key: "outline-all",
         CommandName: StrenuaIdentity.Domain + ".drawing.outlineall",
         Title: "全图外轮廓",
+        CatalogSummary: "标注全页非轴测视图的外轮廓尺寸",
         Summary: "当前图纸页全部视图（轴测图跳过）逐个标外轮廓每个台阶的位置，别的视图标过的不再标，照「尺寸链」开关出线性或坐标尺寸。",
         Usage: "不用点视图：当前图纸页上的全部视图（轴测图跳过）按顺序逐个做「外轮廓」——以零件最左、最上的直边为基准标出外轮廓上每条竖直边、水平边（钣金折弯切线与离外轮廓不到一个折弯外半径的短边不算），前面视图标过的后面不再标；「尺寸链」开着时并进孔的那组坐标尺寸，所以要在孔标注全流程之后按。某个视图没成不中断，最后汇总。",
         Run: context => Run(context),

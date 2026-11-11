@@ -12,6 +12,7 @@ internal static class DimCenter
         Key: "dim-center",
         CommandName: StrenuaIdentity.Domain + ".dim.center",
         Title: "加中心符号线",
+        CatalogSummary: "按孔编号添加中心符号线",
         Summary: "按孔编号给指定的孔加中心符号线：一个孔单个，多个孔一组线性带连接线；不删旧的。",
         Usage: "「孔组」填孔编号，逗号分开（如 H1,H2,H3）。一个孔建单个；多个孔建一组线性带连接线，连接线按填的顺序串，所以要排成一条线。孔上已有的旧符号线先用 strenua.dim.delete 删掉。",
         Run: QuickCommand.Unbound,

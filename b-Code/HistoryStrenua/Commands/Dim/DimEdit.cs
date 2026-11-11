@@ -16,6 +16,7 @@ internal static class DimEdit
         Key: "dim-edit",
         CommandName: StrenuaIdentity.Domain + ".dim.edit",
         Title: "改尺寸",
+        CatalogSummary: "修改尺寸前后缀、孔标注附文或对称公差",
         Summary: "按名字改一个尺寸的前缀、后缀、孔标注下一行或对称公差（±mm，none 去掉）；Ø↧⌴ 自动换成符号码；读回显示文字。",
         Usage: "填「视图」「名字」，再填要改的：前缀（如 2 x C）、后缀（如 (含对面)）、下一行（孔标注下方那行，如 ⌴Ø11↧6.5 (反面)）、公差（对称 ±，写 0.02）；空着的不改，写 none 清掉。Ø、↧、⌴ 等符号会换成 SolidWorks 符号码（直接写 Unicode 会画成乱码）；螺纹孔用 strenua.dim.thread。不改尺寸值，也不改连着哪条边。孔标注的公差在孔标注变量里，这里不改。改完回执给出图上现在显示的字。",
         Run: QuickCommand.Unbound,

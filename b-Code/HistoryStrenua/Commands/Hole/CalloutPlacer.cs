@@ -13,6 +13,7 @@ internal static class CalloutPlacer
         Key: "hole-place",
         CommandName: StrenuaIdentity.Domain + ".hole.place",
         Title: "孔标注选位",
+        CatalogSummary: "为全页孔标注重新选择避障位置",
         Summary: "当前图纸页全部孔标注按整页的线、字和图框重新挑位置，可换挂到同种的另一个孔，不保存。",
         Usage: "不用点视图：标完尺寸后按。每个孔标注在同种孔四周找字不压东西、引线短且不穿尺寸的位置，比现在好才挪，所以重复按不会乱动。「(反面)」「(含对面)」换挂后自动补回。切成两段的孔（直径尺寸）只挪不换孔。",
         Run: context => Run(context, DrawingAccess.ActiveDrawing(context)));

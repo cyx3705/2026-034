@@ -221,7 +221,7 @@ internal static class StrenuaPage
                 id = CancelActionId,
                 title = "取消",
                 command = StrenuaIdentity.Domain + ".quick.cancel",
-                summary = "取消正在执行的 PowerSW 快捷指令（包括正在等你点视图的那一条）",
+                summary = "取消正在执行或等待选取的快捷指令",
             })
             .ToArray(),
     }, Options);

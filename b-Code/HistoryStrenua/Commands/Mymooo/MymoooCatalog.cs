@@ -26,7 +26,7 @@ internal static class MymoooCatalog
             Name = StrenuaIdentity.Domain + ".mymooo.category",
             Domain = StrenuaIdentity.Domain,
             CommandClass = CommandClass,
-            Summary = "蚂蚁工场第 1 层·零件种类：不给参数列大类；class= 分类号列下级、名字片段找分类；keyword= 直接搜商品",
+            Summary = "浏览蚂蚁工场零件分类或搜索商品",
             Example = StrenuaIdentity.Domain + ".mymooo.category class=螺栓",
             Readonly = true,
             Parameters =
@@ -42,7 +42,7 @@ internal static class MymoooCatalog
             Name = StrenuaIdentity.Domain + ".mymooo.product",
             Domain = StrenuaIdentity.Domain,
             CommandClass = CommandClass,
-            Summary = "蚂蚁工场第 2 层·品牌与细分：某分类下的筛选项与商品（商品号、品牌、名称）；filter= 按筛选项收窄，brand= 按品牌",
+            Summary = "查询蚂蚁工场分类下的商品和筛选项",
             Example = StrenuaIdentity.Domain + ".mymooo.product class=31286 filter=LX=直通型",
             Readonly = true,
             Parameters =

@@ -16,6 +16,7 @@ internal static class AsmMateTree
         Key: "asm-matetree",
         CommandName: StrenuaIdentity.Domain + ".asm.matetree",
         Title: "贴合树",
+        CatalogSummary: "沿接触面构建贴合树并添加装配配合",
         Summary: "从固定块沿贴合面广度优先往外长成树，每个零部件配到它的父零部件上（最大贴合面重合、两同心、别的方向的贴合面），成环处断开最远的贴合；默认直接加配合。",
         Usage: "总装里互不相连的几簇（比如主机和独立落地的货架）各长一棵树，和谁都不贴的单个零部件列为孤立。"
                + "「根」填固定块的零部件名，只管它所在那簇；省略或别的簇我挑（固定着的、贴合关系最多的）。apply=否 只列树和打算加的配合、不动总装。"

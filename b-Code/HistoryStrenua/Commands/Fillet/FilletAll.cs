@@ -14,6 +14,7 @@ internal static class FilletAll
         Key: "arc-all",
         CommandName: StrenuaIdentity.Domain + ".fillet.arcall",
         Title: "全图圆弧",
+        CatalogSummary: "标注全页非轴测视图的圆弧尺寸",
         Summary: "当前图纸页全部视图（轴测图跳过）逐个做圆弧标注：R1 不标，同半径 3 个以上合标 N x R，已标的跳过。",
         Usage: "不用点视图：当前图纸页上的全部视图（轴测图跳过）逐个做「圆弧标注」——正对图纸的圆弧各加一个 R 尺寸（不是孔的整圆加 Ø），文字放在零件外的空处；R1 不标（技术要求「未注圆角R1」），同一半径 3 个以上只标一个并写「N x R」，已有 R 或直径尺寸的跳过。某个视图没成不中断，最后汇总。",
         Run: Run);

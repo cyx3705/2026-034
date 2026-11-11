@@ -16,6 +16,7 @@ internal static class AsmComponents
         Key: "asm-list",
         CommandName: StrenuaIdentity.Domain + ".asm.list",
         Title: "零部件列表",
+        CatalogSummary: "列出顶层零部件的位置、包络和固定状态",
         Summary: "列活动总装的顶层零部件：名字、文件、原点、轴朝向、包围盒（建过装配包络的另给包络）、是否固定；名字供摆位、删除用。",
         Usage: "不带参数。原点、包围盒、包络是总装 mm（包络见 strenua.asm.envelope）；轴朝向写法同插入的 axes（零件 x,y,z 各朝总装哪根轴）；数据里的 matrix 是 12 个数的变换（同 matrix= 写法）。",
         Run: List,
@@ -26,6 +27,7 @@ internal static class AsmComponents
         Key: "asm-insert",
         CommandName: StrenuaIdentity.Domain + ".asm.insert",
         Title: "插入零部件",
+        CatalogSummary: "按原点和轴向向总装插入零部件",
         Summary: "把零件或子装配插进活动总装：零件原点放在 at，三根轴按 axes 朝向，默认固定；可一次插几个同一文件的。",
         Usage: "「路径」填 .SLDPRT / .SLDASM。「位置」x,y,z（总装 mm，零件原点落点），几个用分号隔开就插几个；"
                + "「朝向」零件 x,y,z 轴各朝总装哪根轴，如 X,-Z,Y（默认 X,Y,Z 不转），必须右手系；fix=否 不固定。"
@@ -69,6 +71,7 @@ internal static class AsmComponents
         Key: "asm-move",
         CommandName: StrenuaIdentity.Domain + ".asm.move",
         Title: "摆零部件",
+        CatalogSummary: "调整零部件的位置、朝向或包络贴面",
         Summary: "把总装里一个零部件的原点挪到 at、轴按 axes 转（省略的保持原样），或把它的装配包络面贴到别的零部件的面上（face= onto=），默认固定；读回位置。",
         Usage: "「零部件」填零部件列表的 name（如 底板-1）。「位置」x,y,z（总装 mm）省略不挪；「朝向」同插入，省略不转；「矩阵」同插入，代替位置和朝向；fix=否 摆完不固定。"
                + "贴面：「包络面」写这个零件的包络侧（零件坐标 +X/-X/…，见 strenua.asm.envelope；没建包络就按包围盒），「贴到」写 零部件@F序号（平面，同 asm.contact），逗号分开可一次贴几对；"
@@ -113,6 +116,7 @@ internal static class AsmComponents
         Key: "asm-delete",
         CommandName: StrenuaIdentity.Domain + ".asm.delete",
         Title: "删零部件",
+        CatalogSummary: "从活动总装删除零部件，保留文件",
         Summary: "按名字从活动总装删零部件（逗号分开删几个），不删文件。",
         Usage: "「零部件」填零部件列表的 name，逗号分开。只从总装里拿掉，零件文件不动。",
         Run: QuickCommand.Unbound,
@@ -129,6 +133,7 @@ internal static class AsmComponents
         Key: "asm-save",
         CommandName: StrenuaIdentity.Domain + ".asm.save",
         Title: "保存总装",
+        CatalogSummary: "保存活动总装，不保存引用零件",
         Summary: "把活动总装存回原处（不另存、不存它引用的零件）；读回核对未保存标记已清。",
         Usage: "不带参数。只存装配类指令改过的总装（doc.save 只存工程图，零件和总装不替用户存——这条是明说要存时用的）。新建没存过的总装存不了，先在 SolidWorks 里另存。",
         Run: Save,

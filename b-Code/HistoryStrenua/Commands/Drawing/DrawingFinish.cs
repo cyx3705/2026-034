@@ -10,7 +10,7 @@ internal static class DrawingFinish
         "当前页标注完成后，按整页轮廓、注解和图框避让线性尺寸，再按真实标注占位排版；孔标注不挪，未解冲突明确报告，不保存。",
         "不用点视图：标注后按一下，线性尺寸先沿线滑、必要时在视图外换层（同一条尺寸链整条一起换，不拆开）；不改数值、公差和附着。按全部注解真实占位排版，再复核避让。遵守避障开关；坐标尺寸、孔标注不移动（孔标注压字、引线交叉留给人或 AI 用「挪标注」修，「注解重叠」会列出来）。仍有冲突则列出标注名称，请检查后保存。",
         context => Run(context, DrawingAccess.ActiveDrawing(context)),
-        Row: 2, Page: "onekey");
+        Row: 2, Page: "onekey", CatalogSummary: "避让尺寸并重排整页，报告未解冲突");
 
     internal static QuickOutcome Run(QuickCommandContext context, object drawing)
     {

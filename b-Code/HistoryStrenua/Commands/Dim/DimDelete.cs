@@ -14,6 +14,7 @@ internal static class DimDelete
         Key: "dim-delete",
         CommandName: StrenuaIdentity.Domain + ".dim.delete",
         Title: "删标注",
+        CatalogSummary: "删除指定尺寸或注解，保留其他标注位置",
         Summary: "按名字删一个视图里的尺寸或注解（可多个），删完回读核对，其余尺寸放回原处不被 SolidWorks 往里收。",
         Usage: "填「视图」与「名字」（标注列表里的名字，几个用逗号分开，如 D1,D3）。删完回读，还在就再删（最多三遍）；删掉里层尺寸 SolidWorks 会把外层往里收一层，删完把视图里其余尺寸放回原处。删坐标尺寸组里的一个会整组重建，没点名的改了名会提醒重读标注列表。",
         Run: QuickCommand.Unbound,

@@ -13,6 +13,7 @@ internal static class FilletFlow
         Key: "fillet-flow",
         CommandName: StrenuaIdentity.Domain + ".fillet.all",
         Title: "全图倒圆倒角",
+        CatalogSummary: "标注全页圆心、圆弧和倒角尺寸",
         Summary: "当前图纸页全部视图（轴测图跳过）依次做全图圆心、全图圆弧、全图倒角，一次标完圆心位置、R / Ø 与 C 尺寸。",
         Usage: "不用点视图：当前图纸页上的全部视图（轴测图跳过）依次做「全图圆心 → 全图圆弧 → 全图倒角」——圆弧圆心定位尺寸、R（不是孔的整圆 Ø）尺寸、倒角 C 尺寸，各自的规则同那三个按钮（R1、C1 不标，同尺寸合标，已标的跳过），照避障、尺寸链开关。某一步没成不中断，最后汇总。",
         Run: Run);

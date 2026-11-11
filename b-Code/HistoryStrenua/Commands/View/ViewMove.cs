@@ -17,6 +17,7 @@ internal static class ViewMove
         Key: "view-move",
         CommandName: StrenuaIdentity.Domain + ".view.move",
         Title: "挪视图",
+        CatalogSummary: "移动指定视图并核对位置和对齐限制",
         Summary: "按名字挪当前图纸页的一个视图：挪到 x/y 或挪动 dx/dy（图纸 mm，视图中心）；尺寸跟着走，对齐锁住的方向读回后报告。",
         Usage: "填「视图」（视图列表里的名字），再填 X / Y（挪到哪，视图中心，图纸 mm，可只填一个）或 右移 / 上移（挪多少 mm，负数反向），两种只能用一种。已标的尺寸跟着视图走，对齐的子视图 SolidWorks 也带着挪。与父视图对齐的投影视图只能沿对齐方向动：挪完读回，没到的方向回执失败并说明；「解除对齐」选「是」先解除对齐再挪。压到别的视图、出图框只在回执里说，不拦，也不看避障开关。",
         Run: QuickCommand.Unbound,

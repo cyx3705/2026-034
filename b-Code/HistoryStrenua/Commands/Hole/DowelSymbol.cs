@@ -16,6 +16,7 @@ internal static class DowelSymbol
         Key: "dowel-symbol",
         CommandName: StrenuaIdentity.Domain + ".hole.dowel",
         Title: "销钉符号",
+        CatalogSummary: "为异形孔向导创建的销孔补销钉符号",
         Summary: "点一个工程图视图，给视图里异形孔向导做的销钉孔补上销钉符号，已有的不重复加。",
         Usage: "在工程图里点一个视图（先点后按、先按后点都行，60 秒内），该视图里异形孔向导做的销钉孔（孔类型「销钉孔」）没有销钉符号的各加一个；已有的跳过，手工切出来的孔不认。",
         Run: context => Run(context, null));

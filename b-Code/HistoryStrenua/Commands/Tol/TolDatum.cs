@@ -9,6 +9,7 @@ internal static class TolDatum
         Key: "tol-datum",
         CommandName: StrenuaIdentity.Domain + ".tol.datum",
         Title: "基准符号",
+        CatalogSummary: "向指定几何或尺寸添加基准符号",
         Summary: "加基准符号：写字母，指向直边、孔、圆弧或尺寸；读回字母。",
         Usage: "填「视图」「字母」（如 A）、X、Y（符号位置，图纸 mm），和指向：on=E3 / H5 / C3（strenua.check.svg 的编号）或 dim=尺寸名，二选一。删、挪用 strenua.dim.delete、strenua.dim.move。不看避障开关。",
         Run: QuickCommand.Unbound,

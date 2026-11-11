@@ -15,6 +15,7 @@ internal static class ViewList
         Key: "view-list",
         CommandName: StrenuaIdentity.Domain + ".view.list",
         Title: "视图列表",
+        CatalogSummary: "列出当前图纸视图的名称、比例和位置",
         Summary: "列出当前图纸页及其视图：名字、种类、父视图、比例、外框与中心（图纸 mm，左下角为原点）；视图名供视图、标注类的「视图」填。",
         Usage: "不用填：列出当前图纸页本身（第一行，外框 = 纸张）和上面每个视图——名字、种类（模型 / 投影 / 剖视……，轴测图另标）、父视图、引用的模型、比例、外框与中心，单位图纸 mm、左下角为原点，和图纸截图对得上。视图名就是「挪视图」与标注类各按钮的「视图」框要填的。只读，不改图。",
         Run: QuickCommand.Unbound,

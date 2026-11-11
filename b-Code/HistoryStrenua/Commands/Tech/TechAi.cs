@@ -27,6 +27,7 @@ internal static class TechAi
         CommandName: StrenuaIdentity.Domain + ".tech.ai",
         // 按钮上的字（用户定「写入」）；做的事见 Summary：AI 填写技术要求。
         Title: "写入",
+        CatalogSummary: "看图选取并删减模板，替换当前技术要求",
         Summary: "AI 填写技术要求：看当前工程图选择一份「通用技术要求」，只删除不适用的条目，插到标题栏上方或左侧（换掉原有的）。",
         Usage: "切到要加技术要求的工程图再按：先把当前图纸页截一张图，连同图纸信息（材料、属性、特征类型、图幅比例）和模板标题交给 AI（经 Ratio 的识图供应商）选基础；"
             + $"再让 AI 按这张图最多删除 {TechAiEdit.MaxDelete} 条；不能添加或修改条目。"

@@ -17,6 +17,7 @@ internal static class DimThread
         Key: "dim-thread",
         CommandName: StrenuaIdentity.Domain + ".dim.thread",
         Title: "螺纹孔",
+        CatalogSummary: "将孔标注改为螺纹孔标法",
         Summary: "把一个孔标注改写成螺纹孔标法（4 x M6↧12 / 孔↧15，或 4 x M6 贯穿），符号用 SolidWorks 符号码不乱码；读回显示文字。",
         Usage: "「视图」「名字」填孔标注（标注列表里 kind=孔标注 或直径）。「规格」M6 / M6x0.75 / M6-6H；「螺纹深」mm，省略表示螺纹贯穿；"
                + "底孔深默认读原标注的「↧数」，可用「底孔深」改；孔数默认读原标注的「N x」，可用「孔数」改。底孔直径和规格对不上只提醒。",

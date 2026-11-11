@@ -12,6 +12,7 @@ internal static class TolGtol
         Key: "tol-gtol",
         CommandName: StrenuaIdentity.Domain + ".tol.gtol",
         Title: "形位公差",
+        CatalogSummary: "添加形位公差框，可指定几何或引线",
         Summary: "加形状、方向、位置、跳动或轮廓公差框：可指向直边、孔、圆弧或尺寸，也可不带引线；读回显示文字。",
         Usage: "「公差框」写「符号,公差,基准…」（逗号或空格分开，控制台里用逗号）：符号是 直线度、平面度、圆度、圆柱度、线轮廓度、面轮廓度、平行度、垂直度、倾斜度、位置度、同轴度、对称度、圆跳动、全跳动；公差可带 Ø 和修饰符（Ø0.1(M)、0.05/100、0.2(P50) 延伸公差带）；基准最多三个（A、A-B、B(M)）。两行用分号分开。形状公差不许带基准，方向、同轴、对称、跳动必须带。指向：on=E3 / H5 / C3（strenua.check.svg 的编号）或 dim=尺寸名，都不填不带引线。X、Y 是框的位置（图纸 mm）。改错了用 strenua.dim.delete 删掉重加，用 strenua.dim.move 挪。不看避障开关。",
         Run: QuickCommand.Unbound,

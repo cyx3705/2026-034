@@ -31,7 +31,6 @@ public sealed class HistoryStrenuaModule : IModuleContextAware
             .. QuickAdminCommands.All(runner),
             .. TechCommands.All(runner, bus),
             PartProperties.DefaultDescriptor(runner.Options),
-            .. WorkNoteCommands.All(runner.Notes),
             .. MymoooCatalog.All(),
             .. PageCommands.All(runner.Options),
         ];

@@ -31,7 +31,7 @@ HistoryStrenua 是 HistoryVulcan 的宿主模块，指令域 `strenua`，面向�
 2. **先看后改**：出图前 `model.info` / `asm.list` 读模型；改图前 `check.svg`（图纸读成带编号的 SVG）、`view.list`、`dim.list` 拿到视图名、注解名和边 / 孔编号，再按编号寻址修改。
 3. **大粒度起稿，细粒度修**：`onekey.*` 出初稿（回执末尾带本类修正要点，必须照着修完）→ `dim.*`、`tol.*`、`tech.*`、`view.move` 逐处修 → `check.*` 验收。
 4. **长指令**：经 MCP 调用最多 40 秒先回「还在执行」，指令接着跑；用 `strenua.quick.last` 取完整回执（完成即返回，最多等 40 秒）。
-5. **笔记**：经 MCP 的每条回执最上面带通用区与本类区的注意点；发现指令本身的坑用 `note.write` 记下（每条 ≤ 100 字，不记项目内容）。
+5. **工具笔记**：统一由 Diana 的 `diana.note.read/write` 管理，MCP 回执按域、类和指令自动附上；本模块不再注册笔记管理指令。
 
 所有指令共用一个执行器：在附着 SolidWorks 的 STA 线程上**一次只跑一条**（它们共用同一个选择集），可用 `strenua.quick.cancel` 取消。
 写进尺寸、孔标注、技术要求的 Ø ↧ ⌴ ± ° 等符号自动换成 SolidWorks 符号码，不会乱码。
@@ -134,7 +134,6 @@ HistoryStrenua 是 HistoryVulcan 的宿主模块，指令域 `strenua`，面向�
 | 指令 | 用途 |
 | --- | --- |
 | `quick.list` / `quick.run` / `quick.last` / `quick.perf` / `quick.cancel` | 列出快捷指令与状态、按 key 执行、取回上次完整回执（`back=` 往前取）、耗时明细、取消正在执行的 |
-| `note.read` / `note.write` | 读写指令注意点笔记（MCP 回执自动带上） |
 | `option.clearance` / `option.chain` / `option.techai` | 开关「避障」「尺寸链」「AI 填写技术要求」，记住上次 |
 | `page.float`、`ui.data` | 页面浮动与页面数据（Aurora 用） |
 

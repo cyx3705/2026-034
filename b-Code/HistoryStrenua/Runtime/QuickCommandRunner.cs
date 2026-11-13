@@ -4,7 +4,7 @@ using HistoryVulcan.Core.Commands;
 namespace HistoryStrenua;
 
 /// <summary>
-/// 所有改图、读图指令的唯一入口：解析参数 → 排他 → 附着 SolidWorks → 执行 → 记状态与耗时 → 按来源加反馈、笔记、先回话。
+/// 所有改图、读图指令的唯一入口：解析参数 → 排他 → 附着 SolidWorks → 执行 → 记状态与耗时 → 按来源加反馈、先回话。
 /// </summary>
 /// <remarks>
 /// 一次只跑一条，是因为所有快捷指令都作用在用户同一个 SolidWorks 的同一个选择集上——
@@ -18,9 +18,6 @@ internal sealed class QuickCommandRunner(StrenuaOptions options, ICommandBus? bu
 {
     /// <summary>页面开关（避障、尺寸链模式）。</summary>
     public StrenuaOptions Options { get; } = options;
-
-    /// <summary>笔记区：经 MCP 的回执最上面带上。</summary>
-    public WorkNotes Notes { get; } = new(options.DataDirectory);
 
     /// <summary>状态、回执历史与耗时。</summary>
     public QuickRunLog Log { get; } = new();
@@ -54,7 +51,7 @@ internal sealed class QuickCommandRunner(StrenuaOptions options, ICommandBus? bu
         var result = await Task.WhenAny(task, Task.Delay(ReplyBudget)).ConfigureAwait(false) == task
             ? await task.ConfigureAwait(false)
             : CommandResult.Ok(RunningText(command.Key));
-        return Notes.Prepend(command.PageClass, result);
+        return result;
     }
 
     /// <summary>还在跑时给调用方的话：跑了多久、到哪一步、下一步做什么。</summary>
@@ -72,8 +69,7 @@ internal sealed class QuickCommandRunner(StrenuaOptions options, ICommandBus? bu
     /// <param name="key">指令 key。</param>
     /// <param name="back">往前第几次。</param>
     /// <param name="seconds">最多等几秒。</param>
-    /// <param name="notesClass">最上面带这一类的笔记（经 MCP 来的）；null 不带。</param>
-    public async Task<CommandResult> LastAsync(string key, int back, int seconds, string? notesClass = null)
+    public async Task<CommandResult> LastAsync(string key, int back, int seconds)
     {
         Task? running;
         lock (_gate)
@@ -81,7 +77,7 @@ internal sealed class QuickCommandRunner(StrenuaOptions options, ICommandBus? bu
         if (running is not null && seconds > 0)
             await Task.WhenAny(running, Task.Delay(TimeSpan.FromSeconds(seconds))).ConfigureAwait(false);
         var result = Last(key, back);
-        return notesClass is null ? result : Notes.Prepend(notesClass, result);
+        return result;
     }
 
     private async Task<CommandResult> RunCoreAsync(QuickCommand command, CommandContext context, CancellationToken caller)

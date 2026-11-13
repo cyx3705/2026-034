@@ -58,8 +58,7 @@ internal static class QuickAdminCommands
                 var ai = CommandOrigin.IsAi(context.Source);
                 return runner.LastAsync(key,
                     int.TryParse(context.GetString("back"), out var back) && back > 0 ? back : 0,
-                    ai ? QuickCommandRunner.LastWaitSeconds : 0,
-                    ai ? QuickCommands.All.FirstOrDefault(command => command.Key == key)?.PageClass : null);
+                    ai ? QuickCommandRunner.LastWaitSeconds : 0);
             },
         };
 

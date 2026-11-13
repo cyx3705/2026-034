@@ -2,7 +2,7 @@ namespace HistoryStrenua;
 
 /// <summary>
 /// 一键出完写在回执里的修正要点（1.28.0，用户定）：一键效果不够好，出完必须由 AI 修。条目来自 2026-10-30 三轮真机长流程实测里反复手修的地方。
-/// 这里只写修什么、用哪条指令；修图时新的体会由 AI 记进笔记区（<see cref="WorkNotes"/>）。
+/// 这里只写修什么、用哪条指令；修图时新的体会由 AI 记进笔记区（由 Diana 管理）。
 /// </summary>
 internal static class OneKeyFix
 {
@@ -17,7 +17,7 @@ internal static class OneKeyFix
              "· 重标：strenua.check.redundant 报能算出来的尺寸，权衡后用 strenua.dim.delete 删，删完再查一遍。",
              "· 技术要求：一键可能选错模板、猜错材料。不合零件就 strenua.tech.apply name= 换一份，单条不适用（没螺纹却写牙套）用 strenua.tech.remove number= 删；零件没写材料时不要编。",
              "· 标题栏：零件没有属性时是空的，把缺什么告诉用户，不要编。",
-             "· 收尾：改完再看一次截图，strenua.doc.save 只在用户要保存时用。这次修图学到的规律用 strenua.note.write 记下来。"]);
+             "· 收尾：改完再看一次截图，strenua.doc.save 只在用户要保存时用。这次修图学到的规律用 diana.note.write scope=strenua.onekey.* 记下来。"]);
 
     /// <summary>这一类特有的点。</summary>
     private static IEnumerable<string> Specific(PartKind kind) => kind switch

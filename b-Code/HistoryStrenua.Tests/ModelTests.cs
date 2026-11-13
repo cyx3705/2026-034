@@ -70,16 +70,5 @@ internal static partial class Tests
         Equal(null, ModelSpec.StandardPlane("基准面1"));
     }
 
-    static void TestNoteLimits()
-    {
-        var notes = new WorkNotes(null);
-        True(notes.Write("dim", new string('字', WorkNotes.NoteLimit + 1), null) is not null, "一条太长要拒");
-        for (var i = 0; i < WorkNotes.AreaLimit; i++)
-            Equal(null, notes.Write("dim", $"第 {i + 1} 条", null));
-        True(notes.Write("dim", "再多一条", null) is not null, "满了要拒");
-        Equal(null, notes.Write("dim", "合并后的一条", 1));
-        Equal(null, notes.Write("dim", QuickArgs.None, 2));
-        Equal(WorkNotes.AreaLimit - 1, notes.Read("dim").Count);
-        True(WorkNotes.Area("model") == "model" && WorkNotes.Area("装配") == "asm", "建模、装配也有分区");
-    }
+
 }

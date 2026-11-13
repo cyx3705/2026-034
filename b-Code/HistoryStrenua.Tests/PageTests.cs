@@ -8,6 +8,7 @@ internal static partial class Tests
     static void TestCommandRegistration()
     {
         var registry = Registry();
+        True(!registry.All.Any(c => c.Name.StartsWith("strenua.note.", StringComparison.Ordinal)), "笔记指令统一由 Diana 提供");
         string[] expected =
         [
             "strenua.hole.callout",
@@ -21,8 +22,6 @@ internal static partial class Tests
             "strenua.drawing.outline",
             "strenua.drawing.outlineall",
             "strenua.check.chain",
-            "strenua.note.write",
-            "strenua.note.read",
             "strenua.onekey.sheetmetal",
             "strenua.onekey.frame",
             "strenua.onekey.machined",

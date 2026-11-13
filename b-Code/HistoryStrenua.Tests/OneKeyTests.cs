@@ -122,39 +122,7 @@ internal static partial class Tests
         Equal(0, SheetMetal.InBendZone(side, 0, scale).Count);
     }
 
-    static void TestWorkNotes()
-    {
-        var notes = new WorkNotes(null);
-        Equal(string.Empty, notes.Section("onekey"));
-        Equal(null, notes.Write("onekey", "第一条", null));
-        Equal(null, notes.Write(WorkNotes.Common, "通用一条", null));
-        Equal(null, notes.Write("hole", "孔的", null));
-        var section = notes.Section("onekey");
-        True(section.Contains("【笔记区·通用】") && section.Contains("【笔记区·一键】") && section.Contains("1. 第一条") && !section.Contains("孔的"), "只带通用与本类：" + section);
-        Equal(null, notes.Write("onekey", "改过", 1));
-        Equal("改过", notes.Read("onekey")[0]);
-        True(notes.Write("onekey", "x", 5) is not null, "序号不存在要报");
-        Equal(null, notes.Write("onekey", QuickArgs.None, 1));
-        Equal(0, notes.Read("onekey").Count);
-        Equal("onekey", WorkNotes.Area("一键"));
-        Equal(null, WorkNotes.Area("没有"));
 
-        // 笔记放回执最上面，成败和数据不变。
-        var ok = notes.Prepend("hole", HistoryVulcan.Core.Commands.CommandResult.Ok("结果", "数据"));
-        True(ok.Success && ok.Message.StartsWith("【笔记区·通用】", StringComparison.Ordinal) && ok.Message.EndsWith("结果", StringComparison.Ordinal) && Equals(ok.Data, "数据"), ok.Message);
-        True(!notes.Prepend("hole", HistoryVulcan.Core.Commands.CommandResult.Fail("坏了")).Success, "失败还是失败");
-
-        var dir = Path.Combine(Path.GetTempPath(), "strenua-notes-" + Guid.NewGuid().ToString("N"));
-        try
-        {
-            Equal(null, new WorkNotes(dir).Write("onekey", "跨重启", null));
-            Equal("跨重启", new WorkNotes(dir).Read("onekey")[0]);
-        }
-        finally
-        {
-            Directory.Delete(dir, true);
-        }
-    }
 
     static void TestOneKeyFix()
     {

@@ -126,20 +126,12 @@ internal static partial class Tests
 
     static void TestOneKeyFix()
     {
-        // 1.28.0（用户定）：没有 0 级的一键出图；三类各有修正要点，里面提到的指令都得真有。
+        // 1.28.0（用户定）：没有 0 级的一键出图；三类一键指令均已注册，修正要点迁入 Diana 工具笔记。
         True(QuickCommands.All.All(command => command.Key != "onekey-drawing"), "一键出图已删");
         var registry = Registry();
-        foreach (var kind in Enum.GetValues<PartKind>())
-        {
-            var text = OneKeyFix.Text(kind);
-            True(text.Contains("【修正要点·" + PartKindPlanner.Title(kind)), text);
-            foreach (System.Text.RegularExpressions.Match match in System.Text.RegularExpressions.Regex.Matches(text, @"strenua\.[a-z]+\.[a-z]+"))
-                True(registry.TryGet(match.Value, out _), "修正要点里的指令不存在：" + match.Value);
-        }
-
-        True(OneKeyFix.Text(PartKind.SheetMetal).Contains("板厚"), "钣金查板厚");
-        True(OneKeyFix.Text(PartKind.Frame).Contains("型材"), "框架查型材");
-        True(OneKeyFix.Text(PartKind.Machined).Contains("导入件"), "加工件查导入件孔识别");
+        True(registry.TryGet("strenua.onekey.sheetmetal", out _), "一键出钣金已注册");
+        True(registry.TryGet("strenua.onekey.frame", out _), "一键出框架已注册");
+        True(registry.TryGet("strenua.onekey.machined", out _), "一键出加工件已注册");
     }
 
     static void TestChain()

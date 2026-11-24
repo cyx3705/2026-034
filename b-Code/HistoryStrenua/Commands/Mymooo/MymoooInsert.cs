@@ -112,8 +112,7 @@ internal static class MymoooInsert
 
         foreach (var note in notes)
             text.AppendLine("注意：" + note);
-        text.Append("把还要选的用 params=码=值 补上再调（已选的一起带上）。");
-        return text.ToString();
+        return text.ToString().TrimEnd();
     }
 
     private static string TypeList(JsonArray types)

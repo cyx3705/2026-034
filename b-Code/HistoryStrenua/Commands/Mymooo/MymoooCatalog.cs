@@ -93,20 +93,18 @@ internal static class MymoooCatalog
         var text = new StringBuilder($"名字含「{key}」的分类 {matches.Count} 个（号 路径，下级数）：").AppendLine();
         foreach (var (node, path) in matches)
             text.AppendLine($"· {Id(node)} {string.Join(" > ", path.Append(Name(node)))}（{Kids(node).Count}）");
-        text.Append("末级（下级 0）用 strenua.mymooo.product class=号 看商品；有下级的用 class=号 往下列。");
-        return CommandResult.Ok(text.ToString(), matches.Select(item => Row(item.Node, item.Path)).ToList());
+        return CommandResult.Ok(text.ToString().TrimEnd(), matches.Select(item => Row(item.Node, item.Path)).ToList());
     }
 
     private static CommandResult Children(JsonNode node, string title)
     {
         var kids = Kids(node);
         if (kids.Count == 0)
-            return CommandResult.Ok($"{title}（{Id(node)}）是末级分类：用 strenua.mymooo.product class={Id(node)} 看筛选项和商品。");
+            return CommandResult.Ok($"{title}（{Id(node)}）是末级分类。");
         var text = new StringBuilder($"{title} 的下级 {kids.Count} 个（号 名称，下级数）：").AppendLine();
         foreach (var kid in kids)
             text.AppendLine($"· {Id(kid)} {Name(kid)}（{Kids(kid).Count}）");
-        text.Append("有下级的用 class=号 往下列；末级（下级 0）用 strenua.mymooo.product class=号。");
-        return CommandResult.Ok(text.ToString(), kids.Select(kid => Row(kid, [])).ToList());
+        return CommandResult.Ok(text.ToString().TrimEnd(), kids.Select(kid => Row(kid, [])).ToList());
     }
 
     private static async Task<CommandResult> SearchAsync(string keyword, CancellationToken cancellation)
@@ -118,8 +116,7 @@ internal static class MymoooCatalog
         var text = new StringBuilder($"搜「{keyword}」共 {MymoooRules.Text(result, "total")} 个商品，列前 {rows.Count} 个（商品号 品牌 名称 [分类号 分类]）：").AppendLine();
         foreach (var row in rows)
             text.AppendLine($"· {Product(row)} [{MymoooRules.Text(row, "classId")} {MymoooRules.Text(row, "className")}]");
-        text.Append("选参数并插入：strenua.mymooo.insert product=商品号（先不带 params 看要选哪些参数）。");
-        return CommandResult.Ok(text.ToString(), rows.Select(ProductRow).ToList());
+        return CommandResult.Ok(text.ToString().TrimEnd(), rows.Select(ProductRow).ToList());
     }
 
     private static async Task<CommandResult> ProductAsync(CommandContext context)
@@ -183,8 +180,7 @@ internal static class MymoooCatalog
 
         if (products.Count > MaxRows)
             text.AppendLine($"…另有 {products.Count - MaxRows} 个，加 filter= 或 brand= 收窄。");
-        text.Append("下一步：strenua.mymooo.insert product=商品号，先不带 params 看要选哪些参数。");
-        return CommandResult.Ok(text.ToString(), products.Take(MaxRows).Select(ProductRow).ToList());
+        return CommandResult.Ok(text.ToString().TrimEnd(), products.Take(MaxRows).Select(ProductRow).ToList());
     }
 
     private static string FacetLabel(JsonNode? group)

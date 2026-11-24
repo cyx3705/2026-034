@@ -64,7 +64,7 @@ internal static class AsmMateTree
 
         context.SetState(apply ? "加配合" : "预览");
         var hooks = AsmDof.Hooks(api, assembly);
-        string RootNote(string name) => fixedNodes.Contains(name) ? "（固定）" : "（没固定，建议先 asm.move fix=是）";
+        string RootNote(string name) => fixedNodes.Contains(name) ? "（固定）" : "（没固定）";
         var summary = new StringBuilder($"贴合树：{clusters.Count} 簇，{clusters.Sum(c => c.Tree.Count)} 条树边、成环断开 {clusters.Sum(c => c.Broken.Count)} 条、孤立 {isolated.Count} 个{(apply ? string.Empty : "；只预览，没加配合")}。");
         for (var k = 0; k < clusters.Count; k++)
             summary.AppendLine().Append($"簇 {k + 1}：根「{clusters[k].Root}」{RootNote(clusters[k].Root)}，{clusters[k].Members.Count} 个零部件。");

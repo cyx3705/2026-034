@@ -392,7 +392,7 @@ internal static class AsmScrew
         text.Append(options.Apply ? "；固定、没加配合，总装没存。" : "；长度按经验估，真装时按下载件现量再挑一次。").AppendLine();
         if (clashes.Count > 0)
         {
-            text.AppendLine($"⚠ 装上后 {clashes.Count} 处和别的零件干涉（螺纹孔零件的啮合段不算）：孔被挡住，改设计或删掉这颗（strenua.asm.delete）：");
+            text.AppendLine($"⚠ 装上后 {clashes.Count} 处和别的零件干涉（螺纹孔啮合段已排除）：");
             foreach (var clash in clashes.Take(Shown))
                 text.AppendLine("  " + clash);
         }

@@ -128,7 +128,7 @@ internal static class ModelSketch
         if (face is not null && sketch is not null && SketchAxes(api, sketch) is { } axes)
             where = $"表面 {ModelAccess.Format(face.Value)}（{axes}）";
         api.ClearSelection(part);
-        var message = $"画草图：在{where}上画了 {drawn}/{shapes.Count} 个图形，草图「{name}」。下一步 strenua.model.extrude sketch={name}。";
+        var message = $"画草图：在{where}上画了 {drawn}/{shapes.Count} 个图形，草图「{name}」。";
         return drawn == shapes.Count ? QuickOutcome.Ok(message) : QuickOutcome.Fail(message + " 有图形没画上（尺寸太小或重叠）。");
     }
 
